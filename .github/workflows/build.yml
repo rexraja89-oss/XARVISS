@@ -17,10 +17,12 @@ jobs:
         java-version: '11'
         distribution: 'temurin'
         cache: gradle
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
     - name: Make gradlew executable
       run: chmod +x gradlew
     - name: Build with Gradle
-      run: ./gradlew clean assembleRelease
+      run: ./gradlew clean build
     - name: Upload APK to Release
       uses: actions/upload-artifact@v4
       with:
