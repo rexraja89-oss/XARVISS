@@ -16,6 +16,10 @@ Personal on-device AI assistant for Android, owned by Rex (developer credit: Saj
 - Before the permanent key, every CI build had a different random debug key, so updates often failed to install ("App not installed") while Rex thought they had: that's why fixes seemed not to work. Switching keys needs one uninstall; memories come back by re-pairing with the other phone (memory sync).
 - Never commit the keystore. Don't use session credentials to set repo secrets; Rex adds the secret himself.
 
+## The AI model file
+
+- Gemma lives in the app's own folder (`Android/data/com.xarvis.ai/files/models/`), so **uninstalling XARVIS deletes it**. With no model, the screen shows a "DOWNLOAD AI MODEL" button (`llm/ModelDownloader.kt`): Android's DownloadManager fetches `gemma-4-E2B-it.litertlm` (~2.4 GB, Wi-Fi only) from huggingface.co/litert-community/gemma-4-E2B-it-litert-lm to a `.download` file, renames it when complete, then loads it. huggingface.co is blocked from the Claude sandbox, so this can't be tested here.
+
 ## Devices
 
 - **Galaxy S22 Ultra** (SM-S908E, Android 13, Snapdragon 8 Gen 1, 12 GB): main phone. Has the model at `/sdcard/Android/data/com.xarvis.ai/files/models/gemma-4-E2B-it.litertlm`.

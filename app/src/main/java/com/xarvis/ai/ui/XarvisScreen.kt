@@ -24,6 +24,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -41,6 +42,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xarvis.ai.device.Capability
 import com.xarvis.ai.llm.LlmStatus
+import com.xarvis.ai.llm.ModelDownload
 import com.xarvis.ai.ui.theme.XarvisCyan
 import com.xarvis.ai.ui.theme.XarvisMuted
 import com.xarvis.ai.ui.theme.XarvisPurple
@@ -72,6 +74,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
     ) {
         Header(state.isProcessing, state.memoryCount, state.linkedCount, state.llmStatus)
         CapabilityRow(state.capabilities)
+        if (state.llmStatus == LlmStatus.NotInstalled) ModelSetup(state.modelDownload, viewModel::downloadModel)
 
         LazyColumn(
             state = listState,
@@ -129,6 +132,52 @@ private fun Header(isProcessing: Boolean, memoryCount: Int, linkedCount: Int, ll
             "v${com.xarvis.ai.BuildConfig.VERSION_NAME} · $label", style = MaterialTheme.typography.labelSmall, color = color,
             modifier = Modifier.padding(top = 6.dp),
         )
+    }
+}
+
+/** Shown while this phone has no AI model: a button to download it, then its progress. */
+@Composable
+private fun ModelSetup(download: ModelDownload, onDownload: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(bottom = 12.dp)
+            .border(1.dp, XarvisPurple, RoundedCornerShape(12.dp))
+            .padding(14.dp),
+    ) {
+        when (download) {
+            is ModelDownload.Running -> {
+                val gb = { bytes: Long -> "%.2f GB".format(bytes / 1_000_000_000.0) }
+                val fraction = if (download.total > 0) download.done.toFloat() / download.total else 0f
+                Text(
+                    "Downloading AI model… ${(fraction * 100).toInt()}%" +
+                        if (download.total > 0) " (${gb(download.done)} of ${gb(download.total)})" else "",
+                    style = MaterialTheme.typography.bodyMedium, color = XarvisCyan,
+                )
+                Spacer(Modifier.size(8.dp))
+                LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth(), color = XarvisCyan)
+                Spacer(Modifier.size(6.dp))
+                Text("You can leave XARVIS; the download carries on.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+            }
+            is ModelDownload.Waiting -> Text(
+                "AI model download paused: ${download.why}. It continues by itself.",
+                style = MaterialTheme.typography.bodyMedium, color = XarvisPurple,
+            )
+            else -> {
+                if (download is ModelDownload.Failed) {
+                    Text("The download failed: ${download.why}.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.size(6.dp))
+                }
+                Text(
+                    "This phone has no AI model yet. Download Gemma 4 (about 2.4 GB) over Wi-Fi.",
+                    style = MaterialTheme.typography.bodyMedium, color = XarvisCyan,
+                )
+                Spacer(Modifier.size(8.dp))
+                Button(onClick = onDownload) {
+                    Text(if (download is ModelDownload.Failed) "TRY AGAIN" else "DOWNLOAD AI MODEL")
+                }
+            }
+        }
     }
 }
 

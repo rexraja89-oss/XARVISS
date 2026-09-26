@@ -18,4 +18,6 @@ class XarvisViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun submit(command: String) = core.submit(command)
+
+    fun downloadModel() = core.downloadModel()
 }

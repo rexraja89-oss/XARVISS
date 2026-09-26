@@ -6,6 +6,8 @@ import com.xarvis.ai.device.Capability
 import com.xarvis.ai.device.DeviceCapabilityManager
 import com.xarvis.ai.llm.LlmStatus
 import com.xarvis.ai.llm.LocalLlm
+import com.xarvis.ai.llm.ModelDownload
+import com.xarvis.ai.llm.ModelDownloader
 import com.xarvis.ai.memory.MemorySync
 import com.xarvis.ai.memory.MemorySystem
 import com.xarvis.ai.net.DeviceLink
@@ -31,6 +33,7 @@ data class XarvisUiState(
     val linkedCount: Int = 0,
     val isProcessing: Boolean = false,
     val llmStatus: LlmStatus = LlmStatus.NotInstalled,
+    val modelDownload: ModelDownload = ModelDownload.Idle,
 )
 
 /**
@@ -44,6 +47,7 @@ class XarvisCore(context: Context) {
     private val memory = MemorySystem(context)
     private val device = DeviceCapabilityManager(context)
     private val llm = LocalLlm(context)
+    private val downloader = ModelDownloader(context) { agent.loadModel() }
 
     private val contacts = ContactFinder(context)
 
@@ -102,8 +106,10 @@ class XarvisCore(context: Context) {
         link.start()
         scope.launch { _state.update { it.copy(memoryCount = memory.count()) } }
         scope.launch { llm.status.collect { s -> _state.update { it.copy(llmStatus = s) } } }
+        scope.launch { downloader.state.collect { d -> _state.update { it.copy(modelDownload = d) } } }
         scope.launch { link.events.collect(::post) }
         scope.launch { agent.loadModel() }
+        downloader.resume()
         scope.launch {
             delay(MEMORY_SYNC_START_DELAY_MS) // give mDNS a moment to find linked devices' current addresses
             while (true) {
@@ -112,6 +118,9 @@ class XarvisCore(context: Context) {
             }
         }
     }
+
+    /** Downloads the AI model onto this phone (the "Download AI model" button). */
+    fun downloadModel() = downloader.start()
 
     fun submit(command: String) {
         val text = command.trim()
