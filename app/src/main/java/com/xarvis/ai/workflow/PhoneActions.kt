@@ -143,11 +143,10 @@ class PhoneActions(context: Context) {
         return start(intent, "Alarm set for $shown" + (label?.let { " ($it)" } ?: "") + ".")
     }
 
-    fun timer(seconds: Int, label: String?): StepResult {
+    fun timer(seconds: Int): StepResult {
         val intent = Intent(AlarmClock.ACTION_SET_TIMER)
             .putExtra(AlarmClock.EXTRA_LENGTH, seconds)
             .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
-        label?.let { intent.putExtra(AlarmClock.EXTRA_MESSAGE, it) }
         return start(intent, "Timer set for ${duration(seconds)}.")
     }
 
