@@ -1,0 +1,15 @@
+# Build output
+build/
+.gradle/
+.kotlin/
+*.apk
+*.aab
+
+# Machine-specific
+local.properties
+.idea/
+*.iml
+.DS_Store
+
+# On-device models are downloaded separately (see README), never committed
+*.litertlm

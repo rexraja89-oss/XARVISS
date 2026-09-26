@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="xarvis_background">#FF05080F</color>
+    <!-- Sampled from the corners of the icon artwork so the edge fade is seamless. -->
+    <color name="xarvis_icon_background">#FF010005</color>
+</resources>

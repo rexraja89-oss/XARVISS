@@ -1,172 +1,74 @@
 # XARVIS - Local-First Personal AI System
 
-A fully autonomous Android AI agent system designed for the Samsung Galaxy S22 Ultra, featuring local inference, persistent memory, workflow automation, and device control.
+A personal AI assistant for Android that runs entirely on-device: natural-language commands, an on-device LLM (Gemma 4 E2B via LiteRT-LM), persistent memory, app control, and encrypted linking between your own devices over Wi-Fi.
+
+Developed by Sajjad Raja. Tested on a Samsung Galaxy S22 Ultra (SM-S908E) and a benco V91s Plus, both on Android 13.
+
+## What it does
+
+| Area | Details |
+|---|---|
+| Commands | `open <app>`, `search <query>`, `navigate to <place>`, `status`, `time`, `help`; chain steps with "then" |
+| Memory | `remember <fact>` stores it (rewritten to "your …"), `what do you remember [about x]`, `forget everything`. Room database, survives restarts |
+| On-device AI | Anything that isn't an exact command goes to Gemma 4 E2B running locally. It chats, answers from memory, and can trigger the commands above itself (e.g. "fire up the calculator for me") |
+| Linked devices | `pair with <device>`, `code 123456`, `devices`, `<device> status`, `send to <device>: <text>`, `unlink <device>`. A device without a working model uses a linked device's model as its "brain" |
 
 ## Architecture
 
-### Core Components
-
-1. **XarvisAgent** - Main AI agent that processes natural language commands
-2. **MemorySystem** - Room database for persistent local memory
-3. **WorkflowEngine** - Orchestrates multi-step task execution
-4. **DeviceCapabilityManager** - Detects and manages device capabilities
-5. **AIInferenceService** - Handles local AI model inference
-6. **UI Layer** - Jetpack Compose-based sci-fi interface
-
-### Technology Stack
-
-- **Language**: Kotlin
-- **UI Framework**: Jetpack Compose with Material 3
-- **Database**: Room ORM
-- **Architecture**: MVVM with LiveData
-- **Concurrency**: Coroutines
-- **Min SDK**: 28 (Android 9.0)
-- **Target SDK**: 34 (Android 14.0)
-
-## Features
-
-- ✅ Natural language command processing
-- ✅ Persistent local memory system
-- ✅ Autonomous workflow execution
-- ✅ Device capability detection
-- ✅ File access and management
-- ✅ App control and launching
-- ✅ Contact/Calendar access
-- ✅ Camera and location support
-- ✅ Sci-fi UI with futuristic design
-- ✅ Local inference ready (awaiting model)
-
-## Build Requirements
-
-- Android SDK 34
-- Gradle 8.1.0
-- Kotlin 1.9.10
-- Java 11+
-
-## Building the Project
-
-### Prerequisites
-
-Install Android Studio with SDK 34 or use command-line tools:
-
-```bash
-# Set ANDROID_HOME to your SDK location
-export ANDROID_HOME=/path/to/android/sdk
+```
+app/src/main/java/com/xarvis/ai/
+├── XarvisApp.kt / XarvisCore.kt   app-wide core: model, link server and chat outlive the screen
+├── MainActivity.kt
+├── agent/XarvisAgent.kt           rule parser + LLM routing; parses the LLM's "ACTION:" lines
+├── llm/LocalLlm.kt                LiteRT-LM engine, GPU→CPU fallback with an output sanity check
+├── net/DeviceLink.kt              mDNS discovery, pairing, AES-GCM encrypted requests
+├── workflow/WorkflowEngine.kt     runs steps (launch app, open URL, memory, linked-device ops)
+├── memory/MemorySystem.kt         Room database
+├── device/DeviceCapabilityManager.kt
+├── viewmodel/XarvisViewModel.kt
+└── ui/XarvisScreen.kt, ui/theme/Theme.kt
 ```
 
-### Build Commands
+**Stack:** Kotlin 2.4, Jetpack Compose + Material 3, Room 2.8 (KSP), LiteRT-LM 0.17.1, AGP 9.4, Gradle 9.8, compileSdk/targetSdk 37, minSdk 28, JDK 17 target (built with Android Studio's bundled JDK).
+
+## On-device model
+
+The model isn't in the APK. Download `gemma-4-E2B-it.litertlm` (2.41 GB, Apache-2.0) from
+[litert-community/gemma-4-E2B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm) and copy it to the phone:
 
 ```bash
-# Build debug APK
-cd /path/to/XARVIS
+adb shell mkdir -p /sdcard/Android/data/com.xarvis.ai/files/models
+adb push gemma-4-E2B-it.litertlm /sdcard/Android/data/com.xarvis.ai/files/models/
+```
+
+Restart XARVIS; the header shows `AI MODEL: GEMMA 4 E2B · <backend>` when it's ready.
+
+**GPU note:** on the S22 Ultra's Adreno driver (July 2022) LiteRT-LM's GPU path produces garbled text (its fp16 activations; 0.17.1 has no fp32 switch). XARVIS runs a sanity check on each backend at startup, remembers a backend that failed it, and falls back to the CPU. The `-gpu` build of the model can't run on the CPU, so use the general build above.
+
+## Linking devices
+
+1. Put both devices on the same Wi-Fi and open XARVIS on both. They find each other automatically (mDNS `_xarvis._tcp`, TCP port 47470).
+2. On one device type `pair with <other device's name>` (or its IP, e.g. `pair with 192.168.1.20`).
+3. The other device shows a 6-digit code; type `code <number>` on the first device. A wrong code cancels the pairing.
+
+Pairing uses an ECDH (P-256) exchange with a key commitment, so a device in the middle can't fake the code; afterwards every request is AES-256-GCM encrypted. Linking keeps working while XARVIS is in the background as long as Android keeps the app's process alive.
+
+## Building
+
+```bash
 ./gradlew assembleDebug
-
-# Build release APK
-./gradlew assembleRelease
-
-# Run tests
-./gradlew test
+adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-### Direct Gradle Build (CLI)
+Output: `app/build/outputs/apk/debug/app-debug.apk`. `local.properties` must point `sdk.dir` at your Android SDK (Android Studio creates it).
 
-```bash
-# Full build
-gradle wrapper
-./gradlew clean build
+## Known limitations / next steps
 
-# APK output
-# Debug: app/build/outputs/apk/debug/app-debug.apk
-# Release: app/build/outputs/apk/release/app-release.apk
-```
-
-## Installation
-
-1. Build the APK as shown above
-2. Transfer to your S22 Ultra or install via ADB:
-   ```bash
-   adb install app/build/outputs/apk/debug/app-debug.apk
-   ```
-3. Grant permissions when prompted
-4. Launch XARVIS
-
-## Permissions Granted on Install
-
-- INTERNET
-- READ/WRITE_EXTERNAL_STORAGE
-- CAMERA
-- LOCATION (GPS)
-- MICROPHONE
-- CONTACTS
-- CALENDAR
-- VIBRATE
-
-## Project Structure
-
-```
-XARVIS/
-├── app/
-│   ├── src/main/
-│   │   ├── java/com/xarvis/ai/
-│   │   │   ├── MainActivity.kt
-│   │   │   ├── agent/XarvisAgent.kt
-│   │   │   ├── memory/MemorySystem.kt
-│   │   │   ├── workflow/WorkflowEngine.kt
-│   │   │   ├── device/DeviceCapabilityManager.kt
-│   │   │   ├── service/AIInferenceService.kt
-│   │   │   ├── viewmodel/XarvisViewModel.kt
-│   │   │   └── ui/
-│   │   │       ├── XarvisScreen.kt
-│   │   │       └── theme/Theme.kt
-│   │   └── res/
-│   │       ├── drawable/
-│   │       ├── values/
-│   │       └── mipmap/
-│   ├── build.gradle.kts
-│   └── proguard-rules.pro
-├── settings.gradle.kts
-├── build.gradle.kts
-└── gradle.properties
-```
-
-## Usage Example Commands
-
-```
-"Open WhatsApp"
-"Find my latest CV"
-"Organize these files"
-"Search for jobs"
-"Create a project"
-"Build me an Android app"
-```
-
-## Local AI Model Integration (Future)
-
-The app is designed for local inference but currently awaits integration of a quantized language model. When whitelist approval is granted, the following will be implemented:
-
-- Ollama/llama.cpp integration
-- Quantized 7B model (4-6GB)
-- On-device inference
-- Complete offline capability
-
-## Next Phases
-
-1. **Phase 2**: Integrate local LLM with llama.cpp
-2. **Phase 3**: Download and optimize quantized model
-3. **Phase 4**: Advanced workflow templates
-4. **Phase 5**: Voice interface (TTS/STT)
-5. **Phase 6**: App building agent
-
-## Contributing
-
-This is a personal AI system project. Modifications welcome.
+- Linking is local-network only; remote access (e.g. Tailscale) is the next step, then a Windows laptop companion.
+- Linking stops if Android kills the app's process; a foreground service would keep it alive permanently.
+- The GPU path is disabled on the S22 until a LiteRT-LM release allows fp32 activations.
+- Only the permissions it uses are requested (vibrate, network). Camera/location/contacts features aren't built yet.
 
 ## License
 
-Internal Use
-
----
-
-**Status**: Ready for compilation and testing
-**Target Device**: Samsung Galaxy S22 Ultra
-**Last Updated**: 2026-09-25
+Internal use.
