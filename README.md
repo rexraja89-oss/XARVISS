@@ -11,7 +11,8 @@ Developed by Sajjad Raja. Tested on a Samsung Galaxy S22 Ultra (SM-S908E) and a 
 | Commands | `open <app>`, `search <query>`, `navigate to <place>`, `status`, `time`, `help`; chain steps with "then" |
 | Memory | `remember <fact>` stores it (rewritten to "your …"), `what do you remember [about x]`, `forget everything`. Room database, survives restarts |
 | On-device AI | Anything that isn't an exact command goes to Gemma 4 E2B running locally. It chats, answers from memory, and can trigger the commands above itself (e.g. "fire up the calculator for me") |
-| Linked devices | `pair with <device>`, `code 123456`, `devices`, `<device> status`, `send to <device>: <text>`, `unlink <device>`. A device without a working model uses a linked device's model as its "brain" |
+| Linked devices | `pair with <device>`, `code 123456`, `devices`, `<device> status`, `send to <device>: <text>`, `unlink <device>`. A device without a working model uses a linked device's model as its "brain". Remembered facts are shared between linked devices |
+| Background | Runs as a foreground service ("XARVIS is running" notification with a Stop button) so linked devices can always reach it, including after a reboot. `always off` / `always on` toggles it |
 
 ## Architecture
 
@@ -51,7 +52,9 @@ Restart XARVIS; the header shows `AI MODEL: GEMMA 4 E2B · <backend>` when it's 
 2. On one device type `pair with <other device's name>` (or its IP, e.g. `pair with 192.168.1.20`).
 3. The other device shows a 6-digit code; type `code <number>` on the first device. A wrong code cancels the pairing.
 
-Pairing uses an ECDH (P-256) exchange with a key commitment, so a device in the middle can't fake the code; afterwards every request is AES-256-GCM encrypted. Linking keeps working while XARVIS is in the background as long as Android keeps the app's process alive.
+Pairing uses an ECDH (P-256) exchange with a key commitment, so a device in the middle can't fake the code; afterwards every request is AES-256-GCM encrypted. The background service keeps linking working when XARVIS is closed.
+
+Remembered facts sync between linked devices: new facts are pushed immediately, and devices that were offline catch up within 5 minutes. `forget everything` wipes memories on all linked devices; the wipe time is kept so an offline device can't bring old facts back.
 
 ## Building
 
@@ -65,7 +68,7 @@ Output: `app/build/outputs/apk/debug/app-debug.apk`. `local.properties` must poi
 ## Known limitations / next steps
 
 - Linking is local-network only; remote access (e.g. Tailscale) is the next step, then a Windows laptop companion.
-- Linking stops if Android kills the app's process; a foreground service would keep it alive permanently.
+- Aggressive battery savers (e.g. Samsung "Put app to sleep") can still stop the background service; exclude XARVIS there if that happens.
 - The GPU path is disabled on the S22 until a LiteRT-LM release allows fp32 activations.
 - Only the permissions it uses are requested (vibrate, network). Camera/location/contacts features aren't built yet.
 

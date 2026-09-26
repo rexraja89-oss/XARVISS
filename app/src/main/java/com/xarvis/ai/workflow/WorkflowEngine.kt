@@ -9,6 +9,7 @@ import com.xarvis.ai.memory.MemorySync
 import com.xarvis.ai.memory.MemorySystem
 import com.xarvis.ai.net.DeviceLink
 import com.xarvis.ai.net.Peer
+import com.xarvis.ai.service.AlwaysOn
 import java.text.DateFormat
 import java.util.Date
 
@@ -30,6 +31,7 @@ sealed interface Step {
     data class SendNote(val device: String, val text: String) : Step
     data class Unlink(val device: String) : Step
     data class SetAddress(val device: String, val host: String, val port: Int) : Step
+    data class SetAlwaysOn(val enabled: Boolean) : Step
 }
 
 data class Workflow(val command: String, val steps: List<Step>)
@@ -115,6 +117,14 @@ class WorkflowEngine(
         is Step.Unlink -> withPeer(step.device) {
             link.unpair(it)
             StepResult(true, "Unlinked ${it.name}.")
+        }
+        is Step.SetAlwaysOn -> {
+            AlwaysOn.set(appContext, step.enabled)
+            StepResult(
+                true,
+                if (step.enabled) "I'll keep running in the background so your linked devices can always reach me."
+                else "Background mode off. Linked devices can reach me only while the app is open.",
+            )
         }
         is Step.SetAddress -> withPeer(step.device) {
             link.setAddress(it, step.host, step.port)

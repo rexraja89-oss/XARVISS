@@ -162,6 +162,8 @@ class XarvisAgent(
 
         // Linked devices first: "send ... to <device>" and "<device> status" would otherwise look like other commands.
         if (lower in DEVICES_COMMANDS) return Step.ListDevices
+        if (lower in setOf("always on", "stay on", "background on")) return Step.SetAlwaysOn(true)
+        if (lower in setOf("always off", "stay off", "background off")) return Step.SetAlwaysOn(false)
         match(t, """^(?:pair|link)\s+with\s+(.+)$""")?.let { return Step.PairWith(it) }
         match(t, """^code\s+(\d{6})$""")?.let { return Step.PairCode(it) }
         match(t, """^(?:unlink|unpair|forget device)\s+(.+)$""")?.let { return Step.Unlink(it) }
@@ -268,6 +270,8 @@ class XarvisAgent(
               <device> status       battery/storage of a linked device
               send to <device>: <text>
               unlink <device>
+              always on / always off   keep running in the background (on by default)
+            Memories are shared with linked devices.
             Chain steps with "then", e.g. "open spotify then search lofi beats".
             Anything else is answered by the on-device AI model (or a linked device's).
         """.trimIndent()

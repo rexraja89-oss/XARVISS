@@ -9,6 +9,7 @@
 - Persistent memory, shared between linked devices ("forget everything" clears it everywhere)
 - On-device AI: Gemma 4 E2B via LiteRT-LM, ~15 tokens/s on the S22's CPU; understands free-form requests and can trigger the commands itself
 - Device linking over Wi-Fi: automatic discovery, 6-digit pairing code, encrypted requests, remote status, notes, and using a linked device's AI model
+- Always-on background service (notification with Stop button, restarts after reboot/update); tested: still reachable after swiping XARVIS out of recent apps
 
 ## Known limitations
 
