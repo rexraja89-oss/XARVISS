@@ -40,6 +40,7 @@ object ToolCalls {
             val (app, text) = splitMessage(a)
             if (app.isNotBlank() && text != null) return Step.AskApp(app, text.trim('"', '\'').trim())
         }
+        arg(t, "convert to|convert|save as|export as|export")?.let { a -> format(a)?.let { return Step.ConvertFile(it) } }
         arg(t, "files|file|my files|show files|find file|find files|send file|share file")?.let { return Step.ShowFiles(it.trim('"', '\'')) }
         arg(t, "find in|find|search in")?.let { a ->
             val (app, query) = splitMessage(a)
@@ -62,6 +63,21 @@ object ToolCalls {
         t.startsWith("TOOL") || t.startsWith("ACTION") ||
             (t.isNotEmpty() && ("TOOL:".startsWith(t) || "ACTION:".startsWith(t)))
     }.joinToString("\n").trim()
+
+    /** "a Word file" -> "docx"; null if it names no format XARVIS can make. */
+    internal fun format(arg: String): String? {
+        val w = arg.lowercase()
+        return when {
+            Regex("""\bpdf\b""").containsMatchIn(w) -> "pdf"
+            Regex("""\b(?:docx?|word)\b""").containsMatchIn(w) -> "docx"
+            Regex("""\b(?:xlsx?|excel|spreadsheet)\b""").containsMatchIn(w) -> "xlsx"
+            Regex("""\bcsv\b""").containsMatchIn(w) -> "csv"
+            Regex("""\b(?:txt|text)\b""").containsMatchIn(w) -> "txt"
+            Regex("""\b(?:md|markdown)\b""").containsMatchIn(w) -> "md"
+            Regex("""\b(?:html?|web ?page)\b""").containsMatchIn(w) -> "html"
+            else -> null
+        }
+    }
 
     /** "Ali: running late" -> ("Ali", "running late"); "Ali" -> ("Ali", null). */
     private fun splitMessage(arg: String): Pair<String, String?> {

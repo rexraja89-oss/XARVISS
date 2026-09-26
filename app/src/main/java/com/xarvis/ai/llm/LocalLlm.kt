@@ -230,6 +230,18 @@ class LocalLlm(context: Context) {
         }
     }
 
+    /**
+     * Asks the engine to stop the reply it's writing (the STOP button). Called by name because
+     * not every LiteRT-LM version has it; the caller also cancels its coroutine, which stops
+     * reading the reply either way.
+     */
+    fun stop() {
+        (listOfNotNull(conversation) + sideConversations.values.map { it.second }).forEach { c ->
+            runCatching { c.javaClass.getMethod("cancelProcess").invoke(c) }
+                .onFailure { Log.i(TAG, "No cancelProcess on this LiteRT-LM version: ${it.javaClass.simpleName}") }
+        }
+    }
+
     fun close() {
         sideConversations.values.forEach { it.second.close() }
         sideConversations.clear()

@@ -51,4 +51,21 @@ class FileBlocksTest {
         assertEquals(listOf(Step.ShowFiles("")), ToolCalls.parse("TOOL: files"))
         assertEquals(listOf(Step.FindContact("Atiq")), ToolCalls.parse("TOOL: find contact Atiq"))
     }
+
+    @Test fun convertTool() {
+        assertEquals(listOf(Step.ConvertFile("pdf")), ToolCalls.parse("TOOL: convert pdf"))
+        assertEquals(listOf(Step.ConvertFile("docx")), ToolCalls.parse("TOOL: convert to a Word file"))
+        assertEquals(listOf(Step.ConvertFile("xlsx")), ToolCalls.parse("TOOL: save as excel"))
+        assertTrue(ToolCalls.parse("TOOL: convert").isEmpty())
+    }
+
+    @Test fun fileTextIsHiddenWhileBeingWritten() {
+        assertEquals("Here it is.\nWriting essay.pdf… (4 words)", FileBlocks.preview("Here it is.\nFILE: essay.pdf\n# Gandhi\nwas born in"))
+        assertEquals("no file here", FileBlocks.preview("no file here"))
+    }
+
+    @Test fun refusingToOpenAnAppIsNudged() {
+        assertTrue(XarvisAgent.skippedTool("I do not have a gallery app to open."))
+        assertTrue(XarvisAgent.skippedTool("I do not have a gallery to share."))
+    }
 }

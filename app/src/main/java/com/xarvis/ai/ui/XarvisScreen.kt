@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
-import androidx.compose.material3.IconButton
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import com.xarvis.ai.R
@@ -31,12 +30,14 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -90,6 +91,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
     }
     val context = LocalContext.current
     val documentName = remember(document) { document?.let { DocumentReader.displayName(context, it) } }
+    var showAttach by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     LaunchedEffect(state.messages.size) {
@@ -120,7 +122,9 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
             modifier = Modifier.weight(1f).fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            items(state.messages) { MessageBubble(it) }
+            itemsIndexed(state.messages) { i, message ->
+                MessageBubble(message, thinking = state.isProcessing && !message.fromUser && i == state.messages.lastIndex)
+            }
         }
 
         if (photo != null) {
@@ -147,15 +151,8 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
             Modifier.fillMaxWidth().padding(vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(
-                onClick = { pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                enabled = !state.isProcessing,
-            ) {
-                Image(painterResource(R.drawable.ic_photo_lens), contentDescription = "Send a photo", modifier = Modifier.size(32.dp))
-            }
-            IconButton(onClick = { pickDocument.launch(arrayOf("*/*")) }, enabled = !state.isProcessing) {
-                Image(painterResource(R.drawable.ic_file), contentDescription = "Send a file", modifier = Modifier.size(30.dp))
-            }
+            PlusButton(enabled = !state.isProcessing) { showAttach = true }
+            Spacer(Modifier.size(8.dp))
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
@@ -166,9 +163,30 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 keyboardActions = KeyboardActions(onSend = { send() }),
             )
             Spacer(Modifier.size(8.dp))
-            Button(onClick = ::send, enabled = (input.isNotBlank() || photo != null || document != null) && !state.isProcessing) {
-                Text("SEND")
+            if (state.isProcessing) {
+                // Stops XARVIS mid-reply, keeping what it wrote so far.
+                Button(
+                    onClick = viewModel::stop,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                ) { Text("STOP") }
+            } else {
+                Button(onClick = ::send, enabled = input.isNotBlank() || photo != null || document != null) {
+                    Text("SEND")
+                }
             }
+        }
+        if (showAttach) {
+            AttachSheet(
+                listOf(
+                    AttachOption(R.drawable.ic_photo_lens, "Photo", "Ask about a picture from your gallery") {
+                        pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                    AttachOption(R.drawable.ic_file, "File", "Read a PDF, Word, Excel or text file, or convert it") {
+                        pickDocument.launch(arrayOf("*/*"))
+                    },
+                ),
+                onDismiss = { showAttach = false },
+            )
         }
     }
 }
@@ -269,28 +287,33 @@ private fun CapabilityRow(capabilities: List<Capability>) {
     }
 }
 
+/** A message with its sender's picture: XARVIS on the left (animated while [thinking]), Rex on the right. */
 @Composable
-private fun MessageBubble(message: ChatMessage) {
+private fun MessageBubble(message: ChatMessage, thinking: Boolean) {
     val accent = if (message.fromUser) XarvisPurple else XarvisCyan
-    Box(Modifier.fillMaxWidth(), contentAlignment = if (message.fromUser) Alignment.CenterEnd else Alignment.CenterStart) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = if (message.fromUser) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Top,
+    ) {
+        if (!message.fromUser) {
+            XarvisAvatar(thinking)
+            Spacer(Modifier.size(8.dp))
+        }
         Column(
             Modifier
-                .widthIn(max = 320.dp)
-                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
-                .border(1.dp, accent.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                .weight(1f, fill = false)
+                .widthIn(max = 300.dp)
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
+                .border(1.dp, accent.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
                 .padding(12.dp)
         ) {
-            Text(
-                if (message.fromUser) "YOU" else "XARVIS",
-                style = MaterialTheme.typography.labelSmall,
-                color = accent,
-            )
             message.imagePath?.let { path ->
                 val bitmap = remember(path) { BitmapFactory.decodeFile(path)?.asImageBitmap() }
                 if (bitmap != null) {
                     Image(
                         bitmap, contentDescription = "Photo you sent",
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).padding(vertical = 6.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).padding(bottom = 6.dp),
                         contentScale = ContentScale.Fit,
                     )
                 }
@@ -299,9 +322,13 @@ private fun MessageBubble(message: ChatMessage) {
             Text(
                 message.text.ifEmpty { "thinking…" },
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = if (message.text.isEmpty()) XarvisMuted else MaterialTheme.colorScheme.onSurface,
             )
             message.files.forEach { FileCard(it) }
+        }
+        if (message.fromUser) {
+            Spacer(Modifier.size(8.dp))
+            UserAvatar()
         }
     }
 }

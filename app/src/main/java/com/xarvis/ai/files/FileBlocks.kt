@@ -40,6 +40,17 @@ object FileBlocks {
         return files to rest.toString().trim()
     }
 
+    /**
+     * What to show while Gemma is still writing: the file's text isn't shown in the chat
+     * (it goes into the file), only which file is being written and how far it has got.
+     */
+    fun preview(raw: String): String {
+        val (files, rest) = split(raw)
+        val writing = files.lastOrNull() ?: return raw
+        val words = files.sumOf { f -> f.content.split(Regex("""\s+""")).count { w -> w.any(Char::isLetterOrDigit) } }
+        return (if (rest.isBlank()) "" else "$rest\n") + "Writing ${writing.name}… ($words words)"
+    }
+
     /** "**Umrah list.pdf** (PDF)" -> "Umrah list.pdf"; a name without a known extension becomes a .txt. */
     fun cleanName(raw: String): String {
         var n = raw.trim().trim('*', '`', '"', '\'', '[', ']').trim()

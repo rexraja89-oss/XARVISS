@@ -21,6 +21,9 @@ import com.xarvis.ai.net.DeviceLink
 import com.xarvis.ai.tools.ContactFinder
 import com.xarvis.ai.workflow.WorkflowEngine
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -168,7 +171,7 @@ class XarvisCore(context: Context) {
             )
         }
         val onPartial = { partial: String -> replaceMessage(replyIndex, partial) }
-        scope.launch {
+        replyJob = scope.launch {
             val reply = try {
                 when {
                     photo != null -> {
@@ -183,21 +186,38 @@ class XarvisCore(context: Context) {
                     }
                     else -> agent.handle(text, onPartial)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // STOP: keep what XARVIS wrote so far.
+                val sofar = _state.value.messages.getOrNull(replyIndex)?.text.orEmpty()
+                Reply(if (sofar.isBlank()) "Stopped." else "$sofar\n\n(stopped)")
             } catch (e: UnreadableFile) {
                 Reply(e.message ?: "I couldn't read that file.")
             } catch (e: Exception) {
                 Reply("Something went wrong: ${e.message}")
             }
             updateMessage(replyIndex) { it.copy(text = reply.text, files = reply.files) }
-            _state.update {
-                it.copy(
-                    capabilities = device.capabilities(),
-                    memoryCount = memory.count(),
-                    linkedCount = link.pairedPeers().size,
-                    isProcessing = false,
-                )
+            // Also after STOP, which has cancelled this coroutine.
+            withContext(NonCancellable) {
+                val memories = runCatching { memory.count() }.getOrDefault(_state.value.memoryCount)
+                _state.update {
+                    it.copy(
+                        capabilities = device.capabilities(),
+                        memoryCount = memories,
+                        linkedCount = link.pairedPeers().size,
+                        isProcessing = false,
+                    )
+                }
             }
         }
+    }
+
+    /** The reply being worked on, so STOP can cancel it. */
+    private var replyJob: Job? = null
+
+    /** The STOP button: XARVIS stops writing, and keeps what it wrote so far. */
+    fun stop() {
+        llm.stop()
+        replyJob?.cancel()
     }
 
     /** Refreshes things that can change while the screen is away, like battery level. */

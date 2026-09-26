@@ -20,5 +20,7 @@ class XarvisViewModel(application: Application) : AndroidViewModel(application) 
     fun submit(command: String, photo: android.net.Uri? = null, document: android.net.Uri? = null) =
         core.submit(command, photo, document)
 
+    fun stop() = core.stop()
+
     fun downloadModel() = core.downloadModel()
 }

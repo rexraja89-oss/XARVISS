@@ -1,6 +1,7 @@
 package com.xarvis.ai.agent
 
 import com.xarvis.ai.files.Document
+import com.xarvis.ai.files.FileBlock
 import com.xarvis.ai.files.FileBlocks
 import com.xarvis.ai.files.SavedFile
 import com.xarvis.ai.llm.LlmStatus
@@ -12,6 +13,9 @@ import com.xarvis.ai.tools.WebLookup
 import com.xarvis.ai.workflow.Step
 import com.xarvis.ai.workflow.WorkflowEngine
 import java.io.File
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 /** What XARVIS says, and the files it made or found (shown with OPEN and SHARE). */
 data class Reply(val text: String, val files: List<SavedFile> = emptyList())
@@ -28,6 +32,9 @@ class XarvisAgent(
     private val llm: LocalLlm,
     private val link: DeviceLink,
 ) {
+
+    /** The last file Rex attached, for "convert it to PDF" (also asked in a later message). */
+    private var lastDocument: Document? = null
 
     suspend fun loadModel() = llm.load(systemPrompt())
 
@@ -46,12 +53,14 @@ class XarvisAgent(
      * the text as fits goes to Gemma, which can also answer with a new file made from it.
      */
     suspend fun handleDocument(doc: Document, message: String, onPartial: (String) -> Unit = {}): Reply {
+        lastDocument = doc
         val question = message.ifBlank { "Summarise this file: what is it, and what are the main points?" }
         val room = if (llm.isReady) llm.documentChars else REMOTE_DOCUMENT_CHARS
         val cut = doc.text.length > room
         val prompt = "(Rex attached the file \"${doc.name}\". Its text is between <<< and >>>" +
             (if (cut) ", but it's long, so you only see the first part: say so if the answer may be further on" else "") +
-            ". Use it to answer. To make a new file from it, write a FILE block.)\n\n<<<\n" +
+            ". Use it to answer. To turn it into another format, reply only TOOL: convert pdf (or docx, xlsx, txt). " +
+            "To make a new, changed file from it, write a FILE block.)\n\n<<<\n" +
             doc.text.take(room) + "\n>>>\n\nRex: " + question
         val response = askGemma(question, onPartial, prompt)
         memory.logInteraction("[file ${doc.name}] $question", response.text)
@@ -76,11 +85,12 @@ class XarvisAgent(
         return try {
             llm.chatWithImage(systemPrompt(), imagePath, IDENTITY_REMINDER + PHOTO_HINT + question) { chunk ->
                 out.append(chunk)
-                onPartial(ToolCalls.visibleText(out.toString()))
+                onPartial(ToolCalls.visibleText(FileBlocks.preview(out.toString())))
             }
             val raw = withLookups(out.toString(), onPartial) { text -> chatHere(text, onPartial) }
             finishReply(message, raw)
         } catch (t: Throwable) {
+            if (t is CancellationException) throw t
             Reply("I couldn't look at that photo: ${t.message ?: t.javaClass.simpleName}")
         }
     }
@@ -92,6 +102,7 @@ class XarvisAgent(
         val raw = try {
             link.remotePhoto(brain, facts(), File(imagePath).readBytes(), question)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             return Reply("I couldn't get ${brain.name} to look at the photo: ${e.message ?: e.javaClass.simpleName}")
         }
         return finishReply(message, withLookups(raw, onPartial) { remoteChat(brain, it) })
@@ -115,7 +126,7 @@ class XarvisAgent(
         // Rebuilt before every call, so identity and every saved memory are always current.
         llm.chat(systemPrompt(), IDENTITY_REMINDER + text, onRestart = { out.clear() }) { chunk ->
             out.append(chunk)
-            onPartial(ToolCalls.visibleText(out.toString()))
+            onPartial(ToolCalls.visibleText(FileBlocks.preview(out.toString())))
         }
         return out.toString()
     }
@@ -133,6 +144,7 @@ class XarvisAgent(
         val first = try {
             ask(prompt)
         } catch (t: Throwable) {
+            if (t is CancellationException) throw t
             return Reply("My language model hit an error: ${t.message ?: t.javaClass.simpleName}")
         }
         var raw = first ?: return Reply("I couldn't reach ${brain?.name}'s AI model. Check both phones have XARVIS and Tailscale on.")
@@ -165,10 +177,15 @@ class XarvisAgent(
 
     /** Gemma's text plus the results of the tools it asked for, and the files it wrote. */
     private suspend fun finishReply(message: String, raw: String): Reply {
+        currentCoroutineContext().ensureActive() // after STOP, don't run the tools
         val (fileBlocks, rest) = FileBlocks.split(raw)
         val text = fixIdentity(ToolCalls.visibleText(rest))
         val known = facts()
         val steps: List<Step> = fileBlocks.map { Step.MakeFile(it) } + forUser(message, ToolCalls.parse(rest).filterNot { it is Step.Lookup }).map { step ->
+            val doc = lastDocument
+            if (step is Step.ConvertFile && doc != null) {
+                return@map Step.MakeFile(FileBlock(doc.name.substringBeforeLast('.') + "." + step.format, doc.text))
+            }
             // Small models sometimes answer "what is my name?" by re-saving the fact; say it instead.
             val fact = (step as? Step.Remember)?.fact
             if (fact != null && known.any { it.equals(fact, ignoreCase = true) }) {
@@ -237,6 +254,7 @@ class XarvisAgent(
         private val SKIPPED_TOOL = Regex(
             listOf(
                 """\btool\b""", """if you (?:ask|want|tell)""",
+                """\b(?:don't|do not)\s+have\s+(?:a|an|any)\s+\w+\s+(?:app|to)\b""",
                 """(?:don't|do not|can't|cannot|can not|am unable to|unable to)\s+(?:have\s+)?(?:access|directly|interact|do that|check|see|open|take you|set|call|make|create|save|generate|write)""",
             ).joinToString("|"),
             RegexOption.IGNORE_CASE,
@@ -296,6 +314,7 @@ class XarvisAgent(
             TOOL: find <app>: <words to search inside that app>
             TOOL: ask <app>: <text to type into that app, e.g. a question for ChatGPT>
             TOOL: files <words from the file's name>   (shows files you made before, to open or share)
+            TOOL: convert <pdf, docx, xlsx or txt>   (turns the file Rex attached into that format)
 
             To make a file (PDF, Word, Excel, text, CSV, web page), write the whole file like this; XARVIS saves it in Downloads:
             FILE: <name>.pdf   (or .docx, .xlsx, .txt, .csv, .md, .html)
@@ -326,6 +345,9 @@ class XarvisAgent(
             User: which movie is this ring from? (photo of the glowing gold ring with script) -> It's the One Ring from The Lord of the Rings.
             User: open gmail and search for ali@example.com -> TOOL: find gmail: ali@example.com
             User: open chat gpt -> TOOL: open chat gpt
+            User: open gallery -> TOOL: open gallery
+            User: open compass -> TOOL: open compass
+            User: (attached CV.docx) turn it into pdf -> TOOL: convert pdf
             User: ask chat gpt how to build a mobile app -> TOOL: ask chat gpt: how to build a mobile app
             User: show my payslip -> TOOL: open payslip
             User: update my details in Intelligent CV and download my CV -> TOOL: open intelligent cv

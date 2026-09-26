@@ -51,6 +51,8 @@ sealed interface Step {
     data class AskApp(val app: String, val text: String) : Step
     /** Save a file Gemma wrote (PDF, Word, Excel, text) to Downloads/XARVIS. */
     data class MakeFile(val block: FileBlock) : Step
+    /** Turn the file Rex attached into [format] (pdf, docx, xlsx, txt...); the agent fills it in. */
+    data class ConvertFile(val format: String) : Step
     /** Show files XARVIS made earlier whose names match [query], to open or share again. */
     data class ShowFiles(val query: String) : Step
 
@@ -124,6 +126,7 @@ class WorkflowEngine(
         is Step.FindInApp -> findInApp(step.app, step.query)
         is Step.AskApp -> askApp(step.app, step.text)
         is Step.Lookup -> StepResult(true, "") // done by the agent before the reply is shown
+        is Step.ConvertFile -> StepResult(false, "Attach the file first: tap + and choose File, then ask me to convert it.")
         is Step.MakeFile -> try {
             val saved = files.save(step.block)
             StepResult(true, "I made ${saved.name} (saved in Downloads › XARVIS). Tap OPEN or SHARE below.", listOf(saved))
@@ -135,7 +138,11 @@ class WorkflowEngine(
             when {
                 found.isNotEmpty() -> StepResult(true, "Here ${if (found.size == 1) "it is" else "they are"}. Tap OPEN or SHARE.", found)
                 step.query.isBlank() -> StepResult(false, "I haven't made any files yet. Ask me, e.g. \"make a PDF of my shopping list\".")
-                else -> StepResult(false, "I haven't made a file matching \"${step.query}\". Files I make are in Downloads › XARVIS.")
+                else -> StepResult(
+                    false,
+                    "I can only find files I made myself, and none matches \"${step.query}\". For any other file, " +
+                        "tap + and choose File, then search for it there (e.g. \"CV\").",
+                )
             }
         }
         Step.Location -> StepResult(true, location.read())
