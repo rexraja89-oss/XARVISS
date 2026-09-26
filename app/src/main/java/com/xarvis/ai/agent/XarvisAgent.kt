@@ -96,6 +96,7 @@ class XarvisAgent(
         }
         return finishReply(message, withLookups(raw, onPartial) { remoteChat(brain, it) })
     }
+
     /** Answers a linked phone's message with this phone's Gemma; its tool lines run on that phone. */
     suspend fun answerForPeer(peerId: String, facts: List<String>, devices: List<String>, text: String): String? {
         if (!llm.isReady) return null
@@ -167,7 +168,7 @@ class XarvisAgent(
         val (fileBlocks, rest) = FileBlocks.split(raw)
         val text = fixIdentity(ToolCalls.visibleText(rest))
         val known = facts()
-        val steps = fileBlocks.map { Step.MakeFile(it) } + forUser(message, ToolCalls.parse(rest).filterNot { it is Step.Lookup }).map { step ->
+        val steps: List<Step> = fileBlocks.map { Step.MakeFile(it) } + forUser(message, ToolCalls.parse(rest).filterNot { it is Step.Lookup }).map { step ->
             // Small models sometimes answer "what is my name?" by re-saving the fact; say it instead.
             val fact = (step as? Step.Remember)?.fact
             if (fact != null && known.any { it.equals(fact, ignoreCase = true) }) {
