@@ -50,6 +50,11 @@ class XarvisCore(context: Context) {
     private val device = DeviceCapabilityManager(context)
     private val llm = LocalLlm(context)
 
+    // Phone data Gemma can be given; add new DeviceTools to this list.
+    private val tools = DeviceToolRouter(
+        listOf(LocationTool(context), BatteryTool(context), TimeTool(), BluetoothTool(context), ContactsTool(context)),
+    )
+
     private val link: DeviceLink = DeviceLink(context, object : DeviceLink.Handler {
         override suspend fun status(): String {
             val ai = when (val s = llm.status.value) {
@@ -81,6 +86,7 @@ class XarvisCore(context: Context) {
         override suspend fun memorySnapshot(): JSONObject = memorySync.snapshot()
         override suspend fun memoryAdd(content: String, timestamp: Long) = memorySync.receiveFact(content, timestamp)
         override suspend fun memoryClear(timestamp: Long) = memorySync.receiveClear(timestamp)
+        override suspend fun deviceData(text: String): List<String> = tools.gather(text)
     })
 
     private val memorySync: MemorySync = MemorySync(memory, link) {
@@ -91,10 +97,7 @@ class XarvisCore(context: Context) {
     private val agent: XarvisAgent =
         XarvisAgent(
             WorkflowEngine(context, memory, device, link, memorySync), memory, llm, link,
-            // Phone data Gemma can be given; add new DeviceTools to this list.
-            DeviceToolRouter(
-                listOf(LocationTool(context), BatteryTool(context), TimeTool(), BluetoothTool(context), ContactsTool(context)),
-            ),
+            tools,
         )
 
     private val _state: MutableStateFlow<XarvisUiState> = MutableStateFlow(

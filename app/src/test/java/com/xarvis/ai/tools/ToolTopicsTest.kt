@@ -38,7 +38,12 @@ class ToolTopicsTest {
     }
 
     @Test fun contacts() {
-        listOf("what's Ali's number", "Ahmed ka number", "show my contacts", "phone number for Sara").forEach {
+        listOf(
+            "what's Ali's number", "Ahmed ka number", "show my contacts", "phone number for Sara",
+            // Rex's real messages: a typo, and "his number".
+            "i want you to check my benco mobile, there is a contack saved atiq. i want his number",
+            "i want atiq contact Number over here",
+        ).forEach {
             assertTrue(it, ContactsTool.isAbout(it))
         }
         listOf("what is the number of planets", "tell me a joke").forEach { assertFalse(it, ContactsTool.isAbout(it)) }

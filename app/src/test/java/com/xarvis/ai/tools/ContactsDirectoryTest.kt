@@ -10,6 +10,11 @@ class ContactsDirectoryTest {
         assertEquals(listOf("ali"), ContactsDirectory.nameWords("what's Ali's number?"))
         assertEquals(listOf("ahmed"), ContactsDirectory.nameWords("Ahmed ka number batao"))
         assertEquals(listOf("ali", "khan"), ContactsDirectory.nameWords("call Ali Khan"))
+        assertEquals(listOf("atiq"), ContactsDirectory.nameWords("i want atiq contact Number over here"))
+        assertEquals(
+            listOf("benco", "atiq"),
+            ContactsDirectory.nameWords("i want you to check my benco mobile, there is a contack saved atiq. i want his number"),
+        )
     }
 
     @Test fun wholeNamesBeatPrefixes() {

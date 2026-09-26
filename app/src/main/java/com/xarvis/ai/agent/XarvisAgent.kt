@@ -6,6 +6,7 @@ import com.xarvis.ai.llm.LocalLlm
 import com.xarvis.ai.memory.MemorySystem
 import com.xarvis.ai.net.DeviceLink
 import com.xarvis.ai.net.Peer
+import com.xarvis.ai.tools.ContactsTool
 import com.xarvis.ai.tools.DeviceToolRouter
 import com.xarvis.ai.workflow.Step
 import com.xarvis.ai.workflow.Workflow
@@ -42,12 +43,15 @@ class XarvisAgent(
         val response = if (workflow != null) {
             run(workflow)
         } else {
-            // Read on this device even when a linked device's LLM answers: it's this phone's location.
-            val data = tools.gather(command, onPartial)
+            // Phone data is read where the message points: a linked device it names ("check my benco"),
+            // otherwise this one, even when a linked device's LLM writes the answer.
+            val peer = link.mentionedPeer(command)
+            val data = if (peer != null) peerData(peer, command, onPartial) else withLinkedContacts(command, tools.gather(command, onPartial), onPartial)
             val prompt = DeviceToolRouter.withDeviceData(command, data)
+            val hadData = data.isNotEmpty()
             when {
-                llm.isReady -> chat(prompt, command, onPartial)
-                brain != null -> remoteChat(brain, prompt, command)
+                llm.isReady -> chat(prompt, command, hadData, onPartial)
+                brain != null -> remoteChat(brain, prompt, command, hadData)
                 data.isNotEmpty() -> data.joinToString("\n") // no AI anywhere: show the data itself
                 else -> unknownCommand(command)
             }
@@ -87,8 +91,33 @@ class XarvisAgent(
         return results.joinToString("\n") { it.message }
     }
 
+    /**
+     * A contact asked about but not saved on this phone may be saved on a linked one ("atiq's number"
+     * typed on the S22 when Atiq is only in the benco): ask them, and use what they find instead.
+     */
+    private suspend fun withLinkedContacts(message: String, local: List<String>, onPartial: (String) -> Unit): List<String> {
+        if (!ContactsTool.isAbout(message) || local.any { it.startsWith(ContactsTool.FOUND) }) return local
+        val found = link.pairedPeers().flatMap { p ->
+            peerData(p, message, onPartial).filter { it.startsWith("On ${p.name}: ${ContactsTool.FOUND}") }
+        }
+        return if (found.isEmpty()) local else local.filterNot { it.startsWith("Contacts:") } + found
+    }
+
+    /** Reads the phone data [message] asks about on [peer], labelled with where it came from. */
+    private suspend fun peerData(peer: Peer, message: String, onPartial: (String) -> Unit): List<String> {
+        onPartial("Checking ${peer.name}…")
+        return try {
+            link.remoteDeviceData(peer, message).map { "On ${peer.name}: $it" }
+        } catch (e: Exception) {
+            listOf(
+                "${peer.name}: couldn't be checked (${e.message ?: e.javaClass.simpleName}). It needs XARVIS running " +
+                    "and up to date, on the same Wi-Fi."
+            )
+        }
+    }
+
     /** [prompt] is what the LLM sees ([message] plus any device data); [message] is what the user typed. */
-    private suspend fun chat(prompt: String, message: String, onPartial: (String) -> Unit): String {
+    private suspend fun chat(prompt: String, message: String, hadData: Boolean, onPartial: (String) -> Unit): String {
         val raw = StringBuilder()
         try {
             llm.chat(prompt) { chunk ->
@@ -98,20 +127,24 @@ class XarvisAgent(
         } catch (t: Throwable) {
             return "My language model hit an error: ${t.message ?: t.javaClass.simpleName}"
         }
-        return finishReply(message, raw.toString())
+        return finishReply(message, raw.toString(), hadData)
     }
 
-    private suspend fun remoteChat(brain: Peer, prompt: String, message: String): String {
+    private suspend fun remoteChat(brain: Peer, prompt: String, message: String, hadData: Boolean): String {
         val raw = try {
             link.remoteChat(brain, facts(), linkedDeviceNames(), prompt)
         } catch (e: Exception) {
             return "I couldn't reach ${brain.name}'s AI model: ${e.message ?: e.javaClass.simpleName}"
         }
-        return finishReply(message, raw)
+        return finishReply(message, raw, hadData)
     }
 
-    /** Shows the reply's text and runs any ACTION lines in it. */
-    private suspend fun finishReply(message: String, raw: String): String {
+    /**
+     * Shows the reply's text and runs any ACTION lines in it. With [hadData], the answer was in the
+     * device data, so an "open <app>" the user didn't ask for (e.g. opening Contacts instead of
+     * reading the number) is dropped.
+     */
+    private suspend fun finishReply(message: String, raw: String, hadData: Boolean): String {
         val text = visibleText(raw).trim()
         val known = facts()
         val actions = ACTION_LINE.findAll(raw)
@@ -125,6 +158,7 @@ class XarvisAgent(
                     step
                 }
             }
+            .filterNot { hadData && it is Step.LaunchApp && !message.contains("open", ignoreCase = true) }
             .toList()
         if (actions.isEmpty()) return text.ifEmpty { "…" }
 
@@ -205,7 +239,9 @@ class XarvisAgent(
         match(t, """^(?:please\s+)?(?:open|launch|start|run)\s+(?:the\s+)?(.+?)(?:\s+app)?$""")
             ?.let { return Step.LaunchApp(it) }
 
+        // "search benco for Atiq's number" is about the user's own phones, not the web.
         match(t, """^(?:search|google|look up)(?:\s+for)?\s+(.+)$""")
+            ?.takeUnless { ContactsTool.isAbout(it) || link.mentionedPeer(it) != null }
             ?.let { return Step.OpenUrl("https://www.google.com/search?q=${Uri.encode(it)}", "Searching for \"$it\".") }
 
         match(t, """^(?:navigate|directions)\s+to\s+(.+)$""")
@@ -221,7 +257,7 @@ class XarvisAgent(
             lower in setOf("forget everything", "clear memory", "wipe memory") -> Step.ClearMemory
             lower in STATUS_COMMANDS -> Step.ReportDevice
             lower in TIME_COMMANDS -> Step.ReportTime
-            lower == "help" -> Step.Respond(HELP)
+            lower == "help" || HELP_QUESTION.containsMatchIn(lower) -> Step.Respond(HELP)
             strict -> null
             lower.contains("status") || lower.contains("device") ||
                 lower.contains("capabilit") || lower.contains("battery") -> Step.ReportDevice
@@ -237,6 +273,10 @@ class XarvisAgent(
         Regex(pattern, RegexOption.IGNORE_CASE).find(text)?.groupValues?.get(group)?.trim()
 
     companion object {
+        /** "what can you do", "what help can you do", "what are your features". */
+        internal val HELP_QUESTION = Regex(
+            """^(?:what|which)\s+(?:help|things|features|commands)\b.*\b(?:can you|do you)|^what can you do\b|^what are your (?:features|abilities|commands|skills)"""
+        )
         private val ACTION_LINE = Regex("""(?im)^\s*ACTION:\s*(.+)$""")
         private val DEVICES_COMMANDS = setOf("devices", "list devices", "linked devices", "show devices", "my devices")
         private val STATUS_COMMANDS = setOf("status", "device status", "device", "capabilities", "battery")
@@ -268,7 +308,8 @@ class XarvisAgent(
             Only use "remember" when the user tells you something new and wants you to keep it. When the user asks a question, such as "what is my name?", answer it in plain text using what you know, and never use an ACTION line for it.
             Only use "search" when the user asks you to search or look something up, or needs live information such as news, weather, prices or opening hours. Answer general knowledge, facts, jokes, explanations and advice yourself.
 
-            A message may start with lines beginning with [DEVICE DATA]. They are live readings from the user's phone, taken just now, such as its location, battery, date and time, Bluetooth devices or the user's contacts. When [DEVICE DATA] is given, use it to answer in plain text. Never say you have no access to the phone's location or data if data is provided. If a [DEVICE DATA] line says something is unavailable, tell the user why in simple words.
+            When the user asks for someone's phone number, never open the Contacts app and never search the web for it: the number comes in [DEVICE DATA]. If the data says no contact matched, say you couldn't find that contact.
+            A message may start with lines beginning with [DEVICE DATA]. They are live readings from the user's phone, taken just now, such as its location, battery, date and time, Bluetooth devices or the user's contacts. When [DEVICE DATA] is given, use it to answer in plain text. Never say you have no access to the phone's location or data if data is provided. If a [DEVICE DATA] line says something is unavailable, tell the user why in simple words. Lines starting with "On <device name>:" were read on that linked device, not this one.
 
             For anything else, chat naturally in plain text, in a few sentences at most. Don't use markdown. Never invent other actions, and never claim you did something on the phone unless you used an ACTION line.
         """.trimIndent()

@@ -28,7 +28,7 @@ class ContactsTool(context: Context) : DeviceTool {
         if (words.isEmpty()) return "Contacts: the message doesn't name anyone, so no contact was looked up."
         val found = withContext(Dispatchers.IO) { describe(words) }
         // "number for pizza" with no such contact: only report the miss if contacts were asked about by name.
-        return found ?: if (message.contains("contact", ignoreCase = true)) {
+        return found ?: if (SAYS_CONTACT.containsMatchIn(message)) {
             "Contacts: no contact with a phone number matches " + words.joinToString(" or ") { "\"$it\"" } + "."
         } else {
             null
@@ -37,10 +37,12 @@ class ContactsTool(context: Context) : DeviceTool {
 
     /** The matching contacts as one line, or null if none match. */
     private fun describe(words: List<String>): String? {
-        val best = directory.search(words).take(MAX_RESULTS)
+        // Only the best matches: other words in the message ("check my benco...") mustn't drag in strangers.
+        val found = directory.search(words)
+        val best = found.filter { it.score == found.first().score }.take(MAX_RESULTS)
         if (best.isEmpty()) return null
         val emails = directory.emails(best.map { it.id })
-        return "Contacts matching the message: " + best.joinToString("; ") { p ->
+        return "$FOUND " + best.joinToString("; ") { p ->
             buildString {
                 append(p.name).append(": ").append(p.numbers.joinToString(", ") { "${it.value} (${it.label})" })
                 emails[p.id]?.let { append(", email ").append(it.joinToString(", ")) }
@@ -54,8 +56,14 @@ class ContactsTool(context: Context) : DeviceTool {
         const val READ = Manifest.permission.READ_CONTACTS
         const val MAX_RESULTS = 5
 
+        /** Starts the line when contacts were found. */
+        const val FOUND = "Contacts matching the message:"
+
+        /** "contact", "contacts", and the usual misspellings ("contack", "contect"). */
+        val SAYS_CONTACT = Regex("""\bconta?[ck]+t?s?\b|\bcontects?\b""", RegexOption.IGNORE_CASE)
+
         val TOPIC = Regex(
-            """\b(contacts?|phone numbers?|mobile numbers?|cell numbers?|numbers? for|""" +
+            """\b(contacts?|contack|contect|contac|kontakt|(?:his|her|their)\s+(?:phone\s+|mobile\s+)?number|phone numbers?|mobile numbers?|cell numbers?|numbers? for|""" +
                 """whatsapp number|email of|email address of|\w+'s (?:number|phone|mobile|email)|""" +
                 """ka (?:number|nmbr|phone|mobile)|ki (?:number|email))\b"""
         )

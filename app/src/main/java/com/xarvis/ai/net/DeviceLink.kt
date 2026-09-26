@@ -72,6 +72,9 @@ class DeviceLink(context: Context, private val handler: Handler) {
         suspend fun memorySnapshot(): JSONObject
         suspend fun memoryAdd(content: String, timestamp: Long)
         suspend fun memoryClear(timestamp: Long)
+
+        /** Live phone data (contacts, battery, location...) that [text] asks about, read on this device. */
+        suspend fun deviceData(text: String): List<String>
     }
 
     private val appContext = context.applicationContext
@@ -199,6 +202,22 @@ class DeviceLink(context: Context, private val handler: Handler) {
             JSONObject().put("text", text).put("facts", JSONArray(facts)).put("devices", JSONArray(devices)),
             timeoutMs = CHAT_READ_TIMEOUT_MS,
         ).getString("text")
+
+    /** Runs [peer]'s device tools on [text], e.g. to find a contact saved only on that phone. */
+    suspend fun remoteDeviceData(peer: Peer, text: String): List<String> =
+        request(peer, "tools", JSONObject().put("text", text), timeoutMs = TOOLS_READ_TIMEOUT_MS)
+            .optJSONArray("lines").toStrings()
+
+    /**
+     * The linked device a message talks about ("check my benco", "s22 battery"), matched on the
+     * distinctive words of its name; null if none is mentioned.
+     */
+    fun mentionedPeer(message: String): Peer? {
+        val words = message.lowercase().split(NAME_SPLIT).toSet()
+        return pairedPeers().firstOrNull { p ->
+            p.name.lowercase().split(NAME_SPLIT).any { it.length >= 3 && it !in GENERIC_NAME_WORDS && it in words }
+        }
+    }
 
     suspend fun pullMemory(peer: Peer): JSONObject = request(peer, "memory_get").getJSONObject("memory")
 
@@ -375,6 +394,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
                 reply.put("text", text)
             }
             "memory_get" -> reply.put("memory", handler.memorySnapshot())
+            "tools" -> reply.put("lines", JSONArray(handler.deviceData(req.getString("text"))))
             "memory_add" -> {
                 handler.memoryAdd(req.getString("c"), req.getLong("t"))
                 reply.put("ok", true)
@@ -586,6 +606,14 @@ class DeviceLink(context: Context, private val handler: Handler) {
         private const val REQUEST_READ_TIMEOUT_MS = 15_000
         private const val PAIRING_READ_TIMEOUT_MS = 15_000
         private const val CHAT_READ_TIMEOUT_MS = 180_000
+        private const val TOOLS_READ_TIMEOUT_MS = 90_000 // may wait for the user to answer a permission dialog there
+        private val NAME_SPLIT = Regex("""[^\p{L}\p{N}]+""")
+
+        /** Words in device names too common to identify one ("Galaxy S22 Ultra" is found by "s22"). */
+        private val GENERIC_NAME_WORDS = setOf(
+            "the", "phone", "mobile", "device", "galaxy", "samsung", "plus", "pro", "max", "ultra", "mini", "lite",
+            "note", "tab", "android", "new", "old",
+        )
         private const val PAIRING_TIMEOUT_MS = 5 * 60_000L
         private const val MAX_CLOCK_SKEW_MS = 5 * 60_000L
         private const val NETWORK_SETTLE_MS = 3_000L
