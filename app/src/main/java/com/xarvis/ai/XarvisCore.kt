@@ -98,6 +98,7 @@ class XarvisCore(context: Context) {
         XarvisAgent(
             WorkflowEngine(context, memory, device, link, memorySync), memory, llm, link,
             tools,
+            appExists = { device.findApp(it) != null },
         )
 
     private val _state: MutableStateFlow<XarvisUiState> = MutableStateFlow(

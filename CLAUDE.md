@@ -20,6 +20,9 @@ Personal on-device AI assistant for Android, owned by Rex (developer credit: Saj
 - LiteRT-LM's GPU path corrupts text on the S22 (fp16 on a 2022 Adreno driver): obviously with the `-gpu` model build, subtly (odd mangled words) with the general build. `LocalLlm.calibrate()` compares GPU and CPU answers once per model file and picked **CPU** (~15 tokens/s). Don't switch the S22 to GPU; don't reintroduce the `-gpu` model (it can't run on CPU).
 - LiteRT-LM 0.17.1 has no fp32 activation option (it exists only on their main branch).
 - Small-model prompt behaviour is tuned in `XarvisAgent.SYSTEM_PROMPT`: questions must be answered, not turned into `remember`; `search` only for live info. There's also a code guard that turns re-saving a known fact into an answer.
+- Gemma E2B often ignores `[DEVICE DATA]` and answers "I don't have access to your location", worse as the system prompt grows. `XarvisAgent.ignoresData` catches refusals and replies that mention none of the data's numbers, and shows the data instead (`dataAnswer`). Keep the prompt short.
+- `open <x>` only becomes a LaunchApp when an installed app matches (with an LLM available); otherwise whole sentences like "open benco contact and check atiq..." were taken as app names.
+- The screen header shows `B<build number>` (GitHub run number = versionCode), to confirm which build is installed.
 - Anything Android 13 related: the notification permission prompt arrives after the service's first notification, so `MainActivity` re-posts it once granted.
 
 ## Architecture

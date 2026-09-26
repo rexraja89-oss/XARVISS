@@ -28,6 +28,8 @@ class XarvisAgent(
     private val llm: LocalLlm,
     private val link: DeviceLink,
     private val tools: DeviceToolRouter,
+    /** Whether an installed app answers to this name; "open <whole sentence>" isn't an app. */
+    private val appExists: (String) -> Boolean,
 ) {
 
     suspend fun loadModel() = llm.load(systemPrompt())
@@ -48,10 +50,9 @@ class XarvisAgent(
             val peer = link.mentionedPeer(command)
             val data = if (peer != null) peerData(peer, command, onPartial) else withLinkedContacts(command, tools.gather(command, onPartial), onPartial)
             val prompt = DeviceToolRouter.withDeviceData(command, data)
-            val hadData = data.isNotEmpty()
             when {
-                llm.isReady -> chat(prompt, command, hadData, onPartial)
-                brain != null -> remoteChat(brain, prompt, command, hadData)
+                llm.isReady -> chat(prompt, command, data, onPartial)
+                brain != null -> remoteChat(brain, prompt, command, data)
                 data.isNotEmpty() -> data.joinToString("\n") // no AI anywhere: show the data itself
                 else -> unknownCommand(command)
             }
@@ -117,7 +118,7 @@ class XarvisAgent(
     }
 
     /** [prompt] is what the LLM sees ([message] plus any device data); [message] is what the user typed. */
-    private suspend fun chat(prompt: String, message: String, hadData: Boolean, onPartial: (String) -> Unit): String {
+    private suspend fun chat(prompt: String, message: String, data: List<String>, onPartial: (String) -> Unit): String {
         val raw = StringBuilder()
         try {
             llm.chat(prompt) { chunk ->
@@ -127,25 +128,27 @@ class XarvisAgent(
         } catch (t: Throwable) {
             return "My language model hit an error: ${t.message ?: t.javaClass.simpleName}"
         }
-        return finishReply(message, raw.toString(), hadData)
+        return finishReply(message, raw.toString(), data)
     }
 
-    private suspend fun remoteChat(brain: Peer, prompt: String, message: String, hadData: Boolean): String {
+    private suspend fun remoteChat(brain: Peer, prompt: String, message: String, data: List<String>): String {
         val raw = try {
             link.remoteChat(brain, facts(), linkedDeviceNames(), prompt)
         } catch (e: Exception) {
             return "I couldn't reach ${brain.name}'s AI model: ${e.message ?: e.javaClass.simpleName}"
         }
-        return finishReply(message, raw, hadData)
+        return finishReply(message, raw, data)
     }
 
     /**
-     * Shows the reply's text and runs any ACTION lines in it. With [hadData], the answer was in the
-     * device data, so an "open <app>" the user didn't ask for (e.g. opening Contacts instead of
-     * reading the number) is dropped.
+     * Shows the reply's text and runs any ACTION lines in it. When device [data] was read, the answer
+     * is in it: an "open <app>" the user didn't ask for (e.g. opening Contacts instead of reading
+     * the number) is dropped, and a reply that ignores the data is replaced by the data itself.
      */
-    private suspend fun finishReply(message: String, raw: String, hadData: Boolean): String {
-        val text = visibleText(raw).trim()
+    private suspend fun finishReply(message: String, raw: String, data: List<String>): String {
+        val hadData = data.isNotEmpty()
+        val modelText = visibleText(raw).trim()
+        val text = if (hadData && ignoresData(modelText, data)) dataAnswer(data) else modelText
         val known = facts()
         val actions = ACTION_LINE.findAll(raw)
             .mapNotNull { parseStep(it.groupValues[1].trim(), strict = true, fromUser = false) }
@@ -237,6 +240,7 @@ class XarvisAgent(
         }
 
         match(t, """^(?:please\s+)?(?:open|launch|start|run)\s+(?:the\s+)?(.+?)(?:\s+app)?$""")
+            ?.takeIf { !strict || appExists(it) } // otherwise the LLM works out what was meant
             ?.let { return Step.LaunchApp(it) }
 
         // "search benco for Atiq's number" is about the user's own phones, not the web.
@@ -274,6 +278,33 @@ class XarvisAgent(
 
     companion object {
         /** "what can you do", "what help can you do", "what are your features". */
+        /** Stock refusals a small model gives even when the data is right there in its prompt. */
+        private val REFUSAL = Regex(
+            listOf(
+                """(?:don't|do not|can't|cannot|can not|am unable to|unable to)\s+(?:have\s+)?(?:access|see|check|know|track|determine|find|get)""",
+                """no access""", """language model""", """physical location""", """as an ai""",
+                """open the contacts""", """need to open""",
+            ).joinToString("|"),
+            RegexOption.IGNORE_CASE,
+        )
+        private val DATA_NUMBER = Regex("""\d{2,}""")
+
+        /**
+         * Whether a reply ignores the device data it was given: it refuses, or the data has numbers
+         * (a phone number, a battery level, coordinates, the time) and the reply mentions none of them.
+         */
+        internal fun ignoresData(reply: String, data: List<String>): Boolean {
+            if (reply.isBlank() || REFUSAL.containsMatchIn(reply)) return true
+            val numbers = data.flatMap { line -> DATA_NUMBER.findAll(line).map { it.value }.toList() }.toSet()
+            val replyDigits = reply.filter { it.isDigit() || it.isWhitespace() }
+            return numbers.isNotEmpty() && numbers.none { it in reply || it in replyDigits.replace(" ", "") }
+        }
+
+        /** The device data as a reply, for when the model's own answer can't be trusted. */
+        internal fun dataAnswer(data: List<String>): String = data.joinToString("\n") { line ->
+            line.replace(ContactsTool.FOUND, "Contacts found:")
+        }
+
         internal val HELP_QUESTION = Regex(
             """^(?:what|which)\s+(?:help|things|features|commands)\b.*\b(?:can you|do you)|^what can you do\b|^what are your (?:features|abilities|commands|skills)"""
         )

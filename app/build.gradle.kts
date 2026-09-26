@@ -12,8 +12,10 @@ android {
         applicationId = "com.xarvis.ai"
         minSdk = 28
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0.0"
+        // Each GitHub build gets its own number, shown on the XARVIS screen, so it's clear which one is installed.
+        val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionCode = build
+        versionName = "1.0.$build"
     }
 
     buildTypes {
@@ -33,6 +35,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     testOptions {

@@ -12,6 +12,10 @@ class ContactsDirectoryTest {
         assertEquals(listOf("ali", "khan"), ContactsDirectory.nameWords("call Ali Khan"))
         assertEquals(listOf("atiq"), ContactsDirectory.nameWords("i want atiq contact Number over here"))
         assertEquals(
+            listOf("benco", "atiq", "qc"),
+            ContactsDirectory.nameWords("open benco contact and check atiq Qc, send me the atiq qc contact number here"),
+        )
+        assertEquals(
             listOf("benco", "atiq"),
             ContactsDirectory.nameWords("i want you to check my benco mobile, there is a contack saved atiq. i want his number"),
         )

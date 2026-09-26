@@ -115,7 +115,7 @@ private fun Header(isProcessing: Boolean, memoryCount: Int, linkedCount: Int, ll
             } else {
                 Box(Modifier.size(8.dp).background(XarvisCyan, CircleShape))
                 Spacer(Modifier.size(8.dp))
-                Text("ONLINE · $memoryCount MEM · $linkedCount LINKED", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+                Text("ONLINE · $memoryCount MEM · $linkedCount LINKED · B${com.xarvis.ai.BuildConfig.VERSION_CODE}", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
             }
         }
         val (label, color) = when (llmStatus) {

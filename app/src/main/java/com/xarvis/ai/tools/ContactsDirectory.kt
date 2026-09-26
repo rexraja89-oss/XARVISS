@@ -71,7 +71,7 @@ class ContactsDirectory(context: Context) {
             "mujhe", "batao", "bata", "dikhao", "nmbr", "call", "message", "text", "sms", "xarvis", "hey", "hi",
             "karo", "kro", "lagao", "now", "right", "abhi", "check", "there", "saved", "save", "named", "called",
             "name", "over", "here", "this", "that", "it", "from", "search", "look", "up", "someone", "person", "friend",
-            "bhai", "wala", "wali", "contack", "contect", "contac", "kontakt", "him", "them", "on", "at", "by",
+            "bhai", "wala", "wali", "contack", "contect", "contac", "kontakt", "him", "them", "on", "at", "by", "open",
         )
 
         private val WORD_SPLIT = Regex("""[^\p{L}\p{N}]+""")
