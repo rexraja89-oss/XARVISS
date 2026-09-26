@@ -396,10 +396,11 @@ class DeviceLink(context: Context, private val handler: Handler) {
         }
         // Follow DHCP address changes (loopback means an adb bridge, whose address is set by hand).
         // Changes arriving over Tailscale aren't home addresses, so they don't replace the Wi-Fi one.
-        if (!c.remoteIsLoopback && c.remoteHost != null && !isTailnet(c.remoteHost) &&
-            (peer.host != c.remoteHost || peer.port != req.optInt("port", peer.port))
+        val from = c.remoteHost
+        if (!c.remoteIsLoopback && from != null && !isTailnet(from) &&
+            (peer.host != from || peer.port != req.optInt("port", peer.port))
         ) {
-            peer.host = c.remoteHost
+            peer.host = from
             peer.port = req.optInt("port", peer.port)
             savePeers()
         }
