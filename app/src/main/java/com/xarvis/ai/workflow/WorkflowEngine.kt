@@ -42,6 +42,8 @@ sealed interface Step {
     data class ShowMap(val place: String?) : Step
     /** Search for [query] inside [app] ("find in Gmail: Adarsh"), rather than on the web. */
     data class FindInApp(val app: String, val query: String) : Step
+    /** Give [text] to [app] as shared text, e.g. a question typed into ChatGPT, ready to send. */
+    data class AskApp(val app: String, val text: String) : Step
 
     // Linking phones (exact commands)
     data object ListDevices : Step
@@ -110,6 +112,7 @@ class WorkflowEngine(
 
         is Step.FindContact -> findContact(step.name)
         is Step.FindInApp -> findInApp(step.app, step.query)
+        is Step.AskApp -> askApp(step.app, step.text)
         Step.Location -> StepResult(true, location.read())
         Step.Battery -> StepResult(true, battery.read())
         Step.BluetoothStatus -> StepResult(true, bluetoothInfo.read())
@@ -178,6 +181,32 @@ class WorkflowEngine(
         return try {
             appContext.startActivity(launch)
             StepResult(true, "Opened ${app.label}. It doesn't accept searches from other apps, so I copied \"$query\": tap its search box and paste.")
+        } catch (e: ActivityNotFoundException) {
+            StepResult(false, "${app.label} couldn't be opened.")
+        }
+    }
+
+    /**
+     * Shares [text] to the app, which is how other apps hand text to ChatGPT, Gemini, WhatsApp
+     * and similar: it opens with the text typed in and Rex taps send. Apps that don't take
+     * shared text are opened with the text copied, ready to paste.
+     */
+    private fun askApp(appName: String, text: String): StepResult {
+        val app = device.findApp(appName) ?: return StepResult(false, "I couldn't find an app called \"$appName\" on this phone.")
+        try {
+            appContext.startActivity(
+                Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+                    .setPackage(app.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            return StepResult(true, "I've put your message into ${app.label}. Tap send there.")
+        } catch (e: Exception) {
+            // This app doesn't take shared text.
+        }
+        val launch = device.launchIntent(app) ?: return StepResult(false, "${app.label} couldn't be opened.")
+        appContext.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("message", text))
+        return try {
+            appContext.startActivity(launch)
+            StepResult(true, "Opened ${app.label} and copied your message: tap its text box, paste, and send.")
         } catch (e: ActivityNotFoundException) {
             StepResult(false, "${app.label} couldn't be opened.")
         }

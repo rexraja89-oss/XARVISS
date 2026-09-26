@@ -39,6 +39,10 @@ class ToolCallsTest {
         assertEquals(Step.ShowMap(null), one("TOOL: map"))
         assertEquals(Step.FindInApp("gmail", "Adarsh.Kelathedath@madinagulf.com"), one("TOOL: find gmail: Adarsh.Kelathedath@madinagulf.com"))
         assertEquals(Step.FindContact("Atiq"), one("TOOL: find contact Atiq")) // not an app search
+        assertEquals(
+            Step.AskApp("chat gpt", "how to create a new app on a mobile phone such as Samsung s22 ultra"),
+            one("TOOL: ask chat gpt: \"how to create a new app on a mobile phone such as Samsung s22 ultra\""),
+        )
         assertEquals(Step.ShowMap("Dubai Mall"), one("TOOL: map Dubai Mall"))
     }
 

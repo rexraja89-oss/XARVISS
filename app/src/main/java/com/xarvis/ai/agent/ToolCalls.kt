@@ -36,6 +36,10 @@ object ToolCalls {
             return if (who.isNotBlank() && text != null) Step.Sms(who, text) else null
         }
         arg(t, "map|maps|navigate|navigate to|directions|directions to")?.let { return Step.ShowMap(it.ifBlank { null }) }
+        arg(t, "ask|send to|share to|type in")?.let { a ->
+            val (app, text) = splitMessage(a)
+            if (app.isNotBlank() && text != null) return Step.AskApp(app, text.trim('"', '\'').trim())
+        }
         arg(t, "find in|find|search in")?.let { a ->
             val (app, query) = splitMessage(a)
             if (app.isNotBlank() && query != null) return Step.FindInApp(app, query)
