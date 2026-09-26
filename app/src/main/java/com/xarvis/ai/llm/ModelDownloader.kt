@@ -58,7 +58,7 @@ class ModelDownloader(context: Context, private val onComplete: suspend () -> Un
             .setDescription("Gemma 4 (about 2.4 GB)")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
             .setDestinationInExternalFilesDir(appContext, null, "models/${partFile.name}")
-            .setAllowedOverMetered(false) // 2.4 GB: Wi-Fi only, so it can't use up mobile data
+            .setAllowedOverMetered(true) // Rex chose mobile data (faster for him than his Wi-Fi)
             .setAllowedOverRoaming(false)
         val id = try {
             manager.enqueue(request)
@@ -117,7 +117,6 @@ class ModelDownloader(context: Context, private val onComplete: suspend () -> Un
     }
 
     private fun pause(reason: Int) = when (reason) {
-        DownloadManager.PAUSED_QUEUED_FOR_WIFI -> "waiting for Wi-Fi"
         DownloadManager.PAUSED_WAITING_FOR_NETWORK -> "waiting for internet"
         DownloadManager.PAUSED_WAITING_TO_RETRY -> "connection dropped, retrying soon"
         else -> "paused"

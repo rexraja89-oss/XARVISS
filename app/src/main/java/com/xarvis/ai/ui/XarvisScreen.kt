@@ -169,7 +169,7 @@ private fun ModelSetup(download: ModelDownload, onDownload: () -> Unit) {
                     Spacer(Modifier.size(6.dp))
                 }
                 Text(
-                    "This phone has no AI model yet. Download Gemma 4 (about 2.4 GB) over Wi-Fi.",
+                    "This phone has no AI model yet. Download Gemma 4 (about 2.4 GB, on Wi-Fi or mobile data).",
                     style = MaterialTheme.typography.bodyMedium, color = XarvisCyan,
                 )
                 Spacer(Modifier.size(8.dp))

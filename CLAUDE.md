@@ -18,7 +18,7 @@ Personal on-device AI assistant for Android, owned by Rex (developer credit: Saj
 
 ## The AI model file
 
-- Gemma lives in the app's own folder (`Android/data/com.xarvis.ai/files/models/`), so **uninstalling XARVIS deletes it**. With no model, the screen shows a "DOWNLOAD AI MODEL" button (`llm/ModelDownloader.kt`): Android's DownloadManager fetches `gemma-4-E2B-it.litertlm` (~2.4 GB, Wi-Fi only) from huggingface.co/litert-community/gemma-4-E2B-it-litert-lm to a `.download` file, renames it when complete, then loads it. huggingface.co is blocked from the Claude sandbox, so this can't be tested here.
+- Gemma lives in the app's own folder (`Android/data/com.xarvis.ai/files/models/`), so **uninstalling XARVIS deletes it**. With no model, the screen shows a "DOWNLOAD AI MODEL" button (`llm/ModelDownloader.kt`): Android's DownloadManager fetches `gemma-4-E2B-it.litertlm` (~2.4 GB, Wi-Fi or mobile data, not roaming: Rex chose mobile data) from huggingface.co/litert-community/gemma-4-E2B-it-litert-lm to a `.download` file, renames it when complete, then loads it. huggingface.co is blocked from the Claude sandbox, so this can't be tested here.
 
 ## Devices
 
