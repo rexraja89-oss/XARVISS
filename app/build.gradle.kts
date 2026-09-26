@@ -14,7 +14,7 @@ android {
         targetSdk = 37
         // Each GitHub build gets its own number, shown on the XARVIS screen, so it's clear which one is installed.
         val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
-        versionCode = build
+        versionCode = System.getenv("TEST_VERSION_CODE")?.toIntOrNull() ?: build
         versionName = "1.0.$build"
     }
 
@@ -48,6 +48,15 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    // Test only: the same app with different permissions left out, to find which one the benco rejects.
+    flavorDimensions += "perm"
+    productFlavors {
+        create("t1full") { dimension = "perm" }
+        create("t2nocall") { dimension = "perm" }
+        create("t3nocallnolocation") { dimension = "perm" }
+        create("t4nonewpermissions") { dimension = "perm" }
     }
 
     buildFeatures {
