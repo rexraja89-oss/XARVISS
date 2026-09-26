@@ -1,0 +1,25 @@
+# One-off test: republish the v1.0.26 build (which installed on the benco) as a direct download,
+# to find out whether something added after it stops the benco from installing XARVIS.
+name: Republish v1.0.26 for testing
+on:
+  push:
+    branches: [ test-v1026 ]
+jobs:
+  republish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        name: XARVIS-v1.0.26-apk
+        run-id: 36264874528
+        github-token: ${{ github.token }}
+        path: out
+    - env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        cp out/app-debug.apk XARVIS-v1.0.26-test.apk
+        gh release create test-v1.0.26 XARVIS-v1.0.26-test.apk --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+          --prerelease --title "Test: XARVIS v1.0.26" --notes "Old build, only to test installing on the benco."
