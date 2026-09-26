@@ -115,7 +115,9 @@ class XarvisAgent(
         val lookups = ToolCalls.parse(raw).filterIsInstance<Step.Lookup>()
         if (lookups.isEmpty()) return raw
         onPartial("Looking it up on Wikipedia…")
-        val facts = lookups.take(2).joinToString("\n\n") { "Wikipedia on \"${it.query}\":\n" + WebLookup.lookup(it.query) }
+        val found = mutableListOf<String>()
+        for (l in lookups.take(2)) found += "Wikipedia on \"${l.query}\":\n" + WebLookup.lookup(l.query)
+        val facts = found.joinToString("\n\n")
         val answer = runCatching { ask(LOOKUP_RESULT_PREFIX + facts) }.getOrNull()
         return answer?.takeIf { ToolCalls.visibleText(it).isNotBlank() } ?: facts
     }
