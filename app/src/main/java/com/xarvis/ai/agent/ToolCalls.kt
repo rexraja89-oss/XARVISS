@@ -43,8 +43,10 @@ object ToolCalls {
  * must be passed on exactly as typed, not interpreted.
  */
 object LinkCommands {
-    fun parse(message: String): Step? {
+    /** [pairing]: a pairing code is awaited, so a bare 6-digit number is that code. */
+    fun parse(message: String, pairing: Boolean = false): Step? {
         val t = message.trim().trimEnd('.', '!', '?')
+        if (pairing && Regex("""^\d{6}$""").matches(t)) return Step.PairCode(t)
         if (t.lowercase() in setOf("devices", "linked devices", "my devices", "list devices")) return Step.ListDevices
         find(t, """^(?:pair|link)\s+with\s+(.+)$""")?.let { return Step.PairWith(it) }
         find(t, """^code\s+(\d{6})$""")?.let { return Step.PairCode(it) }

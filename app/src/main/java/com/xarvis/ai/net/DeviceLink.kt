@@ -181,8 +181,11 @@ class DeviceLink(context: Context, private val handler: Handler) {
         peers[peer.id] = peer
         savePeers()
         handler.onPeersChanged()
-        return "Linked with ${p.name}. Try \"${shortName(p.name)} status\" or \"send to ${shortName(p.name)}: hello\"."
+        return "Linked with ${p.name}. Your memories are now shared between the two phones."
     }
+
+    /** Whether this phone is waiting for the user to type another phone's pairing code. */
+    val pairingInProgress: Boolean get() = pendingOutgoing?.expired == false
 
     fun findPeer(query: String): Peer? {
         val words = normalize(query).split(' ').filter { it.isNotBlank() }

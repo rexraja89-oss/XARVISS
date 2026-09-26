@@ -28,7 +28,7 @@ class XarvisAgent(
 
     /** Handles one message; [onPartial] receives the reply so far while Gemma is writing it. */
     suspend fun handle(message: String, onPartial: (String) -> Unit = {}): String {
-        val response = LinkCommands.parse(message)?.let { run(listOf(it)) } ?: askGemma(message, onPartial)
+        val response = LinkCommands.parse(message, link.pairingInProgress)?.let { run(listOf(it)) } ?: askGemma(message, onPartial)
         memory.logInteraction(message, response)
         return response
     }
@@ -97,6 +97,7 @@ class XarvisAgent(
      */
     private suspend fun facts(): List<String> {
         val newestFirst = memory.allFacts().sortedByDescending { it.timestamp }.map { it.content }
+            .filterNot { PAIRING_CODE.matches(it.trim()) } // a code typed without "code" was once saved as a memory
         var used = 0
         return newestFirst.takeWhile { used += it.length + 3; used <= MAX_FACT_CHARS }.reversed()
     }
@@ -113,6 +114,7 @@ class XarvisAgent(
         }
 
         private const val MAX_FACT_CHARS = 3000
+        private val PAIRING_CODE = Regex("""\d{6}""")
 
         /** Put before each message: Gemma's template shows the system prompt only once, at the start of a chat. */
         private const val IDENTITY_REMINDER = "(You are XARVIS, created by Rex. Never say you were made by Google.)\n\n"

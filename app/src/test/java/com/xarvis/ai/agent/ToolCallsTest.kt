@@ -43,5 +43,8 @@ class ToolCallsTest {
         assertEquals(Step.Unlink("benco"), LinkCommands.parse("unlink benco"))
         assertEquals(null, LinkCommands.parse("what time is it"))
         assertEquals(null, LinkCommands.parse("code 12345"))
+        // While pairing, the code alone is enough; otherwise a number is just a message for Gemma.
+        assertEquals(Step.PairCode("010141"), LinkCommands.parse("010141", pairing = true))
+        assertEquals(null, LinkCommands.parse("010141"))
     }
 }
