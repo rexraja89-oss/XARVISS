@@ -6,6 +6,7 @@ import com.xarvis.ai.llm.LocalLlm
 import com.xarvis.ai.memory.MemorySystem
 import com.xarvis.ai.net.DeviceLink
 import com.xarvis.ai.net.Peer
+import com.xarvis.ai.tools.DeviceToolRouter
 import com.xarvis.ai.workflow.Step
 import com.xarvis.ai.workflow.Workflow
 import com.xarvis.ai.workflow.WorkflowEngine
@@ -16,13 +17,16 @@ import com.xarvis.ai.workflow.WorkflowEngine
  * Exact commands ("open spotify", "remember ...") go through the rule parser, which is
  * instant. Anything else goes to an LLM: this device's own, or a linked device's when this
  * one has none. The LLM either chats back or answers with `ACTION:` lines, which are parsed
- * by the same rules and always run on this device.
+ * by the same rules and always run on this device. Before a message reaches the LLM, the
+ * [tools] router reads any live phone data it asks about (e.g. location) and adds it as
+ * `[DEVICE DATA]` lines.
  */
 class XarvisAgent(
     private val engine: WorkflowEngine,
     private val memory: MemorySystem,
     private val llm: LocalLlm,
     private val link: DeviceLink,
+    private val tools: DeviceToolRouter,
 ) {
 
     suspend fun loadModel() = llm.load(systemPrompt())
@@ -35,11 +39,18 @@ class XarvisAgent(
         // Only look for a linked "brain" when there's no local model, so normal use never waits on the network.
         val brain = if (llm.isReady) null else link.findBrain()
         val workflow = plan(command, strict = llm.isReady || brain != null)
-        val response = when {
-            workflow != null -> run(workflow)
-            llm.isReady -> chat(command, onPartial)
-            brain != null -> remoteChat(brain, command)
-            else -> unknownCommand(command)
+        val response = if (workflow != null) {
+            run(workflow)
+        } else {
+            // Read on this device even when a linked device's LLM answers: it's this phone's location.
+            val data = tools.gather(command, onPartial)
+            val prompt = DeviceToolRouter.withDeviceData(command, data)
+            when {
+                llm.isReady -> chat(prompt, command, onPartial)
+                brain != null -> remoteChat(brain, prompt, command)
+                data.isNotEmpty() -> data.joinToString("\n") // no AI anywhere: show the data itself
+                else -> unknownCommand(command)
+            }
         }
         memory.logInteraction(command, response)
         return response
@@ -72,10 +83,11 @@ class XarvisAgent(
         return results.joinToString("\n") { it.message }
     }
 
-    private suspend fun chat(message: String, onPartial: (String) -> Unit): String {
+    /** [prompt] is what the LLM sees ([message] plus any device data); [message] is what the user typed. */
+    private suspend fun chat(prompt: String, message: String, onPartial: (String) -> Unit): String {
         val raw = StringBuilder()
         try {
-            llm.chat(message) { chunk ->
+            llm.chat(prompt) { chunk ->
                 raw.append(chunk)
                 onPartial(visibleText(raw.toString()))
             }
@@ -85,9 +97,9 @@ class XarvisAgent(
         return finishReply(message, raw.toString())
     }
 
-    private suspend fun remoteChat(brain: Peer, message: String): String {
+    private suspend fun remoteChat(brain: Peer, prompt: String, message: String): String {
         val raw = try {
-            link.remoteChat(brain, facts(), linkedDeviceNames(), message)
+            link.remoteChat(brain, facts(), linkedDeviceNames(), prompt)
         } catch (e: Exception) {
             return "I couldn't reach ${brain.name}'s AI model: ${e.message ?: e.javaClass.simpleName}"
         }
@@ -237,6 +249,8 @@ class XarvisAgent(
 
             Only use "remember" when the user tells you something new and wants you to keep it. When the user asks a question, such as "what is my name?", answer it in plain text using what you know, and never use an ACTION line for it.
             Only use "search" when the user asks you to search or look something up, or needs live information such as news, weather, prices or opening hours. Answer general knowledge, facts, jokes, explanations and advice yourself.
+
+            A message may start with lines beginning with [DEVICE DATA]. They are live readings from the user's phone, taken just now, such as its current location. When [DEVICE DATA] is given, use it to answer in plain text. Never say you have no access to the phone's location or data if data is provided. If a [DEVICE DATA] line says something is unavailable, tell the user why in simple words.
 
             For anything else, chat naturally in plain text, in a few sentences at most. Don't use markdown. Never invent other actions, and never claim you did something on the phone unless you used an ACTION line.
         """.trimIndent()

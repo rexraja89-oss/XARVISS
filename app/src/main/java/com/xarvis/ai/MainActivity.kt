@@ -17,6 +17,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.xarvis.ai.service.AlwaysOn
 import com.xarvis.ai.service.XarvisService
+import com.xarvis.ai.tools.PermissionGate
 import com.xarvis.ai.ui.XarvisScreen
 import com.xarvis.ai.ui.theme.XarvisTheme
 
@@ -29,8 +30,21 @@ class MainActivity : ComponentActivity() {
         askBatteryExemptionOnce()
     }
 
+    // Permissions that device tools (like location) ask for in the middle of a chat.
+    private var onToolPermissionResult: (() -> Unit)? = null
+    private val toolPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        onToolPermissionResult?.invoke()
+        onToolPermissionResult = null
+    }
+    private val permissionRequester = PermissionGate.Requester { permissions, onResult ->
+        onToolPermissionResult?.invoke() // a newer request replaces an unanswered one
+        onToolPermissionResult = onResult
+        toolPermissions.launch(permissions)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        PermissionGate.attach(permissionRequester)
         enableEdgeToEdge()
         setContent {
             XarvisTheme {
@@ -44,6 +58,13 @@ class MainActivity : ComponentActivity() {
         } else {
             askBatteryExemptionOnce()
         }
+    }
+
+    override fun onDestroy() {
+        PermissionGate.detach(permissionRequester)
+        onToolPermissionResult?.invoke()
+        onToolPermissionResult = null
+        super.onDestroy()
     }
 
     /**
