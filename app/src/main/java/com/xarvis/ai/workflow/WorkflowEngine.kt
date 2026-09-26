@@ -32,6 +32,16 @@ sealed interface Step {
     data class Unlink(val device: String) : Step
     data class SetAddress(val device: String, val host: String, val port: Int) : Step
     data class SetAlwaysOn(val enabled: Boolean) : Step
+
+    // Phone actions. [direct] calls place the call at once; others open the dialer.
+    data class Call(val target: String, val direct: Boolean) : Step
+    data class WhatsApp(val target: String, val text: String?) : Step
+    data class Sms(val target: String, val text: String) : Step
+    data class Flashlight(val on: Boolean) : Step
+    data class Alarm(val hour: Int, val minute: Int, val label: String?) : Step
+    data class Timer(val seconds: Int) : Step
+    data class Bluetooth(val on: Boolean) : Step
+    data class Wifi(val on: Boolean) : Step
 }
 
 data class Workflow(val command: String, val steps: List<Step>)
@@ -47,6 +57,7 @@ class WorkflowEngine(
     private val memorySync: MemorySync,
 ) {
     private val appContext = context.applicationContext
+    private val phone = PhoneActions(appContext)
 
     suspend fun execute(workflow: Workflow): List<StepResult> {
         val results = mutableListOf<StepResult>()
@@ -130,6 +141,15 @@ class WorkflowEngine(
             link.setAddress(it, step.host, step.port)
             StepResult(true, "I'll reach ${it.name} at ${step.host}:${step.port}.")
         }
+
+        is Step.Call -> phone.call(step.target, step.direct)
+        is Step.WhatsApp -> phone.whatsApp(step.target, step.text)
+        is Step.Sms -> phone.sms(step.target, step.text)
+        is Step.Flashlight -> phone.flashlight(step.on)
+        is Step.Alarm -> phone.alarm(step.hour, step.minute, step.label)
+        is Step.Timer -> phone.timer(step.seconds)
+        is Step.Bluetooth -> phone.bluetooth(step.on)
+        is Step.Wifi -> phone.wifi(step.on)
     }
 
     private suspend fun linkStep(block: suspend () -> String): StepResult = try {

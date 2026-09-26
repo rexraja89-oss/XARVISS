@@ -67,11 +67,15 @@ class XarvisAgent(
      * Returns null if any part isn't a known command.
      */
     fun plan(command: String, strict: Boolean): Workflow? {
+        // A message's text may itself contain "then" ("text ali: see you then"); don't split it.
+        PhoneCommands.parse(command.trim(), fromUser = true)
+            ?.takeIf { it is Step.WhatsApp || it is Step.Sms }
+            ?.let { return Workflow(command, listOf(it)) }
         val parts = command
             .split(Regex("""\s*(?:,\s*)?\b(?:and then|then)\b\s*""", RegexOption.IGNORE_CASE))
             .map { it.trim() }
             .filter { it.isNotEmpty() }
-        val steps = parts.map { parseStep(it, strict) ?: return null }
+        val steps = parts.map { parseStep(it, strict, fromUser = true) ?: return null }
         return Workflow(command, steps)
     }
 
@@ -111,7 +115,7 @@ class XarvisAgent(
         val text = visibleText(raw).trim()
         val known = facts()
         val actions = ACTION_LINE.findAll(raw)
-            .mapNotNull { parseStep(it.groupValues[1].trim(), strict = true) }
+            .mapNotNull { parseStep(it.groupValues[1].trim(), strict = true, fromUser = false) }
             .map { step ->
                 // Small models sometimes answer "what is my name?" by re-saving the fact; say it instead.
                 val fact = (step as? Step.Remember)?.fact
@@ -165,12 +169,15 @@ class XarvisAgent(
     }
 
     /**
-     * Parses one command. In [strict] mode (an LLM is available) only exact commands match,
+     * Parses one command; [fromUser] is false for the LLM's ACTION lines. In [strict] mode (an LLM is available) only exact commands match,
      * so free-form messages that merely mention "time" or "battery" reach the LLM instead.
      */
-    private fun parseStep(text: String, strict: Boolean): Step? {
+    private fun parseStep(text: String, strict: Boolean, fromUser: Boolean): Step? {
         val t = text.trim().trimEnd('.', '!', '?')
         val lower = t.lowercase()
+
+        // Phone actions first: "call ali" and "text mom: hi" would otherwise look like other commands.
+        PhoneCommands.parse(t, fromUser)?.let { return it }
 
         // Linked devices first: "send ... to <device>" and "<device> status" would otherwise look like other commands.
         if (lower in DEVICES_COMMANDS) return Step.ListDevices
@@ -246,6 +253,17 @@ class XarvisAgent(
             ACTION: remember <fact, in the user's own words, e.g. "my birthday is June 3">
             ACTION: status
             ACTION: time
+            ACTION: call <contact name or number>
+            ACTION: whatsapp <contact name or number>: <message>
+            ACTION: sms <contact name or number>: <message>
+            ACTION: flashlight on
+            ACTION: flashlight off
+            ACTION: alarm <time, e.g. 7:30 am, or 6 am for gym>
+            ACTION: timer <duration, e.g. 10 minutes>
+            ACTION: bluetooth on
+            ACTION: bluetooth off
+            ACTION: wifi on
+            ACTION: wifi off
 
             Only use "remember" when the user tells you something new and wants you to keep it. When the user asks a question, such as "what is my name?", answer it in plain text using what you know, and never use an ACTION line for it.
             Only use "search" when the user asks you to search or look something up, or needs live information such as news, weather, prices or opening hours. Answer general knowledge, facts, jokes, explanations and advice yourself.
@@ -277,6 +295,13 @@ class XarvisAgent(
               status                device capabilities
               time                  current date and time
               forget everything     clear memory
+              call <name or number> call someone
+              whatsapp <name>: <message>   (you tap Send)
+              text <name>: <message>       (you tap Send)
+              flashlight on / off
+              alarm 7:30 am [for <label>]
+              timer 10 minutes
+              bluetooth on / off, wifi on / off
             Linked devices (same Wi-Fi, XARVIS open on both):
               devices               list linked devices
               pair with <device>    link another device (it shows a code)

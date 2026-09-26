@@ -27,6 +27,8 @@ See README.md. Entry points: `XarvisApp`/`XarvisCore` (process-wide core), `agen
 
 Device tools: `tools/DeviceToolRouter.kt` runs before a free-form message goes to the LLM. Each `DeviceTool` (location, battery, time, Bluetooth, contacts) that matches the message reads live data, which is prepended as `[DEVICE DATA]` lines; the system prompt tells Gemma to use it. Tools run on the device the user typed on, even when a linked device's LLM answers. Runtime permissions go through `PermissionGate`, which MainActivity attaches to. Add new tools to the list in `XarvisCore`.
 
+Phone actions (call, WhatsApp, SMS, flashlight, alarm, timer, Bluetooth, Wi-Fi) are `Step`s parsed by `agent/PhoneCommands.kt` (also the LLM's `ACTION:` forms) and run by `workflow/PhoneActions.kt`. Safety rules: only a call the user typed is placed directly; an LLM `ACTION: call` opens the dialer. WhatsApp/SMS open prefilled and the user taps Send. Android 10+/13+ don't let apps toggle Wi-Fi/Bluetooth off, so those open the system switch.
+
 ## Roadmap Rex asked for
 
 1. Reach devices away from home Wi-Fi (Tailscale; Rex must create the account himself).
