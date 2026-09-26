@@ -64,11 +64,6 @@ android {
         buildConfig = true
     }
 
-    packaging {
-        // pdfbox-android's BouncyCastle jars each carry the same Java 9 manifest.
-        resources.excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
-    }
-
     testOptions {
         // Unit tests cover plain logic; any Android call they touch returns a default instead of throwing.
         unitTests.isReturnDefaultValues = true
@@ -95,8 +90,6 @@ dependencies {
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.17.1")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("androidx.exifinterface:exifinterface:1.4.1")
-    // Reads the text of PDFs Rex attaches.
-    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303") // the real org.json; Android's is a stub in unit tests

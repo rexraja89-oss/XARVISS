@@ -3,10 +3,6 @@ package com.xarvis.ai.files
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
-import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
-import com.tom_roush.pdfbox.pdmodel.PDDocument
-import com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException
-import com.tom_roush.pdfbox.text.PDFTextStripper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -49,7 +45,7 @@ object DocumentReader {
         } ?: throw UnreadableFile("I couldn't open \"$name\". Try picking it again.")
 
         val text = when {
-            ext == "pdf" || mime == "application/pdf" -> pdf(context, name, bytes)
+            ext == "pdf" || mime == "application/pdf" -> pdf(name, bytes)
             ext == "docx" || mime.contains("wordprocessingml") -> office(name) { OfficeFiles.docxText(bytes) }
             ext == "xlsx" || mime.contains("spreadsheetml") -> office(name) { OfficeFiles.xlsxText(bytes) }
             ext == "pptx" || mime.contains("presentationml") -> office(name) { OfficeFiles.pptxText(bytes) }
@@ -68,16 +64,10 @@ object DocumentReader {
         Document(name, tidy.take(MAX_CHARS))
     }
 
-    private fun pdf(context: Context, name: String, bytes: ByteArray): String {
-        PDFBoxResourceLoader.init(context.applicationContext)
+    private fun pdf(name: String, bytes: ByteArray): String {
         return try {
-            PDDocument.load(bytes).use { doc ->
-                PDFTextStripper().apply {
-                    startPage = 1
-                    endPage = minOf(doc.numberOfPages, MAX_PDF_PAGES)
-                }.getText(doc)
-            }
-        } catch (e: InvalidPasswordException) {
+            PdfText.read(bytes, MAX_PDF_PAGES)
+        } catch (e: PdfText.LockedPdf) {
             throw UnreadableFile("\"$name\" is locked with a password, so I can't read it.")
         } catch (e: Exception) {
             throw UnreadableFile("I couldn't read the PDF \"$name\" (${e.message ?: "damaged file"}).")
