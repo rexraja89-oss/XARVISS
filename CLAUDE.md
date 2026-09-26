@@ -25,7 +25,7 @@ Personal on-device AI assistant for Android, owned by Rex (developer credit: Saj
 
 - **Galaxy S22 Ultra** (SM-S908E, Android 13, Snapdragon 8 Gen 1, 12 GB): main phone. Has the model at `/sdcard/Android/data/com.xarvis.ai/files/models/gemma-4-E2B-it.litertlm`.
 - **benco V91s Plus** (Unisoc T606, 6 GB real RAM, Android 13, no camera, no GPS): linked to the S22, has no model and uses the S22's over Wi-Fi.
-- Both are paired and on the same Wi-Fi. Memories sync between them.
+- Paired (re-paired after the benco reinstall on 27 Sep 2026). Both run Tailscale on rexraja89@gmail.com's tailnet; verified: the benco on mobile data reaches the S22's Gemma. Memories sync between them. Linking needs the same Wi-Fi only for pairing.
 
 ## How XARVIS answers
 
