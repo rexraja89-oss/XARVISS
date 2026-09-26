@@ -83,4 +83,5 @@ dependencies {
     implementation("androidx.exifinterface:exifinterface:1.4.1")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303") // the real org.json; Android's is a stub in unit tests
 }
