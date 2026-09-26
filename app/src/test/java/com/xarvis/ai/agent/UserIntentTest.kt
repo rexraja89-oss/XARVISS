@@ -27,4 +27,17 @@ class UserIntentTest {
         assertFalse(XarvisAgent.skippedTool("I'm glad to hear that."))
         assertFalse(XarvisAgent.skippedTool("Why did the computer go to the doctor? It had a virus!"))
     }
+
+    @Test fun timeOnlyWhenAsked() {
+        val time = listOf(Step.ReportTime)
+        assertTrue(XarvisAgent.mistakenTime("do you remember my every command from the time i build you", time))
+        listOf("what time is it?", "kitne baje hain", "what's the date today", "aaj kya tarikh hai", "time", "time now")
+            .forEach { assertFalse(it, XarvisAgent.mistakenTime(it, time)) }
+        assertFalse(XarvisAgent.mistakenTime("from the time i built you", listOf(Step.ListMemories)))
+    }
+
+    @Test fun memoriesTool() {
+        assertEquals(listOf(Step.ListMemories), ToolCalls.parse("TOOL: memories"))
+        assertEquals(listOf(Step.Remember("your car is white")), ToolCalls.parse("TOOL: remember my car is white"))
+    }
 }

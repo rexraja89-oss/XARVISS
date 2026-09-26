@@ -37,6 +37,9 @@ class MemorySync(
         return true
     }
 
+    /** Every remembered fact, oldest first. */
+    suspend fun facts(): List<String> = memory.allFacts().sortedBy { it.timestamp }.map { it.content }
+
     suspend fun forgetEverything() {
         val now = System.currentTimeMillis()
         memory.clear()

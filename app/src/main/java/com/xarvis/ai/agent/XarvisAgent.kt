@@ -153,6 +153,11 @@ class XarvisAgent(
         if (!usesTools(raw) && skippedTool(ToolCalls.visibleText(raw))) {
             runCatching { ask(TOOL_NUDGE) }.getOrNull()?.takeIf(::usesTools)?.let { raw = it }
         }
+        // "since the time I built you" once got the clock: time only when Rex asks about time.
+        if (mistakenTime(message, ToolCalls.parse(raw))) {
+            runCatching { ask(NOT_TIME_NUDGE) }.getOrNull()?.takeIf { !mistakenTime(message, ToolCalls.parse(it)) }?.let { raw = it }
+                ?: return finishReply(message, ToolCalls.visibleText(raw)) // its words, without the wrong tool
+        }
         raw = withLookups(raw, onPartial) { ask(it) }
         return finishReply(message, raw)
     }
@@ -247,6 +252,20 @@ class XarvisAgent(
         private const val LOOKUP_RESULT_PREFIX = "(Here is what Wikipedia says. Use it to answer Rex's last question " +
             "in a few sentences, in your own words. Don't use another lookup.)\n\n"
 
+        private const val NOT_TIME_NUDGE = "(Rex didn't ask what time it is. Answer his last message again, " +
+            "without the time tool.)"
+
+        /** Rex asking for the time or date: "what time is it", "kitne baje hain", "aaj kya tarikh hai". */
+        private val ABOUT_TIME = Regex(
+            """\b(?:what|which|tell|kya|current|aaj)\b.*\b(?:time|date|day|tarikh|din)\b|\btime\s+(?:now|is it|please)\b|""" +
+                """\bkitne\s+baje\b|\bwaqt\b|^\W*(?:time|date|day)\W*$""",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** Gemma chose the clock although Rex's message isn't asking for the time or date. */
+        internal fun mistakenTime(message: String, steps: List<Step>): Boolean =
+            Step.ReportTime in steps && !ABOUT_TIME.containsMatchIn(message)
+
         private const val TOOL_NUDGE = "(Rex wants you to do it now. Reply with only the matching TOOL line, " +
             "or with the FILE block if he asked for a file.)"
 
@@ -295,6 +314,7 @@ class XarvisAgent(
             You can use these tools. To use one, reply with only its line:
             TOOL: time
             TOOL: remember <fact>
+            TOOL: memories   (lists everything you remember)
             TOOL: open <app name>
             TOOL: contact <person's name>
             TOOL: call <person's name or number>
@@ -324,6 +344,8 @@ class XarvisAgent(
             Examples:
             User: what time is it? -> TOOL: time
             User: kitne baje hain -> TOOL: time
+            User: what do you remember about me? -> TOOL: memories
+            User: do you remember everything I told you since I made you? -> TOOL: memories
             User: remember my sister's name is Sara -> TOOL: remember my sister's name is Sara
             User: open youtube -> TOOL: open youtube
             User: what is Atiq's number? -> TOOL: contact Atiq
