@@ -5,6 +5,7 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -19,18 +20,38 @@ jobs:
         cache: gradle
     - name: Make gradlew executable
       run: chmod +x gradlew
-    - name: Build debug APK
+    - name: Set up the permanent signing key
+      env:
+        XARVIS_KEYSTORE: ${{ secrets.XARVIS_KEYSTORE }}
+      run: |
+        if [ -n "$XARVIS_KEYSTORE" ]; then
+          echo "$XARVIS_KEYSTORE" | tr -d ' \n\r' | base64 -d > "$RUNNER_TEMP/xarvis.keystore"
+          echo "XARVIS_KEYSTORE_FILE=$RUNNER_TEMP/xarvis.keystore" >> "$GITHUB_ENV"
+        else
+          echo "::warning title=No permanent signing key::The XARVIS_KEYSTORE secret isn't set, so this APK can't install as an upgrade over one signed with the permanent key."
+        fi
+    - name: Test and build debug APK
       run: |
         set -o pipefail
         ./gradlew testDebugUnitTest assembleDebug 2>&1 | tee build.log
+    - name: Check the APK is signed with the permanent key
+      run: |
+        apksigner=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
+        actual=$("$apksigner" verify --print-certs app/build/outputs/apk/debug/app-debug.apk | grep -m1 "SHA-256 digest" | awk '{print $NF}' | tr 'a-f' 'A-F' | sed 's/../&:/g; s/:$//')
+        expected=$(cat .github/signing-cert-sha256.txt)
+        echo "::notice title=Signing certificate::$actual"
+        if [ -n "$XARVIS_KEYSTORE_FILE" ] && [ "$actual" != "$expected" ]; then
+          echo "::error title=Wrong signing key::APK is signed with $actual, expected $expected"
+          exit 1
+        fi
     - name: Report build errors
       if: failure()
-      # Surfaces compiler errors as an annotation, readable through the GitHub API without the raw log.
+      # Surfaces compiler and test errors as an annotation, readable through the GitHub API without the raw log.
       run: |
         msg=$(grep -E "^e: |error:|What went wrong| FAILED$" -A3 build.log | head -60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
         echo "::error title=Build errors::${msg}"
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: XARVIS-debug-apk
+        name: XARVIS-v1.0.${{ github.run_number }}-apk
         path: app/build/outputs/apk/debug/app-debug.apk

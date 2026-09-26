@@ -2,19 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.VIBRATE" />
-    <!-- Answering "where am I?". Asked for the first time it's needed. -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <!-- "What's connected over Bluetooth?" and "What's Ali's number?". Asked for the first time they're needed. -->
-    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- The "find contact" tool. Asked for the first time it's needed. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
-    <!-- Phone actions: "call Ali" (asked for the first time), alarms and timers, Wi-Fi state. -->
-    <uses-permission android:name="android.permission.CALL_PHONE" />
-    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <uses-feature android:name="android.hardware.telephony" android:required="false" />
-    <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
     <!-- Linking with other XARVIS devices on the local network. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

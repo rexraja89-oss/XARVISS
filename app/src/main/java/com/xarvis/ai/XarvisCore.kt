@@ -9,12 +9,7 @@ import com.xarvis.ai.llm.LocalLlm
 import com.xarvis.ai.memory.MemorySync
 import com.xarvis.ai.memory.MemorySystem
 import com.xarvis.ai.net.DeviceLink
-import com.xarvis.ai.tools.BatteryTool
-import com.xarvis.ai.tools.BluetoothTool
-import com.xarvis.ai.tools.ContactsTool
-import com.xarvis.ai.tools.DeviceToolRouter
-import com.xarvis.ai.tools.LocationTool
-import com.xarvis.ai.tools.TimeTool
+import com.xarvis.ai.tools.ContactFinder
 import com.xarvis.ai.workflow.WorkflowEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -50,10 +45,7 @@ class XarvisCore(context: Context) {
     private val device = DeviceCapabilityManager(context)
     private val llm = LocalLlm(context)
 
-    // Phone data Gemma can be given; add new DeviceTools to this list.
-    private val tools = DeviceToolRouter(
-        listOf(LocationTool(context), BatteryTool(context), TimeTool(), BluetoothTool(context), ContactsTool(context)),
-    )
+    private val contacts = ContactFinder(context)
 
     private val link: DeviceLink = DeviceLink(context, object : DeviceLink.Handler {
         override suspend fun status(): String {
@@ -86,7 +78,7 @@ class XarvisCore(context: Context) {
         override suspend fun memorySnapshot(): JSONObject = memorySync.snapshot()
         override suspend fun memoryAdd(content: String, timestamp: Long) = memorySync.receiveFact(content, timestamp)
         override suspend fun memoryClear(timestamp: Long) = memorySync.receiveClear(timestamp)
-        override suspend fun deviceData(text: String): List<String> = tools.gather(text)
+        override suspend fun findContacts(name: String): List<String> = contacts.find(name).orEmpty()
     })
 
     private val memorySync: MemorySync = MemorySync(memory, link) {
@@ -95,15 +87,11 @@ class XarvisCore(context: Context) {
     }
 
     private val agent: XarvisAgent =
-        XarvisAgent(
-            WorkflowEngine(context, memory, device, link, memorySync), memory, llm, link,
-            tools,
-            appExists = { device.findApp(it) != null },
-        )
+        XarvisAgent(WorkflowEngine(context, device, link, memorySync, contacts), memory, llm, link)
 
     private val _state: MutableStateFlow<XarvisUiState> = MutableStateFlow(
         XarvisUiState(
-            messages = listOf(ChatMessage(false, "XARVIS online. Type \"help\" to see what I can do.")),
+            messages = listOf(ChatMessage(false, "XARVIS online. Ask me anything.")),
             capabilities = device.capabilities(),
             linkedCount = link.pairedPeers().size,
         )

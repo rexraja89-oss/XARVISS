@@ -18,7 +18,24 @@ android {
         versionName = "1.0.$build"
     }
 
+    // One permanent key, so every new build installs over the last one as an upgrade. CI decodes it
+    // from the XARVIS_KEYSTORE secret; without it (e.g. a local build) the default debug key is used.
+    val permanentKey = System.getenv("XARVIS_KEYSTORE_FILE")?.let { file(it) }?.takeIf { it.exists() }
+    signingConfigs {
+        if (permanentKey != null) {
+            create("xarvis") {
+                storeFile = permanentKey
+                storePassword = System.getenv("XARVIS_KEYSTORE_PASSWORD") ?: "xarvis-signing-key"
+                keyAlias = "xarvis"
+                keyPassword = System.getenv("XARVIS_KEYSTORE_PASSWORD") ?: "xarvis-signing-key"
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfigs.findByName("xarvis")?.let { signingConfig = it }
+        }
         release {
             isMinifyEnabled = true
             proguardFiles(
@@ -62,7 +79,6 @@ dependencies {
     ksp("androidx.room:room-compiler:2.8.5")
 
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.17.1")
-    implementation("com.google.android.gms:play-services-location:21.3.0")
 
     testImplementation("junit:junit:4.13.2")
 }

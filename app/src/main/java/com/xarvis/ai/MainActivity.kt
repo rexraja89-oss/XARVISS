@@ -45,6 +45,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         PermissionGate.attach(permissionRequester)
+        // Opening XARVIS turns background mode back on if the notification's Stop button turned it off.
+        if (!AlwaysOn.isEnabled(this)) AlwaysOn.set(this, true)
         enableEdgeToEdge()
         setContent {
             XarvisTheme {
