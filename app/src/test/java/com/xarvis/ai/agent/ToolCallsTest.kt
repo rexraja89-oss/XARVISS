@@ -3,6 +3,7 @@ package com.xarvis.ai.agent
 import com.xarvis.ai.workflow.Step
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.time.LocalTime
 
 /** Gemma picks the tool; these check XARVIS reads its choice correctly, however it's written. */
 class ToolCallsTest {
@@ -12,6 +13,35 @@ class ToolCallsTest {
         assertEquals(listOf(Step.Remember("your sister's name is Sara")), ToolCalls.parse("TOOL: remember my sister's name is Sara"))
         assertEquals(listOf(Step.LaunchApp("youtube")), ToolCalls.parse("TOOL: open youtube"))
         assertEquals(listOf(Step.FindContact("Atiq Qc")), ToolCalls.parse("TOOL: contact Atiq Qc"))
+    }
+
+    @Test fun phoneTools() {
+        val evening = LocalTime.of(20, 0)
+        fun one(line: String) = ToolCalls.parse(line, evening).single()
+        assertEquals(Step.Call("Ali"), one("TOOL: call Ali"))
+        assertEquals(Step.WhatsApp("Sara", "I'm running late"), one("TOOL: whatsapp Sara: I'm running late"))
+        assertEquals(Step.WhatsApp("Sara", null), one("TOOL: whatsapp Sara"))
+        assertEquals(Step.Sms("mom", "I'm on my way"), one("TOOL: sms mom: I'm on my way"))
+        assertEquals(Step.Location, one("TOOL: location"))
+        assertEquals(Step.Battery, one("TOOL: battery"))
+        assertEquals(Step.BluetoothStatus, one("TOOL: bluetooth"))
+        assertEquals(Step.Bluetooth(true), one("TOOL: bluetooth on"))
+        assertEquals(Step.Wifi(false), one("TOOL: wifi off"))
+        assertEquals(Step.Flashlight(true), one("TOOL: flashlight on"))
+        assertEquals(Step.Flashlight(false), one("TOOL: torch off"))
+        assertEquals(Step.Alarm(6, 30, null), one("TOOL: alarm 6:30 am"))
+        assertEquals(Step.Alarm(7, 0, null), one("TOOL: alarm 7")) // at 8 pm, "7" is the next 7 o'clock: 7 am
+        assertEquals(Step.Alarm(6, 0, "gym"), one("TOOL: alarm 6 am for gym"))
+        assertEquals(Step.Timer(600), one("TOOL: timer 10 minutes"))
+        assertEquals(Step.Timer(5400), one("TOOL: timer 1 hour 30 min"))
+        assertEquals(Step.Search("weather in Lahore"), one("TOOL: search weather in Lahore"))
+        assertEquals(Step.ReportTime, one("TOOL: time")) // "time" and "timer" don't get mixed up
+    }
+
+    @Test fun unclearPhoneToolsAreIgnored() {
+        assertEquals(emptyList<Step>(), ToolCalls.parse("TOOL: alarm tomorrow"))
+        assertEquals(emptyList<Step>(), ToolCalls.parse("TOOL: sms mom"))
+        assertEquals(emptyList<Step>(), ToolCalls.parse("TOOL: wifi"))
     }
 
     @Test fun looseFormatsSmallModelsWrite() {

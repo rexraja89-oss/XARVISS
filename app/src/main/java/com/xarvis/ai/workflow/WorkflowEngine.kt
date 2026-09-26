@@ -2,11 +2,16 @@ package com.xarvis.ai.workflow
 
 import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import com.xarvis.ai.device.DeviceCapabilityManager
 import com.xarvis.ai.memory.MemorySync
 import com.xarvis.ai.net.DeviceLink
 import com.xarvis.ai.net.Peer
+import com.xarvis.ai.tools.BatteryTool
+import com.xarvis.ai.tools.BluetoothTool
 import com.xarvis.ai.tools.ContactFinder
+import com.xarvis.ai.tools.LocationTool
 import java.text.DateFormat
 import java.util.Date
 
@@ -17,6 +22,18 @@ sealed interface Step {
     data class Remember(val fact: String) : Step
     data class LaunchApp(val appName: String) : Step
     data class FindContact(val name: String) : Step
+    data object Location : Step
+    data object Battery : Step
+    data object BluetoothStatus : Step
+    data class Bluetooth(val on: Boolean) : Step
+    data class Wifi(val on: Boolean) : Step
+    data class Call(val target: String) : Step
+    data class WhatsApp(val target: String, val text: String?) : Step
+    data class Sms(val target: String, val text: String) : Step
+    data class Flashlight(val on: Boolean) : Step
+    data class Alarm(val hour: Int, val minute: Int, val label: String?) : Step
+    data class Timer(val seconds: Int) : Step
+    data class Search(val query: String) : Step
 
     // Linking phones (exact commands)
     data object ListDevices : Step
@@ -36,6 +53,10 @@ class WorkflowEngine(
     private val contacts: ContactFinder,
 ) {
     private val appContext = context.applicationContext
+    private val phone = PhoneActions(appContext)
+    private val location = LocationTool(appContext)
+    private val battery = BatteryTool(appContext)
+    private val bluetoothInfo = BluetoothTool(appContext)
 
     suspend fun execute(steps: List<Step>): List<StepResult> {
         val results = mutableListOf<StepResult>()
@@ -72,6 +93,26 @@ class WorkflowEngine(
         }
 
         is Step.FindContact -> findContact(step.name)
+        Step.Location -> StepResult(true, location.read())
+        Step.Battery -> StepResult(true, battery.read())
+        Step.BluetoothStatus -> StepResult(true, bluetoothInfo.read())
+        is Step.Bluetooth -> phone.bluetooth(step.on)
+        is Step.Wifi -> phone.wifi(step.on)
+        is Step.Call -> phone.call(step.target)
+        is Step.WhatsApp -> phone.whatsApp(step.target, step.text)
+        is Step.Sms -> phone.sms(step.target, step.text)
+        is Step.Flashlight -> phone.flashlight(step.on)
+        is Step.Alarm -> phone.alarm(step.hour, step.minute, step.label)
+        is Step.Timer -> phone.timer(step.seconds)
+        is Step.Search -> try {
+            appContext.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=${Uri.encode(step.query)}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            StepResult(true, "Searching for \"${step.query}\".")
+        } catch (e: ActivityNotFoundException) {
+            StepResult(false, "There's no web browser on this phone.")
+        }
 
         Step.ListDevices -> StepResult(true, link.describeDevices())
         is Step.PairWith -> linkStep { link.startPairing(step.target) }
