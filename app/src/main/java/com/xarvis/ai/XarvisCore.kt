@@ -9,8 +9,12 @@ import com.xarvis.ai.llm.LocalLlm
 import com.xarvis.ai.memory.MemorySync
 import com.xarvis.ai.memory.MemorySystem
 import com.xarvis.ai.net.DeviceLink
+import com.xarvis.ai.tools.BatteryTool
+import com.xarvis.ai.tools.BluetoothTool
+import com.xarvis.ai.tools.ContactsTool
 import com.xarvis.ai.tools.DeviceToolRouter
 import com.xarvis.ai.tools.LocationTool
+import com.xarvis.ai.tools.TimeTool
 import com.xarvis.ai.workflow.WorkflowEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -87,8 +91,10 @@ class XarvisCore(context: Context) {
     private val agent: XarvisAgent =
         XarvisAgent(
             WorkflowEngine(context, memory, device, link, memorySync), memory, llm, link,
-            // Add new phone data tools (battery, time, Bluetooth, contacts...) to this list.
-            DeviceToolRouter(listOf(LocationTool(context))),
+            // Phone data Gemma can be given; add new DeviceTools to this list.
+            DeviceToolRouter(
+                listOf(LocationTool(context), BatteryTool(context), TimeTool(), BluetoothTool(context), ContactsTool(context)),
+            ),
         )
 
     private val _state: MutableStateFlow<XarvisUiState> = MutableStateFlow(

@@ -250,7 +250,7 @@ class XarvisAgent(
             Only use "remember" when the user tells you something new and wants you to keep it. When the user asks a question, such as "what is my name?", answer it in plain text using what you know, and never use an ACTION line for it.
             Only use "search" when the user asks you to search or look something up, or needs live information such as news, weather, prices or opening hours. Answer general knowledge, facts, jokes, explanations and advice yourself.
 
-            A message may start with lines beginning with [DEVICE DATA]. They are live readings from the user's phone, taken just now, such as its current location. When [DEVICE DATA] is given, use it to answer in plain text. Never say you have no access to the phone's location or data if data is provided. If a [DEVICE DATA] line says something is unavailable, tell the user why in simple words.
+            A message may start with lines beginning with [DEVICE DATA]. They are live readings from the user's phone, taken just now, such as its location, battery, date and time, Bluetooth devices or the user's contacts. When [DEVICE DATA] is given, use it to answer in plain text. Never say you have no access to the phone's location or data if data is provided. If a [DEVICE DATA] line says something is unavailable, tell the user why in simple words.
 
             For anything else, chat naturally in plain text, in a few sentences at most. Don't use markdown. Never invent other actions, and never claim you did something on the phone unless you used an ACTION line.
         """.trimIndent()
@@ -285,6 +285,8 @@ class XarvisAgent(
               send to <device>: <text>
               unlink <device>
               always on / always off   keep running in the background (on by default)
+            Ask about your location, battery, date/time, Bluetooth devices
+            or a contact's number, and the AI answers from live phone data.
             Memories are shared with linked devices.
             Chain steps with "then", e.g. "open spotify then search lofi beats".
             Anything else is answered by the on-device AI model (or a linked device's).

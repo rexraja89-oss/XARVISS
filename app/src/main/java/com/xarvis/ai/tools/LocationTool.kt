@@ -36,7 +36,7 @@ class LocationTool(context: Context) : DeviceTool {
         return TOPIC.containsMatchIn(t) && !NOT_A_PLACE.containsMatchIn(t)
     }
 
-    override suspend fun read(): String {
+    override suspend fun read(message: String): String {
         if (!PermissionGate.has(appContext, FINE)) PermissionGate.request(FINE, COARSE)
         val fine = PermissionGate.has(appContext, FINE)
         if (!fine && !PermissionGate.has(appContext, COARSE)) {

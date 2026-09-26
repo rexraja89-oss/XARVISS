@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
@@ -21,6 +23,7 @@ object PermissionGate {
     }
 
     @Volatile private var requester: Requester? = null
+    private val oneAtATime = Mutex() // tools run in parallel; show their dialogs one after another
 
     fun attach(r: Requester) {
         requester = r
@@ -35,11 +38,13 @@ object PermissionGate {
 
     /** Shows the permission dialog for [permissions] and waits for the user's answer. */
     suspend fun request(vararg permissions: String) {
-        val r = requester ?: return
-        withContext(Dispatchers.Main) {
-            withTimeoutOrNull(REQUEST_TIMEOUT_MS) {
-                suspendCancellableCoroutine { cont ->
-                    r.request(arrayOf(*permissions)) { if (cont.isActive) cont.resume(Unit) }
+        oneAtATime.withLock {
+            val r = requester ?: return
+            withContext(Dispatchers.Main) {
+                withTimeoutOrNull(REQUEST_TIMEOUT_MS) {
+                    suspendCancellableCoroutine<Unit> { cont ->
+                        r.request(arrayOf(*permissions)) { if (cont.isActive) cont.resume(Unit) }
+                    }
                 }
             }
         }

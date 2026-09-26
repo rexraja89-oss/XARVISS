@@ -25,7 +25,7 @@ Personal on-device AI assistant for Android, owned by Rex (developer credit: Saj
 
 See README.md. Entry points: `XarvisApp`/`XarvisCore` (process-wide core), `agent/XarvisAgent.kt` (rules + LLM routing via `ACTION:` lines), `llm/LocalLlm.kt`, `net/DeviceLink.kt` (mDNS + ECDH pairing + AES-GCM), `memory/MemorySync.kt`, `service/XarvisService.kt` (always-on foreground service).
 
-Device tools: `tools/DeviceToolRouter.kt` runs before a free-form message goes to the LLM. Each `DeviceTool` (so far `LocationTool`) that matches the message reads live data, which is prepended as `[DEVICE DATA]` lines; the system prompt tells Gemma to use it. Tools run on the device the user typed on, even when a linked device's LLM answers. Runtime permissions go through `PermissionGate`, which MainActivity attaches to. Add new tools to the list in `XarvisCore`.
+Device tools: `tools/DeviceToolRouter.kt` runs before a free-form message goes to the LLM. Each `DeviceTool` (location, battery, time, Bluetooth, contacts) that matches the message reads live data, which is prepended as `[DEVICE DATA]` lines; the system prompt tells Gemma to use it. Tools run on the device the user typed on, even when a linked device's LLM answers. Runtime permissions go through `PermissionGate`, which MainActivity attaches to. Add new tools to the list in `XarvisCore`.
 
 ## Roadmap Rex asked for
 

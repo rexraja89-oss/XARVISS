@@ -10,17 +10,18 @@ import kotlinx.coroutines.coroutineScope
  * [DeviceToolRouter]'s tools in XarvisCore.
  */
 interface DeviceTool {
-    /** Shown while the tool runs: "Checking your <label>…". */
+    /** Shown while the tool runs: "Checking the phone's <label>…". */
     val label: String
 
     /** Whether [message] asks about what this tool reads. Keep it cheap: it runs on every message. */
     fun matches(message: String): Boolean
 
     /**
-     * Reads the data as one line for the model, e.g. "Current location: ...". When the data
+     * Reads the data for [message] as one line for the model, e.g. "Current location: ...". When the data
      * can't be read, say why in the line instead of throwing, so the model can explain it.
+     * Null means the message turned out not to be about this after all (nothing to add).
      */
-    suspend fun read(): String
+    suspend fun read(message: String): String?
 }
 
 /**
@@ -34,14 +35,14 @@ class DeviceToolRouter(private val tools: List<DeviceTool>) {
     suspend fun gather(message: String, onProgress: (String) -> Unit = {}): List<String> {
         val matched = tools.filter { it.matches(message) }
         if (matched.isEmpty()) return emptyList()
-        onProgress("Checking your ${matched.joinToString(" and ") { it.label }}…")
+        onProgress("Checking the phone's ${matched.joinToString(" and ") { it.label }}…")
         return coroutineScope {
             matched.map { tool ->
                 async {
-                    runCatching { tool.read() }
+                    runCatching { tool.read(message) }
                         .getOrElse { "${tool.label.replaceFirstChar { it.uppercase() }}: unavailable (${it.message})" }
                 }
-            }.awaitAll()
+            }.awaitAll().filterNotNull()
         }
     }
 
