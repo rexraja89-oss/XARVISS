@@ -121,7 +121,8 @@ class XarvisAgent(
     private suspend fun chat(prompt: String, message: String, data: List<String>, onPartial: (String) -> Unit): String {
         val raw = StringBuilder()
         try {
-            llm.chat(prompt) { chunk ->
+            // Rebuilt before every call so identity and every saved memory are always current.
+            llm.chat(systemPrompt(), IDENTITY_REMINDER + prompt) { chunk ->
                 raw.append(chunk)
                 onPartial(visibleText(raw.toString()))
             }
@@ -148,7 +149,7 @@ class XarvisAgent(
     private suspend fun finishReply(message: String, raw: String, data: List<String>): String {
         val hadData = data.isNotEmpty()
         val modelText = visibleText(raw).trim()
-        val text = if (hadData && ignoresData(modelText, data)) dataAnswer(data) else modelText
+        val text = fixIdentity(if (hadData && ignoresData(modelText, data)) dataAnswer(data) else modelText)
         val known = facts()
         val actions = ACTION_LINE.findAll(raw)
             .mapNotNull { parseStep(it.groupValues[1].trim(), strict = true, fromUser = false) }
@@ -186,7 +187,15 @@ class XarvisAgent(
         return "I don't know how to \"$command\" yet. $why Type \"help\" for commands.".replace("  ", " ")
     }
 
-    private suspend fun facts(): List<String> = memory.recallFacts(limit = 30).reversed().map { it.content }
+    /**
+     * Every saved memory, oldest first. Only if they'd crowd out the 4096-token context are the
+     * oldest left out ([MAX_FACT_CHARS] is roughly a fifth of it).
+     */
+    private suspend fun facts(): List<String> {
+        val newestFirst = memory.allFacts().sortedByDescending { it.timestamp }.map { it.content }
+        var used = 0
+        return newestFirst.takeWhile { used += it.length + 3; used <= MAX_FACT_CHARS }.reversed()
+    }
 
     private fun linkedDeviceNames(): List<String> = link.pairedPeers().map { it.name }
 
@@ -200,7 +209,7 @@ class XarvisAgent(
             append("ACTION: send to <device>: <text>\n")
         }
         if (facts.isNotEmpty()) {
-            append("\n\nThings the user has asked you to remember (phrased as if talking to them):\n")
+            append("\n\nFacts you know:\n")
             facts.forEach { append("- $it\n") }
         }
     }
@@ -262,6 +271,7 @@ class XarvisAgent(
             lower in STATUS_COMMANDS -> Step.ReportDevice
             lower in TIME_COMMANDS -> Step.ReportTime
             lower == "help" || HELP_QUESTION.containsMatchIn(lower) -> Step.Respond(HELP)
+            CREATOR_QUESTION.containsMatchIn(lower) -> Step.Respond(IDENTITY)
             strict -> null
             lower.contains("status") || lower.contains("device") ||
                 lower.contains("capabilit") || lower.contains("battery") -> Step.ReportDevice
@@ -278,6 +288,21 @@ class XarvisAgent(
 
     companion object {
         /** "what can you do", "what help can you do", "what are your features". */
+        private const val MAX_FACT_CHARS = 3000
+
+        /** Put before each message: Gemma's template shows the system prompt only once, at the start of a chat. */
+        private const val IDENTITY_REMINDER = "(You are XARVIS, created by Rex. Never say you were made by Google.)\n\n"
+
+        /** Gemma's own idea of who made it, which it falls back to despite the system prompt. */
+        private val MAKER_CLAIM = Regex(
+            """\b(?:made|created|developed|built|trained|designed)\s+by\s+(?:google|deepmind|google deepmind)\b|\bi(?: am|'m)\s+(?:gemma|a large language model)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+        internal const val IDENTITY = "I'm XARVIS, your personal AI assistant, created by Rex. I run on-device on your Samsung S22 Ultra."
+
+        /** A reply claiming to be Google's model is replaced by who XARVIS really is. */
+        internal fun fixIdentity(reply: String): String = if (MAKER_CLAIM.containsMatchIn(reply)) IDENTITY else reply
+
         /** Stock refusals a small model gives even when the data is right there in its prompt. */
         private val REFUSAL = Regex(
             listOf(
@@ -305,6 +330,13 @@ class XarvisAgent(
             line.replace(ContactsTool.FOUND, "Contacts found:")
         }
 
+        /** "who is your developer", "who made you", "tumhe kisne banaya". */
+        internal val CREATOR_QUESTION = Regex(
+            """^(?:who|whom)\s+(?:is|are|was)\s+your\s+(?:developer|creator|maker|owner|programmer|father|boss)|""" +
+                """^who\s+(?:made|created|built|developed|programmed|designed|invented)\s+(?:you|xarvis)|""" +
+                """\b(?:tumhe|tumhein|tujhe|aapko|apko)\s+(?:kisne|kis ne)\s+(?:banaya|bnaya)"""
+        )
+
         internal val HELP_QUESTION = Regex(
             """^(?:what|which)\s+(?:help|things|features|commands)\b.*\b(?:can you|do you)|^what can you do\b|^what are your (?:features|abilities|commands|skills)"""
         )
@@ -315,7 +347,9 @@ class XarvisAgent(
             "what's the date", "what is the date", "what's today's date")
 
         private val SYSTEM_PROMPT = """
-            You are XARVIS, a friendly, concise personal AI assistant running entirely offline on the user's phone. You cannot browse the internet yourself.
+            You are XARVIS, a personal AI assistant created by Rex. You run on-device on Rex's Samsung S22 Ultra. Never say you were made by Google.
+            The user is Rex. Be friendly and concise. You run entirely offline and cannot browse the internet yourself.
+            The facts at the end were told to you by Rex: "you" and "your" in them mean Rex, except that you, XARVIS, were created by Rex.
 
             You can control the phone. When the user wants one of these things done, reply with only the matching line(s), one per line, and no other text:
             ACTION: open <app name>

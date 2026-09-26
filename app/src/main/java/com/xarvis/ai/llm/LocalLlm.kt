@@ -47,6 +47,8 @@ class LocalLlm(context: Context) {
     private val inference = Mutex()
     private var engine: Engine? = null
     private var conversation: Conversation? = null
+    /** The system prompt [conversation] was started with. */
+    private var conversationPrompt: String? = null
     private val sideConversations = mutableMapOf<String, kotlin.Pair<String, Conversation>>()
 
     val isReady: Boolean get() = _status.value is LlmStatus.Ready
@@ -82,6 +84,7 @@ class LocalLlm(context: Context) {
                     }
                     engine = e
                     conversation = e.createConversation(conversationConfig(systemPrompt))
+                    conversationPrompt = systemPrompt
                     _status.value = LlmStatus.Ready(setup.label)
                     Log.i(TAG, "Loaded ${modelFile.name} on ${setup.label}")
                     return@withLock
@@ -101,14 +104,24 @@ class LocalLlm(context: Context) {
             inference.withLock {
                 conversation?.close()
                 conversation = e.createConversation(conversationConfig(systemPrompt))
+                conversationPrompt = systemPrompt
             }
         }
     }
 
-    /** Streams the reply to [message] in the main conversation, passing each text chunk to [onChunk]. */
-    suspend fun chat(message: String, onChunk: (String) -> Unit) = withContext(Dispatchers.IO) {
+    /**
+     * Streams the reply to [message] in the main conversation, passing each text chunk to [onChunk].
+     * If [systemPrompt] differs from the conversation's (e.g. a new memory), a fresh conversation starts with it.
+     */
+    suspend fun chat(systemPrompt: String, message: String, onChunk: (String) -> Unit) = withContext(Dispatchers.IO) {
         inference.withLock {
-            val c = checkNotNull(conversation) { "Model not loaded" }
+            val e = checkNotNull(engine) { "Model not loaded" }
+            if (conversationPrompt != systemPrompt || conversation == null) {
+                conversation?.close()
+                conversation = e.createConversation(conversationConfig(systemPrompt))
+                conversationPrompt = systemPrompt
+            }
+            val c = checkNotNull(conversation)
             val start = System.currentTimeMillis()
             var first = 0L
             var chunks = 0
