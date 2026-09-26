@@ -1,5 +1,11 @@
 package com.xarvis.ai.ui
 
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -28,6 +34,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,6 +64,11 @@ import com.xarvis.ai.viewmodel.XarvisViewModel
 fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var input by rememberSaveable { mutableStateOf("") }
+    var photo by rememberSaveable { mutableStateOf<Uri?>(null) }
+    // Android's photo picker: no storage permission needed, Rex picks one photo.
+    val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) photo = uri
+    }
     val listState = rememberLazyListState()
 
     LaunchedEffect(state.messages.size) {
@@ -60,8 +76,9 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
     }
 
     fun send() {
-        viewModel.submit(input)
+        viewModel.submit(input, photo)
         input = ""
+        photo = null
     }
 
     Column(
@@ -84,10 +101,23 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
             items(state.messages) { MessageBubble(it) }
         }
 
+        if (photo != null) {
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Photo attached. Ask about it, or just tap SEND.",
+                    style = MaterialTheme.typography.labelSmall, color = XarvisCyan, modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { photo = null }) { Text("REMOVE") }
+            }
+        }
         Row(
             Modifier.fillMaxWidth().padding(vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            TextButton(
+                onClick = { pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                enabled = !state.isProcessing,
+            ) { Text("📷", style = MaterialTheme.typography.titleLarge) }
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
@@ -98,7 +128,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 keyboardActions = KeyboardActions(onSend = { send() }),
             )
             Spacer(Modifier.size(8.dp))
-            Button(onClick = ::send, enabled = input.isNotBlank() && !state.isProcessing) {
+            Button(onClick = ::send, enabled = (input.isNotBlank() || photo != null) && !state.isProcessing) {
                 Text("SEND")
             }
         }
@@ -217,6 +247,16 @@ private fun MessageBubble(message: ChatMessage) {
                 style = MaterialTheme.typography.labelSmall,
                 color = accent,
             )
+            message.imagePath?.let { path ->
+                val bitmap = remember(path) { BitmapFactory.decodeFile(path)?.asImageBitmap() }
+                if (bitmap != null) {
+                    Image(
+                        bitmap, contentDescription = "Photo you sent",
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).padding(vertical = 6.dp),
+                        contentScale = ContentScale.Fit,
+                    )
+                }
+            }
             Text(
                 message.text.ifEmpty { "thinking…" },
                 style = MaterialTheme.typography.bodyMedium,

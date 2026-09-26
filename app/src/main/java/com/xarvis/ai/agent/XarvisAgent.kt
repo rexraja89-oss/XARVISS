@@ -33,6 +33,32 @@ class XarvisAgent(
         return response
     }
 
+    /**
+     * A photo with Rex's question ([message] may be empty: "describe it"). Gemma sees the photo on
+     * this phone; its reply can use tools as usual, e.g. a web search about what's in the photo.
+     */
+    suspend fun handlePhoto(imagePath: String, message: String, onPartial: (String) -> Unit = {}): String {
+        val question = message.ifBlank { "Describe this photo in detail and explain everything in it." }
+        val response = when {
+            !llm.isReady -> "Photos can only be looked at on the phone that has the AI model (your S22) for now."
+            !llm.canSeePhotos -> "This AI model file can't look at photos."
+            else -> {
+                val out = StringBuilder()
+                try {
+                    llm.chatWithImage(systemPrompt(), imagePath, IDENTITY_REMINDER + PHOTO_HINT + question) { chunk ->
+                        out.append(chunk)
+                        onPartial(ToolCalls.visibleText(out.toString()))
+                    }
+                    finishReply(message, out.toString())
+                } catch (t: Throwable) {
+                    "I couldn't look at that photo: ${t.message ?: t.javaClass.simpleName}"
+                }
+            }
+        }
+        memory.logInteraction("[photo] $question", response)
+        return response
+    }
+
     /** Answers a linked phone's message with this phone's Gemma; its tool lines run on that phone. */
     suspend fun answerForPeer(peerId: String, facts: List<String>, devices: List<String>, text: String): String? {
         if (!llm.isReady) return null
@@ -122,6 +148,9 @@ class XarvisAgent(
         }
 
         private const val MAX_FACT_CHARS = 3000
+
+        private const val PHOTO_HINT = "(Rex sent a photo. Look at it carefully and answer about it. " +
+            "If he wants information about something in it, add a TOOL: search line with good search words.)\n\n"
 
         private const val TOOL_NUDGE = "(Rex wants you to do it now. Reply with only the matching TOOL line.)"
 

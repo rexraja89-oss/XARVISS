@@ -34,6 +34,11 @@ Personal on-device AI assistant for Android, owned by Rex (developer credit: Saj
 - The only exact commands are for linking phones (`agent/LinkCommands`): `pair with <device>`, `code <6 digits>`, `devices`, `unlink <device>`. The pairing code is a security check, so it isn't left to Gemma.
 - The system prompt is short on purpose: identity ("You are XARVIS, a personal AI assistant created by Rex..."), the tools with one few-shot example each, then all saved memories under "Facts you know:" (capped at 3000 chars, newest kept). It's rebuilt before every call and `LocalLlm.chat` restarts the conversation when it changes. Each message also gets `IDENTITY_REMINDER`, and `fixIdentity` replaces "developed by Google" replies. Context is 4096 tokens, so facts aren't repeated per message.
 
+## Photos and linking from anywhere
+
+- Photos: the 📷 button uses Android's photo picker; `llm/PhotoPrep` shrinks the photo to ≤1024 px (upright JPEG in cache), and `LocalLlm.chatWithImage` sends `Contents.of(Content.ImageFile, Content.Text)`. The engine opens with `visionBackend = CPU` (not GPU: S22 driver), falling back to text-only if the model can't. Only the phone with the model (S22) analyses photos. Gemma may add `TOOL: search` to look things up.
+- Away from home Wi-Fi: Tailscale. Each request carries this phone's Tailscale address (`tailnet`, a 100.64.0.0/10 address on a VPN network); peers store it as `Peer.tailnetHost` and try it when the Wi-Fi address fails. Rex installs Tailscale on both phones with one account; the phones must talk once (same Wi-Fi) after that to learn each other's Tailscale address.
+
 ## Things learned the hard way
 
 - LiteRT-LM's GPU path corrupts text on the S22 (fp16 on a 2022 Adreno driver): obviously with the `-gpu` model build, subtly (odd mangled words) with the general build. `LocalLlm.calibrate()` compares GPU and CPU answers once per model file and picked **CPU** (~15 tokens/s). Don't switch the S22 to GPU; don't reintroduce the `-gpu` model (it can't run on CPU).

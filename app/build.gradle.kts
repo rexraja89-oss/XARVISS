@@ -80,6 +80,7 @@ dependencies {
 
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.17.1")
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("androidx.exifinterface:exifinterface:1.4.1")
 
     testImplementation("junit:junit:4.13.2")
 }

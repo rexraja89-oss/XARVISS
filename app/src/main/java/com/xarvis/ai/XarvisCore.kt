@@ -8,6 +8,8 @@ import com.xarvis.ai.llm.LlmStatus
 import com.xarvis.ai.llm.LocalLlm
 import com.xarvis.ai.llm.ModelDownload
 import com.xarvis.ai.llm.ModelDownloader
+import com.xarvis.ai.llm.PhotoPrep
+import android.net.Uri
 import com.xarvis.ai.memory.MemorySync
 import com.xarvis.ai.memory.MemorySystem
 import com.xarvis.ai.net.DeviceLink
@@ -24,7 +26,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
-data class ChatMessage(val fromUser: Boolean, val text: String)
+/** One chat bubble; [imagePath] is a photo Rex sent with it. */
+data class ChatMessage(val fromUser: Boolean, val text: String, val imagePath: String? = null)
 
 data class XarvisUiState(
     val messages: List<ChatMessage> = emptyList(),
@@ -44,6 +47,7 @@ data class XarvisUiState(
 class XarvisCore(context: Context) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val appContext = context.applicationContext
     private val memory = MemorySystem(context)
     private val device = DeviceCapabilityManager(context)
     private val llm = LocalLlm(context)
@@ -122,20 +126,30 @@ class XarvisCore(context: Context) {
     /** Downloads the AI model onto this phone (the "Download AI model" button). */
     fun downloadModel() = downloader.start()
 
-    fun submit(command: String) {
+    /** Handles a message, with a [photo] if Rex attached one (an empty question means "describe it"). */
+    fun submit(command: String, photo: Uri? = null) {
         val text = command.trim()
-        if (text.isEmpty() || _state.value.isProcessing) return
+        if ((text.isEmpty() && photo == null) || _state.value.isProcessing) return
         var replyIndex = 0
         _state.update {
             replyIndex = it.messages.size + 1
             it.copy(
-                messages = it.messages + ChatMessage(true, text) + ChatMessage(false, ""),
+                messages = it.messages + ChatMessage(true, text.ifEmpty { "What's in this photo?" }) + ChatMessage(false, ""),
                 isProcessing = true,
             )
         }
         scope.launch {
-            val reply = runCatching { agent.handle(text) { partial -> replaceMessage(replyIndex, partial) } }
-                .getOrElse { "Something went wrong: ${it.message}" }
+            val reply = runCatching {
+                if (photo == null) {
+                    agent.handle(text) { partial -> replaceMessage(replyIndex, partial) }
+                } else {
+                    val file = PhotoPrep.prepare(appContext, photo)
+                    _state.update { s ->
+                        s.copy(messages = s.messages.mapIndexed { i, m -> if (i == replyIndex - 1) m.copy(imagePath = file.path) else m })
+                    }
+                    agent.handlePhoto(file.path, text) { partial -> replaceMessage(replyIndex, partial) }
+                }
+            }.getOrElse { "Something went wrong: ${it.message}" }
             replaceMessage(replyIndex, reply)
             _state.update {
                 it.copy(

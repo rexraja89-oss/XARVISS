@@ -42,7 +42,11 @@ import javax.crypto.KeyAgreement
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-class Peer(val id: String, val name: String, val key: ByteArray, var host: String?, var port: Int)
+/** [tailnetHost]: the device's Tailscale address, used when it isn't on the same Wi-Fi. */
+class Peer(
+    val id: String, val name: String, val key: ByteArray, var host: String?, var port: Int,
+    var tailnetHost: String? = null,
+)
 
 class LinkException(message: String) : Exception(message)
 
@@ -257,17 +261,39 @@ class DeviceLink(context: Context, private val handler: Handler) {
     private suspend fun request(
         peer: Peer, op: String, body: JSONObject = JSONObject(), timeoutMs: Int = REQUEST_READ_TIMEOUT_MS,
     ): JSONObject = withContext(Dispatchers.IO) {
-        val host = peer.host ?: throw LinkException(
+        // Home Wi-Fi first; away from it, the Tailscale address (when both phones run Tailscale).
+        val routes = listOfNotNull(peer.host, peer.tailnetHost).distinct()
+        if (routes.isEmpty()) throw LinkException(
             "${peer.name}'s address is unknown. Make sure both devices are on the same Wi-Fi with XARVIS open."
         )
         body.put("op", op).put("ts", System.currentTimeMillis()).put("port", myPort)
-        Conn(connect(host, peer.port, timeoutMs)).use { c ->
+        tailnetAddress()?.let { body.put("tailnet", it) }
+        var failure: Exception? = null
+        for (host in routes) {
+            val socket = try {
+                connect(host, peer.port, timeoutMs)
+            } catch (e: java.io.IOException) {
+                failure = e
+                continue
+            }
+            return@withContext exchange(socket, peer, body)
+        }
+        throw LinkException(
+            "${peer.name} isn't reachable" + if (peer.tailnetHost == null) {
+                ". Away from home Wi-Fi, both phones need Tailscale on (and to have been on the same Wi-Fi once since)."
+            } else {
+                " on Wi-Fi or Tailscale (${failure?.message ?: "no answer"})."
+            }
+        )
+    }
+
+    private fun exchange(socket: Socket, peer: Peer, body: JSONObject): JSONObject =
+        Conn(socket).use { c ->
             c.send(encryptFrame("req", peer.key, body))
             val res = c.receive()
             if (res.optString("t") == "err") throw LinkException(res.optString("msg"))
             JSONObject(String(decrypt(peer.key, res, peer.id), Charsets.UTF_8))
         }
-    }
 
     private fun connect(host: String, port: Int, readTimeoutMs: Int) = Socket().apply {
         connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
@@ -363,8 +389,14 @@ class DeviceLink(context: Context, private val handler: Handler) {
             return encryptFrame("res", pending.key, reply.put("ok", true))
         }
 
+        // Remember its Tailscale address, to reach it later from outside home Wi-Fi.
+        req.optString("tailnet").takeIf { it.isNotEmpty() && it != peer.tailnetHost }?.let {
+            peer.tailnetHost = it
+            savePeers()
+        }
         // Follow DHCP address changes (loopback means an adb bridge, whose address is set by hand).
-        if (!c.remoteIsLoopback && c.remoteHost != null &&
+        // Changes arriving over Tailscale aren't home addresses, so they don't replace the Wi-Fi one.
+        if (!c.remoteIsLoopback && c.remoteHost != null && !isTailnet(c.remoteHost) &&
             (peer.host != c.remoteHost || peer.port != req.optInt("port", peer.port))
         ) {
             peer.host = c.remoteHost
@@ -374,6 +406,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
 
         when (op) {
             "ping" -> reply.put("name", deviceName).put("llm", handler.llmReady())
+                .apply { tailnetAddress()?.let { put("tailnet", it) } }
             "status" -> reply.put("text", handler.status())
             "note" -> {
                 handler.onNote(peer.name, req.getString("text"))
@@ -571,7 +604,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
         (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
             Peer(o.getString("id"), o.getString("name"), unb64(o.getString("key")),
-                o.optString("host").ifEmpty { null }, o.optInt("port", PORT))
+                o.optString("host").ifEmpty { null }, o.optInt("port", PORT), o.optString("tailnet").ifEmpty { null })
         }
     }.getOrDefault(emptyList())
 
@@ -579,12 +612,25 @@ class DeviceLink(context: Context, private val handler: Handler) {
         val arr = JSONArray()
         peers.values.forEach {
             arr.put(JSONObject().put("id", it.id).put("name", it.name).put("key", b64(it.key))
-                .put("host", it.host ?: "").put("port", it.port))
+                .put("host", it.host ?: "").put("port", it.port).put("tailnet", it.tailnetHost ?: ""))
         }
         prefs.edit().putString("peers", arr.toString()).apply()
     }
 
     private fun error(msg: String) = JSONObject().put("t", "err").put("msg", msg)
+
+    /**
+     * This phone's Tailscale address (100.64.0.0/10 on a VPN network), or null when Tailscale
+     * isn't on. Only VPN networks count: some mobile carriers use the same range themselves.
+     */
+    private fun tailnetAddress(): String? = runCatching {
+        val cm = appContext.getSystemService(ConnectivityManager::class.java) ?: return null
+        cm.allNetworks.asSequence()
+            .filter { cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true }
+            .flatMap { cm.getLinkProperties(it)?.linkAddresses.orEmpty().asSequence() }
+            .mapNotNull { it.address.hostAddress }
+            .firstOrNull { isTailnet(it) }
+    }.getOrNull()
 
     private fun JSONArray?.toStrings(): List<String> =
         if (this == null) emptyList() else (0 until length()).map { getString(it) }
@@ -607,6 +653,12 @@ class DeviceLink(context: Context, private val handler: Handler) {
         private fun sha256(data: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(data)
         private fun b64(data: ByteArray): String = Base64.getEncoder().encodeToString(data)
         private fun unb64(s: String): ByteArray = Base64.getDecoder().decode(s)
+
+        /** Tailscale gives each device an address in 100.64.0.0/10. */
+        fun isTailnet(address: String): Boolean {
+            val parts = address.split('.').mapNotNull { it.toIntOrNull() }
+            return parts.size == 4 && parts[0] == 100 && parts[1] in 64..127
+        }
 
         /** "my benco mobile" -> "benco". */
         fun normalize(query: String): String = query.lowercase().trim()

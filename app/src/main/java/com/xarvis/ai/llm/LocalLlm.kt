@@ -3,6 +3,7 @@ package com.xarvis.ai.llm
 import android.content.Context
 import android.util.Log
 import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.ConversationConfig
@@ -53,6 +54,10 @@ class LocalLlm(context: Context) {
 
     val isReady: Boolean get() = _status.value is LlmStatus.Ready
 
+    /** Whether the loaded model was opened with its vision part, so it can look at photos. */
+    @Volatile var canSeePhotos: Boolean = false
+        private set
+
     suspend fun load(systemPrompt: String) = withContext(Dispatchers.IO) {
         lock.withLock {
             if (engine != null) return@withLock
@@ -76,7 +81,12 @@ class LocalLlm(context: Context) {
             for (setup in setups) {
                 var e: Engine? = null
                 try {
-                    e = openEngine(modelFile, setup)
+                    // Vision on the CPU too: the S22's GPU corrupts output. Without vision, still load for text.
+                    e = runCatching { openEngine(modelFile, setup, vision = true) }
+                        .onFailure { Log.w(TAG, "No vision on ${setup.label}; text only", it) }
+                        .getOrNull()
+                        ?.also { canSeePhotos = true }
+                        ?: openEngine(modelFile, setup).also { canSeePhotos = false }
                     if (!passesSanityCheck(e, setup.label)) {
                         e.close()
                         _status.value = LlmStatus.Failed("garbled output on ${setup.label}")
@@ -139,6 +149,34 @@ class LocalLlm(context: Context) {
     }
 
     /**
+     * Like [chat], with a photo: Gemma sees the image at [imagePath] together with [message].
+     * A full context (long chats, several photos) starts a fresh conversation and tries again.
+     */
+    suspend fun chatWithImage(systemPrompt: String, imagePath: String, message: String, onChunk: (String) -> Unit) =
+        withContext(Dispatchers.IO) {
+            inference.withLock {
+                val e = checkNotNull(engine) { "Model not loaded" }
+                check(canSeePhotos) { "this AI model can't see photos" }
+                suspend fun attempt(fresh: Boolean) {
+                    if (fresh || conversationPrompt != systemPrompt || conversation == null) {
+                        conversation?.close()
+                        conversation = e.createConversation(conversationConfig(systemPrompt))
+                        conversationPrompt = systemPrompt
+                    }
+                    checkNotNull(conversation).sendMessageAsync(
+                        Contents.of(Content.ImageFile(imagePath), Content.Text(message))
+                    ).collect { onChunk(it.toString()) }
+                }
+                try {
+                    attempt(fresh = false)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Photo question failed; retrying in a fresh conversation", t)
+                    attempt(fresh = true)
+                }
+            }
+        }
+
+    /**
      * Answers [message] in a separate conversation keyed by [key] (one per linked device), so
      * other devices' chats don't mix with this device's. A changed prompt starts a fresh one.
      */
@@ -169,10 +207,11 @@ class LocalLlm(context: Context) {
 
     private class Setup(val label: String, val backend: Backend)
 
-    private fun openEngine(modelFile: File, setup: Setup): Engine = Engine(
+    private fun openEngine(modelFile: File, setup: Setup, vision: Boolean = false): Engine = Engine(
         EngineConfig(
             modelPath = modelFile.absolutePath,
             backend = setup.backend,
+            visionBackend = if (vision) Backend.CPU() else null,
             maxNumTokens = MAX_CONTEXT_TOKENS,
             cacheDir = appContext.cacheDir.path,
         )
