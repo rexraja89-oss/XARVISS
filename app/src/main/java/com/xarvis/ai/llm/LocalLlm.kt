@@ -123,28 +123,41 @@ class LocalLlm(context: Context) {
      * Streams the reply to [message] in the main conversation, passing each text chunk to [onChunk].
      * If [systemPrompt] differs from the conversation's (e.g. a new memory), a fresh conversation starts with it.
      */
-    suspend fun chat(systemPrompt: String, message: String, onChunk: (String) -> Unit) = withContext(Dispatchers.IO) {
+    suspend fun chat(
+        systemPrompt: String, message: String, onRestart: () -> Unit = {}, onChunk: (String) -> Unit,
+    ) = withContext(Dispatchers.IO) {
         inference.withLock {
             val e = checkNotNull(engine) { "Model not loaded" }
-            if (conversationPrompt != systemPrompt || conversation == null) {
-                conversation?.close()
-                conversation = e.createConversation(conversationConfig(systemPrompt))
-                conversationPrompt = systemPrompt
+            suspend fun attempt(fresh: Boolean) {
+                if (fresh || conversationPrompt != systemPrompt || conversation == null) {
+                    conversation?.close()
+                    conversation = e.createConversation(conversationConfig(systemPrompt))
+                    conversationPrompt = systemPrompt
+                }
+                val c = checkNotNull(conversation)
+                val start = System.currentTimeMillis()
+                var first = 0L
+                var chunks = 0
+                var chars = 0
+                c.sendMessageAsync(message).collect {
+                    if (chunks++ == 0) first = System.currentTimeMillis() - start
+                    val text = it.toString()
+                    chars += text.length
+                    onChunk(text)
+                }
+                val total = System.currentTimeMillis() - start
+                Log.i(TAG, "Reply: first chunk ${first}ms, $chunks chunks / $chars chars in ${total}ms " +
+                    "(~${if (total > first) chunks * 1000L / (total - first) else 0} chunks/s)")
             }
-            val c = checkNotNull(conversation)
-            val start = System.currentTimeMillis()
-            var first = 0L
-            var chunks = 0
-            var chars = 0
-            c.sendMessageAsync(message).collect {
-                if (chunks++ == 0) first = System.currentTimeMillis() - start
-                val text = it.toString()
-                chars += text.length
-                onChunk(text)
+            try {
+                attempt(fresh = false)
+            } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
+                // Usually a full context after a long chat or a long file: start over and try once more.
+                Log.w(TAG, "Message failed; retrying in a fresh conversation", t)
+                onRestart()
+                attempt(fresh = true)
             }
-            val total = System.currentTimeMillis() - start
-            Log.i(TAG, "Reply: first chunk ${first}ms, $chunks chunks / $chars chars in ${total}ms " +
-                "(~${if (total > first) chunks * 1000L / (total - first) else 0} chunks/s)")
         }
     }
 
@@ -181,18 +194,39 @@ class LocalLlm(context: Context) {
      * other devices' chats don't mix with this device's. A changed prompt starts a fresh one.
      */
     suspend fun chatAs(key: String, systemPrompt: String, message: String): String = withContext(Dispatchers.IO) {
-        inference.withLock {
-            val e = checkNotNull(engine) { "Model not loaded" }
+        inference.withLock { sideChat(key, systemPrompt, Contents.of(Content.Text(message))) }
+    }
+
+    /** Like [chatAs], with a photo a linked device sent (saved at [imagePath]). */
+    suspend fun chatAsWithImage(key: String, systemPrompt: String, imagePath: String, message: String): String =
+        withContext(Dispatchers.IO) {
+            inference.withLock {
+                check(canSeePhotos) { "this AI model can't see photos" }
+                sideChat(key, systemPrompt, Contents.of(Content.ImageFile(imagePath), Content.Text(message)))
+            }
+        }
+
+    /** Call with [inference] held. A full conversation (long chat, files, photos) starts over once. */
+    private suspend fun sideChat(key: String, systemPrompt: String, contents: Contents): String {
+        val e = checkNotNull(engine) { "Model not loaded" }
+        suspend fun attempt(fresh: Boolean): String {
             val existing = sideConversations[key]
-            val c = if (existing != null && existing.first == systemPrompt) {
+            val c = if (!fresh && existing != null && existing.first == systemPrompt) {
                 existing.second
             } else {
                 existing?.second?.close()
                 e.createConversation(conversationConfig(systemPrompt)).also { sideConversations[key] = systemPrompt to it }
             }
             val reply = StringBuilder()
-            c.sendMessageAsync(message).collect { reply.append(it.toString()) }
-            reply.toString()
+            c.sendMessageAsync(contents).collect { reply.append(it.toString()) }
+            return reply.toString()
+        }
+        return try {
+            attempt(fresh = false)
+        } catch (t: Throwable) {
+            if (t is kotlinx.coroutines.CancellationException) throw t
+            Log.w(TAG, "Linked device's message failed; retrying in a fresh conversation", t)
+            attempt(fresh = true)
         }
     }
 
@@ -207,15 +241,37 @@ class LocalLlm(context: Context) {
 
     private class Setup(val label: String, val backend: Backend)
 
-    private fun openEngine(modelFile: File, setup: Setup, vision: Boolean = false): Engine = Engine(
-        EngineConfig(
-            modelPath = modelFile.absolutePath,
-            backend = setup.backend,
-            visionBackend = if (vision) Backend.CPU() else null,
-            maxNumTokens = MAX_CONTEXT_TOKENS,
-            cacheDir = appContext.cacheDir.path,
-        )
-    ).also { it.initialize() }
+    /** Tokens the loaded model can hold at once (its prompt, the chat so far and the reply). */
+    @Volatile var contextTokens: Int = CONTEXT_TOKEN_CHOICES.last()
+        private set
+
+    /** Characters of an attached file's text that fit beside the prompt and a long reply. */
+    val documentChars: Int get() = if (contextTokens >= 8192) 12_000 else 5_000
+
+    /** The biggest context this model file accepts: files need room; older builds may only take 4096. */
+    private fun openEngine(modelFile: File, setup: Setup, vision: Boolean = false): Engine {
+        var failure: Throwable? = null
+        for (tokens in CONTEXT_TOKEN_CHOICES) {
+            try {
+                return Engine(
+                    EngineConfig(
+                        modelPath = modelFile.absolutePath,
+                        backend = setup.backend,
+                        visionBackend = if (vision) Backend.CPU() else null,
+                        maxNumTokens = tokens,
+                        cacheDir = appContext.cacheDir.path,
+                    )
+                ).also {
+                    it.initialize()
+                    contextTokens = tokens
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Couldn't open with $tokens tokens on ${setup.label}", t)
+                failure = t
+            }
+        }
+        throw checkNotNull(failure)
+    }
 
     /** Returns the label of the backend to use: GPU only if its answers match the CPU's. */
     private fun calibrate(modelFile: File, gpu: Setup, cpu: Setup): String {
@@ -285,8 +341,9 @@ class LocalLlm(context: Context) {
         /** In order of preference; the general build runs on CPU and GPU, the -gpu build only on GPU. */
         val MODEL_FILE_NAMES = listOf("gemma-4-E2B-it.litertlm", "gemma-4-E2B-it-gpu.litertlm")
         private const val TAG = "XarvisLlm"
-        private const val MAX_CONTEXT_TOKENS = 4096
-        private const val MAX_OUTPUT_TOKENS = 512
+        private val CONTEXT_TOKEN_CHOICES = listOf(8192, 4096)
+        /** Long enough for a file Gemma writes (about a page and a half). */
+        private const val MAX_OUTPUT_TOKENS = 1536
 
         /** Calibration prompts: short, factual and open-ended enough to expose numeric drift. */
         private val PROBES = listOf(

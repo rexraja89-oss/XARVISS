@@ -40,6 +40,7 @@ object ToolCalls {
             val (app, text) = splitMessage(a)
             if (app.isNotBlank() && text != null) return Step.AskApp(app, text.trim('"', '\'').trim())
         }
+        arg(t, "files|file|my files|show files|find file|find files|send file|share file")?.let { return Step.ShowFiles(it.trim('"', '\'')) }
         arg(t, "find in|find|search in")?.let { a ->
             val (app, query) = splitMessage(a)
             if (app.isNotBlank() && query != null) return Step.FindInApp(app, query)

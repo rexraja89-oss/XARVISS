@@ -1,7 +1,12 @@
 package com.xarvis.ai
 
 import android.content.Context
+import com.xarvis.ai.agent.Reply
 import com.xarvis.ai.agent.XarvisAgent
+import com.xarvis.ai.files.DocumentReader
+import com.xarvis.ai.files.FileStore
+import com.xarvis.ai.files.SavedFile
+import com.xarvis.ai.files.UnreadableFile
 import com.xarvis.ai.device.Capability
 import com.xarvis.ai.device.DeviceCapabilityManager
 import com.xarvis.ai.llm.LlmStatus
@@ -26,8 +31,17 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
-/** One chat bubble; [imagePath] is a photo Rex sent with it. */
-data class ChatMessage(val fromUser: Boolean, val text: String, val imagePath: String? = null)
+/**
+ * One chat bubble. [imagePath] is a photo Rex sent with it, [attachment] the name of a file he
+ * sent, and [files] the files XARVIS made or found (with OPEN and SHARE buttons).
+ */
+data class ChatMessage(
+    val fromUser: Boolean,
+    val text: String,
+    val imagePath: String? = null,
+    val attachment: String? = null,
+    val files: List<SavedFile> = emptyList(),
+)
 
 data class XarvisUiState(
     val messages: List<ChatMessage> = emptyList(),
@@ -69,6 +83,17 @@ class XarvisCore(context: Context) {
         override suspend fun brainChat(peerId: String, facts: List<String>, devices: List<String>, text: String): String? =
             agent.answerForPeer(peerId, facts, devices, text)
 
+        override suspend fun brainPhoto(peerId: String, facts: List<String>, jpeg: ByteArray, text: String): String? {
+            val file = java.io.File(appContext.cacheDir, "photos/linked-${System.currentTimeMillis()}.jpg")
+            return try {
+                file.parentFile?.mkdirs()
+                file.writeBytes(jpeg)
+                agent.answerPhotoForPeer(peerId, facts, file.path, text)
+            } finally {
+                file.delete()
+            }
+        }
+
         override fun llmReady(): Boolean = llm.isReady
 
         override fun onNote(from: String, text: String) {
@@ -95,7 +120,7 @@ class XarvisCore(context: Context) {
     }
 
     private val agent: XarvisAgent =
-        XarvisAgent(WorkflowEngine(context, device, link, memorySync, contacts), memory, llm, link)
+        XarvisAgent(WorkflowEngine(context, device, link, memorySync, contacts, FileStore(context)), memory, llm, link)
 
     private val _state: MutableStateFlow<XarvisUiState> = MutableStateFlow(
         XarvisUiState(
@@ -126,31 +151,44 @@ class XarvisCore(context: Context) {
     /** Downloads the AI model onto this phone (the "Download AI model" button). */
     fun downloadModel() = downloader.start()
 
-    /** Handles a message, with a [photo] if Rex attached one (an empty question means "describe it"). */
-    fun submit(command: String, photo: Uri? = null) {
+    /**
+     * Handles a message, with a [photo] or a [document] if Rex attached one (an empty question
+     * means "describe it" / "summarise it").
+     */
+    fun submit(command: String, photo: Uri? = null, document: Uri? = null) {
         val text = command.trim()
-        if ((text.isEmpty() && photo == null) || _state.value.isProcessing) return
+        if ((text.isEmpty() && photo == null && document == null) || _state.value.isProcessing) return
+        val shown = text.ifEmpty { if (photo != null) "What's in this photo?" else "What's in this file?" }
         var replyIndex = 0
         _state.update {
             replyIndex = it.messages.size + 1
             it.copy(
-                messages = it.messages + ChatMessage(true, text.ifEmpty { "What's in this photo?" }) + ChatMessage(false, ""),
+                messages = it.messages + ChatMessage(true, shown) + ChatMessage(false, ""),
                 isProcessing = true,
             )
         }
+        val onPartial = { partial: String -> replaceMessage(replyIndex, partial) }
         scope.launch {
-            val reply = runCatching {
-                if (photo == null) {
-                    agent.handle(text) { partial -> replaceMessage(replyIndex, partial) }
-                } else {
-                    val file = PhotoPrep.prepare(appContext, photo)
-                    _state.update { s ->
-                        s.copy(messages = s.messages.mapIndexed { i, m -> if (i == replyIndex - 1) m.copy(imagePath = file.path) else m })
+            val reply = try {
+                when {
+                    photo != null -> {
+                        val file = PhotoPrep.prepare(appContext, photo)
+                        updateMessage(replyIndex - 1) { it.copy(imagePath = file.path) }
+                        agent.handlePhoto(file.path, text, onPartial)
                     }
-                    agent.handlePhoto(file.path, text) { partial -> replaceMessage(replyIndex, partial) }
+                    document != null -> {
+                        updateMessage(replyIndex - 1) { it.copy(attachment = DocumentReader.displayName(appContext, document)) }
+                        onPartial("Reading the file…")
+                        agent.handleDocument(DocumentReader.read(appContext, document), text, onPartial)
+                    }
+                    else -> agent.handle(text, onPartial)
                 }
-            }.getOrElse { "Something went wrong: ${it.message}" }
-            replaceMessage(replyIndex, reply)
+            } catch (e: UnreadableFile) {
+                Reply(e.message ?: "I couldn't read that file.")
+            } catch (e: Exception) {
+                Reply("Something went wrong: ${e.message}")
+            }
+            updateMessage(replyIndex) { it.copy(text = reply.text, files = reply.files) }
             _state.update {
                 it.copy(
                     capabilities = device.capabilities(),
@@ -171,9 +209,11 @@ class XarvisCore(context: Context) {
         _state.update { it.copy(messages = it.messages + ChatMessage(false, text)) }
     }
 
-    private fun replaceMessage(index: Int, text: String) {
+    private fun replaceMessage(index: Int, text: String) = updateMessage(index) { it.copy(text = text) }
+
+    private fun updateMessage(index: Int, change: (ChatMessage) -> ChatMessage) {
         _state.update { s ->
-            s.copy(messages = s.messages.mapIndexed { i, m -> if (i == index) m.copy(text = text) else m })
+            s.copy(messages = s.messages.mapIndexed { i, m -> if (i == index) change(m) else m })
         }
     }
 

@@ -9,6 +9,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import com.xarvis.ai.device.AppNames
 import com.xarvis.ai.device.DeviceCapabilityManager
+import com.xarvis.ai.files.FileBlock
+import com.xarvis.ai.files.FileStore
+import com.xarvis.ai.files.SavedFile
 import com.xarvis.ai.memory.MemorySync
 import com.xarvis.ai.net.DeviceLink
 import com.xarvis.ai.net.Peer
@@ -46,6 +49,10 @@ sealed interface Step {
     data class FindInApp(val app: String, val query: String) : Step
     /** Give [text] to [app] as shared text, e.g. a question typed into ChatGPT, ready to send. */
     data class AskApp(val app: String, val text: String) : Step
+    /** Save a file Gemma wrote (PDF, Word, Excel, text) to Downloads/XARVIS. */
+    data class MakeFile(val block: FileBlock) : Step
+    /** Show files XARVIS made earlier whose names match [query], to open or share again. */
+    data class ShowFiles(val query: String) : Step
 
     // Linking phones (exact commands)
     data object ListDevices : Step
@@ -54,7 +61,7 @@ sealed interface Step {
     data class Unlink(val device: String) : Step
 }
 
-data class StepResult(val success: Boolean, val message: String)
+data class StepResult(val success: Boolean, val message: String, val files: List<SavedFile> = emptyList())
 
 /** Runs steps in order, stopping at the first failure. */
 class WorkflowEngine(
@@ -63,6 +70,7 @@ class WorkflowEngine(
     private val link: DeviceLink,
     private val memorySync: MemorySync,
     private val contacts: ContactFinder,
+    private val files: FileStore,
 ) {
     private val appContext = context.applicationContext
     private val phone = PhoneActions(appContext)
@@ -116,6 +124,20 @@ class WorkflowEngine(
         is Step.FindInApp -> findInApp(step.app, step.query)
         is Step.AskApp -> askApp(step.app, step.text)
         is Step.Lookup -> StepResult(true, "") // done by the agent before the reply is shown
+        is Step.MakeFile -> try {
+            val saved = files.save(step.block)
+            StepResult(true, "I made ${saved.name} (saved in Downloads › XARVIS). Tap OPEN or SHARE below.", listOf(saved))
+        } catch (e: Exception) {
+            StepResult(false, "I couldn't save ${step.block.name}: ${e.message ?: e.javaClass.simpleName}")
+        }
+        is Step.ShowFiles -> {
+            val found = files.find(step.query)
+            when {
+                found.isNotEmpty() -> StepResult(true, "Here ${if (found.size == 1) "it is" else "they are"}. Tap OPEN or SHARE.", found)
+                step.query.isBlank() -> StepResult(false, "I haven't made any files yet. Ask me, e.g. \"make a PDF of my shopping list\".")
+                else -> StepResult(false, "I haven't made a file matching \"${step.query}\". Files I make are in Downloads › XARVIS.")
+            }
+        }
         Step.Location -> StepResult(true, location.read())
         Step.Battery -> StepResult(true, battery.read())
         Step.BluetoothStatus -> StepResult(true, bluetoothInfo.read())

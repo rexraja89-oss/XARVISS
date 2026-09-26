@@ -1,7 +1,15 @@
 package com.xarvis.ai.ui
 
+import android.content.Context
+import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import com.xarvis.ai.R
+import com.xarvis.ai.files.DocumentReader
+import com.xarvis.ai.files.SavedFile
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -67,8 +75,21 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
     var photo by rememberSaveable { mutableStateOf<Uri?>(null) }
     // Android's photo picker: no storage permission needed, Rex picks one photo.
     val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) photo = uri
+        if (uri != null) {
+            photo = uri
+            document = null
+        }
     }
+    var document by rememberSaveable { mutableStateOf<Uri?>(null) }
+    // Android's file picker: Rex picks any file (PDF, Word, Excel, text...); no storage permission needed.
+    val pickDocument = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            document = uri
+            photo = null
+        }
+    }
+    val context = LocalContext.current
+    val documentName = remember(document) { document?.let { DocumentReader.displayName(context, it) } }
     val listState = rememberLazyListState()
 
     LaunchedEffect(state.messages.size) {
@@ -76,9 +97,10 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
     }
 
     fun send() {
-        viewModel.submit(input, photo)
+        viewModel.submit(input, photo, document)
         input = ""
         photo = null
+        document = null
     }
 
     Column(
@@ -110,14 +132,30 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 TextButton(onClick = { photo = null }) { Text("REMOVE") }
             }
         }
+        if (documentName != null) {
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Image(painterResource(R.drawable.ic_file), contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.size(6.dp))
+                Text(
+                    "$documentName attached. Ask about it, or just tap SEND.",
+                    style = MaterialTheme.typography.labelSmall, color = XarvisCyan, modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { document = null }) { Text("REMOVE") }
+            }
+        }
         Row(
             Modifier.fillMaxWidth().padding(vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(
+            IconButton(
                 onClick = { pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 enabled = !state.isProcessing,
-            ) { Text("📷", style = MaterialTheme.typography.titleLarge) }
+            ) {
+                Image(painterResource(R.drawable.ic_photo_lens), contentDescription = "Send a photo", modifier = Modifier.size(32.dp))
+            }
+            IconButton(onClick = { pickDocument.launch(arrayOf("*/*")) }, enabled = !state.isProcessing) {
+                Image(painterResource(R.drawable.ic_file), contentDescription = "Send a file", modifier = Modifier.size(30.dp))
+            }
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
@@ -128,7 +166,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 keyboardActions = KeyboardActions(onSend = { send() }),
             )
             Spacer(Modifier.size(8.dp))
-            Button(onClick = ::send, enabled = (input.isNotBlank() || photo != null) && !state.isProcessing) {
+            Button(onClick = ::send, enabled = (input.isNotBlank() || photo != null || document != null) && !state.isProcessing) {
                 Text("SEND")
             }
         }
@@ -257,11 +295,61 @@ private fun MessageBubble(message: ChatMessage) {
                     )
                 }
             }
+            message.attachment?.let { name -> FileLine(name) }
             Text(
                 message.text.ifEmpty { "thinking…" },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
+            message.files.forEach { FileCard(it) }
         }
+    }
+}
+
+@Composable
+private fun FileLine(name: String) {
+    Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Image(painterResource(R.drawable.ic_file), contentDescription = null, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.size(6.dp))
+        Text(name, style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+    }
+}
+
+/** A file XARVIS made: its name, then OPEN (in the phone's viewer) and SHARE (WhatsApp, Gmail...). */
+@Composable
+private fun FileCard(file: SavedFile) {
+    val context = LocalContext.current
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
+            .border(1.dp, XarvisCyan.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        FileLine(file.name)
+        Row {
+            TextButton(onClick = { openFile(context, file) }) { Text("OPEN") }
+            TextButton(onClick = { shareFile(context, file) }) { Text("SHARE") }
+        }
+    }
+}
+
+private fun openFile(context: Context, file: SavedFile) {
+    val view = Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(file.uri), file.mime)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    startChooser(context, Intent.createChooser(view, "Open ${file.name}"))
+}
+
+private fun shareFile(context: Context, file: SavedFile) {
+    val send = Intent(Intent.ACTION_SEND).setType(file.mime).putExtra(Intent.EXTRA_STREAM, Uri.parse(file.uri))
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    startChooser(context, Intent.createChooser(send, "Share ${file.name}"))
+}
+
+private fun startChooser(context: Context, intent: Intent) {
+    try {
+        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(context, "No app on this phone can open it.", android.widget.Toast.LENGTH_SHORT).show()
     }
 }

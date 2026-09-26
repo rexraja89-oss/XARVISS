@@ -1,5 +1,8 @@
 package com.xarvis.ai.agent
 
+import com.xarvis.ai.files.Document
+import com.xarvis.ai.files.FileBlocks
+import com.xarvis.ai.files.SavedFile
 import com.xarvis.ai.llm.LlmStatus
 import com.xarvis.ai.llm.LocalLlm
 import com.xarvis.ai.memory.MemorySystem
@@ -8,6 +11,10 @@ import com.xarvis.ai.net.Peer
 import com.xarvis.ai.tools.WebLookup
 import com.xarvis.ai.workflow.Step
 import com.xarvis.ai.workflow.WorkflowEngine
+import java.io.File
+
+/** What XARVIS says, and the files it made or found (shown with OPEN and SHARE). */
+data class Reply(val text: String, val files: List<SavedFile> = emptyList())
 
 /**
  * Sends every message to Gemma, which either answers or picks one of XARVIS's tools
@@ -28,9 +35,26 @@ class XarvisAgent(
     suspend fun refreshPrompt() = llm.reset(systemPrompt())
 
     /** Handles one message; [onPartial] receives the reply so far while Gemma is writing it. */
-    suspend fun handle(message: String, onPartial: (String) -> Unit = {}): String {
+    suspend fun handle(message: String, onPartial: (String) -> Unit = {}): Reply {
         val response = LinkCommands.parse(message, link.pairingInProgress)?.let { run(listOf(it)) } ?: askGemma(message, onPartial)
-        memory.logInteraction(message, response)
+        memory.logInteraction(message, response.text)
+        return response
+    }
+
+    /**
+     * A file Rex attached ([doc], already read as text) with his question about it. As much of
+     * the text as fits goes to Gemma, which can also answer with a new file made from it.
+     */
+    suspend fun handleDocument(doc: Document, message: String, onPartial: (String) -> Unit = {}): Reply {
+        val question = message.ifBlank { "Summarise this file: what is it, and what are the main points?" }
+        val room = if (llm.isReady) llm.documentChars else REMOTE_DOCUMENT_CHARS
+        val cut = doc.text.length > room
+        val prompt = "(Rex attached the file \"${doc.name}\". Its text is between <<< and >>>" +
+            (if (cut) ", but it's long, so you only see the first part: say so if the answer may be further on" else "") +
+            ". Use it to answer. To make a new file from it, write a FILE block.)\n\n<<<\n" +
+            doc.text.take(room) + "\n>>>\n\nRex: " + question
+        val response = askGemma(question, onPartial, prompt)
+        memory.logInteraction("[file ${doc.name}] $question", response.text)
         return response
     }
 
@@ -38,67 +62,83 @@ class XarvisAgent(
      * A photo with Rex's question ([message] may be empty: "describe it"). Gemma sees the photo on
      * this phone; its reply can use tools as usual, e.g. a web search about what's in the photo.
      */
-    suspend fun handlePhoto(imagePath: String, message: String, onPartial: (String) -> Unit = {}): String {
+    suspend fun handlePhoto(imagePath: String, message: String, onPartial: (String) -> Unit = {}): Reply {
         val question = message.ifBlank { "Describe this photo in detail and explain everything in it." }
-        val response = when {
-            !llm.isReady -> "Photos can only be looked at on the phone that has the AI model (your S22) for now."
-            !llm.canSeePhotos -> "This AI model file can't look at photos."
-            else -> {
-                val out = StringBuilder()
-                try {
-                    llm.chatWithImage(systemPrompt(), imagePath, IDENTITY_REMINDER + PHOTO_HINT + question) { chunk ->
-                        out.append(chunk)
-                        onPartial(ToolCalls.visibleText(out.toString()))
-                    }
-                    val raw = withLookups(out.toString(), onPartial) { text ->
-                        val more = StringBuilder()
-                        llm.chat(systemPrompt(), text) { chunk ->
-                            more.append(chunk)
-                            onPartial(ToolCalls.visibleText(more.toString()))
-                        }
-                        more.toString()
-                    }
-                    finishReply(message, raw)
-                } catch (t: Throwable) {
-                    "I couldn't look at that photo: ${t.message ?: t.javaClass.simpleName}"
-                }
-            }
-        }
-        memory.logInteraction("[photo] $question", response)
+        val response = if (llm.isReady) photoHere(imagePath, message, question, onPartial)
+            else photoElsewhere(imagePath, message, question, onPartial)
+        memory.logInteraction("[photo] $question", response.text)
         return response
     }
 
+    private suspend fun photoHere(imagePath: String, message: String, question: String, onPartial: (String) -> Unit): Reply {
+        if (!llm.canSeePhotos) return Reply("This AI model file can't look at photos.")
+        val out = StringBuilder()
+        return try {
+            llm.chatWithImage(systemPrompt(), imagePath, IDENTITY_REMINDER + PHOTO_HINT + question) { chunk ->
+                out.append(chunk)
+                onPartial(ToolCalls.visibleText(out.toString()))
+            }
+            val raw = withLookups(out.toString(), onPartial) { text -> chatHere(text, onPartial) }
+            finishReply(message, raw)
+        } catch (t: Throwable) {
+            Reply("I couldn't look at that photo: ${t.message ?: t.javaClass.simpleName}")
+        }
+    }
+
+    /** On a phone without the model (the benco): the linked phone's Gemma looks at the photo. */
+    private suspend fun photoElsewhere(imagePath: String, message: String, question: String, onPartial: (String) -> Unit): Reply {
+        val brain = link.findBrain() ?: return Reply(noBrain())
+        onPartial("Sending the photo to ${brain.name}…")
+        val raw = try {
+            link.remotePhoto(brain, facts(), File(imagePath).readBytes(), question)
+        } catch (e: Exception) {
+            return Reply("I couldn't get ${brain.name} to look at the photo: ${e.message ?: e.javaClass.simpleName}")
+        }
+        return finishReply(message, withLookups(raw, onPartial) { remoteChat(brain, it) })
+    }
     /** Answers a linked phone's message with this phone's Gemma; its tool lines run on that phone. */
     suspend fun answerForPeer(peerId: String, facts: List<String>, devices: List<String>, text: String): String? {
         if (!llm.isReady) return null
         return llm.chatAs(peerId, buildPrompt(facts), IDENTITY_REMINDER + text)
     }
 
-    private suspend fun askGemma(message: String, onPartial: (String) -> Unit): String {
-        val brain = if (llm.isReady) null else link.findBrain() ?: return noBrain()
+    /** Looks at a linked phone's photo with this phone's Gemma; tools in the reply run on that phone. */
+    suspend fun answerPhotoForPeer(peerId: String, facts: List<String>, imagePath: String, text: String): String? {
+        if (!llm.isReady || !llm.canSeePhotos) return null
+        return llm.chatAsWithImage(peerId, buildPrompt(facts), imagePath, IDENTITY_REMINDER + PHOTO_HINT + text)
+    }
+
+    /** [text] through this phone's Gemma, streaming what it writes to [onPartial]. */
+    private suspend fun chatHere(text: String, onPartial: (String) -> Unit): String {
+        val out = StringBuilder()
+        // Rebuilt before every call, so identity and every saved memory are always current.
+        llm.chat(systemPrompt(), IDENTITY_REMINDER + text, onRestart = { out.clear() }) { chunk ->
+            out.append(chunk)
+            onPartial(ToolCalls.visibleText(out.toString()))
+        }
+        return out.toString()
+    }
+
+    /** [message] is what Rex typed; [prompt] is what Gemma is sent (the message, or it with a file's text). */
+    private suspend fun askGemma(message: String, onPartial: (String) -> Unit, prompt: String = message): Reply {
+        val brain = if (llm.isReady) null else link.findBrain() ?: return Reply(noBrain())
         suspend fun ask(text: String): String? = if (brain == null) {
-            val out = StringBuilder()
-            // Rebuilt before every call, so identity and every saved memory are always current.
-            llm.chat(systemPrompt(), IDENTITY_REMINDER + text) { chunk ->
-                out.append(chunk)
-                onPartial(ToolCalls.visibleText(out.toString()))
-            }
-            out.toString()
+            chatHere(text, onPartial)
         } else {
             onPartial("Asking ${brain.name}…")
             remoteChat(brain, text)
         }
 
         val first = try {
-            ask(message)
+            ask(prompt)
         } catch (t: Throwable) {
-            return "My language model hit an error: ${t.message ?: t.javaClass.simpleName}"
+            return Reply("My language model hit an error: ${t.message ?: t.javaClass.simpleName}")
         }
-        var raw = first ?: return "I couldn't reach ${brain?.name}'s AI model. Check both phones are on the same Wi-Fi."
+        var raw = first ?: return Reply("I couldn't reach ${brain?.name}'s AI model. Check both phones have XARVIS and Tailscale on.")
         // Gemma sometimes says it could use a tool ("I can use the location tool if you ask")
         // instead of using it. Nudge it once, the way "yes use it" worked for Rex.
-        if (ToolCalls.parse(raw).isEmpty() && skippedTool(ToolCalls.visibleText(raw))) {
-            runCatching { ask(TOOL_NUDGE) }.getOrNull()?.takeIf { ToolCalls.parse(it).isNotEmpty() }?.let { raw = it }
+        if (!usesTools(raw) && skippedTool(ToolCalls.visibleText(raw))) {
+            runCatching { ask(TOOL_NUDGE) }.getOrNull()?.takeIf(::usesTools)?.let { raw = it }
         }
         raw = withLookups(raw, onPartial) { ask(it) }
         return finishReply(message, raw)
@@ -122,11 +162,12 @@ class XarvisAgent(
         return answer?.takeIf { ToolCalls.visibleText(it).isNotBlank() } ?: facts
     }
 
-    /** Gemma's text plus the results of the tools it asked for. */
-    private suspend fun finishReply(message: String, raw: String): String {
-        val text = fixIdentity(ToolCalls.visibleText(raw))
+    /** Gemma's text plus the results of the tools it asked for, and the files it wrote. */
+    private suspend fun finishReply(message: String, raw: String): Reply {
+        val (fileBlocks, rest) = FileBlocks.split(raw)
+        val text = fixIdentity(ToolCalls.visibleText(rest))
         val known = facts()
-        val steps = forUser(message, ToolCalls.parse(raw).filterNot { it is Step.Lookup }).map { step ->
+        val steps = fileBlocks.map { Step.MakeFile(it) } + forUser(message, ToolCalls.parse(rest).filterNot { it is Step.Lookup }).map { step ->
             // Small models sometimes answer "what is my name?" by re-saving the fact; say it instead.
             val fact = (step as? Step.Remember)?.fact
             if (fact != null && known.any { it.equals(fact, ignoreCase = true) }) {
@@ -135,19 +176,21 @@ class XarvisAgent(
                 step
             }
         }
-        if (steps.isEmpty()) return text.ifEmpty { "…" }
+        if (steps.isEmpty()) return Reply(text.ifEmpty { "…" })
         val results = run(steps)
-        return if (text.isEmpty()) results else "$text\n$results"
+        return if (text.isEmpty()) results else results.copy(text = "$text\n${results.text}")
     }
 
-    private suspend fun run(steps: List<Step>): String =
-        engine.execute(steps).joinToString("\n") { it.message }
+    private suspend fun run(steps: List<Step>): Reply {
+        val results = engine.execute(steps)
+        return Reply(results.joinToString("\n") { it.message }.trim(), results.flatMap { it.files })
+    }
 
     private fun noBrain(): String = when (val s = llm.status.value) {
         LlmStatus.Loading -> "My AI model is still loading. Try again in a moment."
         is LlmStatus.Failed -> "My AI model couldn't start (${s.reason}), and no linked phone with one is reachable."
         else -> "There's no AI model on this phone and the linked phone with one isn't reachable. " +
-            "Make sure XARVIS is running on it and both phones are on the same Wi-Fi."
+            "Make sure XARVIS is running on it, with Tailscale on (or both phones on the same Wi-Fi)."
     }
 
     /**
@@ -173,6 +216,11 @@ class XarvisAgent(
         }
 
         private const val MAX_FACT_CHARS = 3000
+        /** File text sent to a linked phone's Gemma, whose context size isn't known here. */
+        private const val REMOTE_DOCUMENT_CHARS = 8000
+
+        /** Whether Gemma's reply asks for a tool or writes a file. */
+        internal fun usesTools(raw: String): Boolean = ToolCalls.parse(raw).isNotEmpty() || FileBlocks.split(raw).first.isNotEmpty()
 
         private const val PHOTO_HINT = "(Rex sent a photo. Look at it carefully and answer about it. " +
             "Recognise famous things (films, places, logos, people) from what you know. " +
@@ -181,13 +229,14 @@ class XarvisAgent(
         private const val LOOKUP_RESULT_PREFIX = "(Here is what Wikipedia says. Use it to answer Rex's last question " +
             "in a few sentences, in your own words. Don't use another lookup.)\n\n"
 
-        private const val TOOL_NUDGE = "(Rex wants you to do it now. Reply with only the matching TOOL line.)"
+        private const val TOOL_NUDGE = "(Rex wants you to do it now. Reply with only the matching TOOL line, " +
+            "or with the FILE block if he asked for a file.)"
 
         /** A reply that talks about a tool, or says it can't do something, instead of using a tool. */
         private val SKIPPED_TOOL = Regex(
             listOf(
                 """\btool\b""", """if you (?:ask|want|tell)""",
-                """(?:don't|do not|can't|cannot|can not|am unable to|unable to)\s+(?:have\s+)?(?:access|directly|interact|do that|check|see|open|take you|set|call|make)""",
+                """(?:don't|do not|can't|cannot|can not|am unable to|unable to)\s+(?:have\s+)?(?:access|directly|interact|do that|check|see|open|take you|set|call|make|create|save|generate|write)""",
             ).joinToString("|"),
             RegexOption.IGNORE_CASE,
         )
@@ -222,7 +271,7 @@ class XarvisAgent(
 
         internal val SYSTEM_PROMPT = """
             You are XARVIS, a personal AI assistant created by Rex. You run on-device on Rex's Samsung S22 Ultra. Never say you were made by Google.
-            The user is Rex; talk to him directly as "you", never as "Rex". Reply briefly in plain text, without markdown. You can't browse the internet yourself; use search for live information like news, weather or prices.
+            The user is Rex; talk to him directly as "you", never as "Rex". Reply briefly in plain text, without markdown (a FILE you write may use it). You can't browse the internet yourself; use search for live information like news, weather or prices.
 
             You can use these tools. To use one, reply with only its line:
             TOOL: time
@@ -245,6 +294,12 @@ class XarvisAgent(
             TOOL: search <web search words>   (only opens Google on the phone for Rex; you never see the results)
             TOOL: find <app>: <words to search inside that app>
             TOOL: ask <app>: <text to type into that app, e.g. a question for ChatGPT>
+            TOOL: files <words from the file's name>   (shows files you made before, to open or share)
+
+            To make a file (PDF, Word, Excel, text, CSV, web page), write the whole file like this; XARVIS saves it in Downloads:
+            FILE: <name>.pdf   (or .docx, .xlsx, .txt, .csv, .md, .html)
+            <the complete content: "# " for headings, "- " for bullets; for Excel, one row per line with commas between cells>
+            END FILE
 
             Examples:
             User: what time is it? -> TOOL: time
@@ -274,12 +329,23 @@ class XarvisAgent(
             User: show my payslip -> TOOL: open payslip
             User: update my details in Intelligent CV and download my CV -> TOOL: open intelligent cv
             (then tell him you opened it and that he needs to edit and download the CV himself, because you can't tap inside other apps yet)
+            User: make a PDF packing list for Umrah -> FILE: umrah-packing-list.pdf
+            # Umrah packing list
+            - Ihram (2 sets)
+            - Passport and visa
+            END FILE
+            User: put my monthly budget in Excel: rent 3000, food 1200 -> FILE: monthly-budget.xlsx
+            Item, Amount
+            Rent, 3000
+            Food, 1200
+            END FILE
+            User: send me the packing list file -> TOOL: files packing list
             User: who made you? -> I'm XARVIS, created by Rex.
             User: what is my name? -> answer from the facts below, without a tool.
             User: tell me a joke -> answer yourself, without a tool.
 
             Answer from what you know when you're sure. Use "lookup" for facts you're unsure of, and "search" when Rex wants to browse live results (news, weather, prices). Never say what a search found: you can't see it. To search inside an app, use "find".
-            If a task needs more than your tools can do, use the tools that help, then say plainly what you did and what Rex must do himself. Never pretend you did something.
+            When Rex asks for a file, write all of it; never say you can't make files. If a task needs more than your tools can do, use the tools that help, then say plainly what you did and what Rex must do himself. Never pretend you did something.
             Use "remember" only when Rex tells you something new to keep. Never say you did something on the phone without a tool line.
             The facts below were told to you by Rex: "you" and "your" in them mean Rex, except that you, XARVIS, were created by Rex.
         """.trimIndent()

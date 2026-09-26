@@ -68,6 +68,9 @@ class DeviceLink(context: Context, private val handler: Handler) {
         /** Runs a linked device's free-form message through this device's LLM; null if it has none. */
         suspend fun brainChat(peerId: String, facts: List<String>, devices: List<String>, text: String): String?
 
+        /** Looks at a linked device's photo ([jpeg]) with this device's LLM; null if it can't. */
+        suspend fun brainPhoto(peerId: String, facts: List<String>, jpeg: ByteArray, text: String): String?
+
         fun llmReady(): Boolean
         fun onNote(from: String, text: String)
         fun onPeersChanged()
@@ -207,6 +210,14 @@ class DeviceLink(context: Context, private val handler: Handler) {
         request(
             peer, "chat",
             JSONObject().put("text", text).put("facts", JSONArray(facts)).put("devices", JSONArray(devices)),
+            timeoutMs = CHAT_READ_TIMEOUT_MS,
+        ).getString("text")
+
+    /** Sends a photo to [peer]'s Gemma with Rex's question about it; returns its raw reply. */
+    suspend fun remotePhoto(peer: Peer, facts: List<String>, jpeg: ByteArray, text: String): String =
+        request(
+            peer, "photo",
+            JSONObject().put("text", text).put("facts", JSONArray(facts)).put("image", b64(jpeg)),
             timeoutMs = CHAT_READ_TIMEOUT_MS,
         ).getString("text")
 
@@ -417,6 +428,12 @@ class DeviceLink(context: Context, private val handler: Handler) {
                 val text = handler.brainChat(peer.id, req.optJSONArray("facts").toStrings(),
                     req.optJSONArray("devices").toStrings(), req.getString("text"))
                     ?: return error("$deviceName has no AI model loaded")
+                reply.put("text", text)
+            }
+            "photo" -> {
+                val text = handler.brainPhoto(peer.id, req.optJSONArray("facts").toStrings(),
+                    unb64(req.getString("image")), req.getString("text"))
+                    ?: return error("$deviceName can't look at photos right now (its AI model isn't ready)")
                 reply.put("text", text)
             }
             "memory_get" -> reply.put("memory", handler.memorySnapshot())
