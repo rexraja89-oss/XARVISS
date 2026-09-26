@@ -115,7 +115,7 @@ private fun Header(isProcessing: Boolean, memoryCount: Int, linkedCount: Int, ll
             } else {
                 Box(Modifier.size(8.dp).background(XarvisCyan, CircleShape))
                 Spacer(Modifier.size(8.dp))
-                Text("ONLINE · $memoryCount MEM · $linkedCount LINKED · B${com.xarvis.ai.BuildConfig.VERSION_CODE}", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+                Text("ONLINE · $memoryCount MEM · $linkedCount LINKED", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
             }
         }
         val (label, color) = when (llmStatus) {
@@ -124,7 +124,11 @@ private fun Header(isProcessing: Boolean, memoryCount: Int, linkedCount: Int, ll
             is LlmStatus.Ready -> "AI MODEL: GEMMA 4 E2B · ${llmStatus.backend} · ON-DEVICE" to XarvisCyan
             is LlmStatus.Failed -> "AI MODEL: FAILED TO LOAD" to MaterialTheme.colorScheme.error
         }
-        Text(label, style = MaterialTheme.typography.labelSmall, color = color, modifier = Modifier.padding(top = 6.dp))
+        // The build number leads this line so it is never cut off; it shows which update is installed.
+        Text(
+            "B${com.xarvis.ai.BuildConfig.VERSION_CODE} · $label", style = MaterialTheme.typography.labelSmall, color = color,
+            modifier = Modifier.padding(top = 6.dp),
+        )
     }
 }
 
