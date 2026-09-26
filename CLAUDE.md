@@ -5,7 +5,7 @@ Personal on-device AI assistant for Android, owned by Rex (developer credit: Saj
 ## How development works now
 
 - There is no local machine with adb. Code changes go to `main` on GitHub; `.github/workflows/build.yml` runs the unit tests, builds `app-debug.apk` (artifact **XARVIS-v1.0.<run>-apk**, JDK 21) and checks its signature. A green CI run is the build check.
-- Rex installs each new APK on the phone himself (download the artifact from the Actions run, unzip, tap the APK, tap Update). Tell him exactly what to test after installing, since nobody else can run it on the device.
+- Rex installs each new APK on the phone himself (download the artifact from the Actions run, extract the zip, tap `XARVIS-v1.0.<run>.apk`, tap Update). Tell him exactly what to test after installing, since nobody else can run it on the device.
 - Unit tests (`app/src/test`, plain JVM logic: tool-line parsing, link commands, the prompt, identity guard, contact matching) run in CI before the build. Add a test when adding a tool. If CI fails, compiler and test errors show as a "Build errors" annotation on the check run (readable via the GitHub API even when raw logs aren't).
 - `./gradlew assembleDebug` needs an Android SDK with platform 37; if the environment has none, rely on CI.
 
@@ -36,7 +36,7 @@ Personal on-device AI assistant for Android, owned by Rex (developer credit: Saj
 
 ## Photos and linking from anywhere
 
-- Photos: the 📷 button uses Android's photo picker; `llm/PhotoPrep` shrinks the photo to ≤1024 px (upright JPEG in cache), and `LocalLlm.chatWithImage` sends `Contents.of(Content.ImageFile, Content.Text)`. The engine opens with `visionBackend = CPU` (not GPU: S22 driver), falling back to text-only if the model can't. Only the phone with the model (S22) analyses photos. Gemma may add `TOOL: search` to look things up.
+- Photos: the 📷 button uses Android's photo picker; `llm/PhotoPrep` shrinks the photo to ≤1024 px (upright JPEG in cache), and `LocalLlm.chatWithImage` sends `Contents.of(Content.ImageFile, Content.Text)`. The engine opens with `visionBackend = CPU` (not GPU: S22 driver), falling back to text-only if the model can't. Only the phone with the model (S22) analyses photos. `TOOL: lookup <words>` makes XARVIS read Wikipedia (`tools/WebLookup`, REST search + page summary) and ask Gemma again with the facts (`XarvisAgent.withLookups`); `search` only opens Google for Rex and Gemma never sees results (it used to invent "I couldn't find any movie"). CI names the APK `XARVIS-v1.0.<run>.apk`: a leftover app-debug.apk in Downloads made the benco's file manager fail to extract ("Error unknown").
 - Away from home Wi-Fi: Tailscale. Each request carries this phone's Tailscale address (`tailnet`, a 100.64.0.0/10 address on a VPN network); peers store it as `Peer.tailnetHost` and try it when the Wi-Fi address fails. Rex installs Tailscale on both phones with one account; the phones must talk once (same Wi-Fi) after that to learn each other's Tailscale address.
 
 ## Things learned the hard way

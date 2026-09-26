@@ -44,6 +44,7 @@ object ToolCalls {
             val (app, query) = splitMessage(a)
             if (app.isNotBlank() && query != null) return Step.FindInApp(app, query)
         }
+        arg(t, "lookup|look up|wikipedia|wiki")?.takeIf { it.isNotBlank() }?.let { return Step.Lookup(it) }
         arg(t, "search|google|web search")?.takeIf { it.isNotBlank() }?.let { return Step.Search(it) }
         arg(t, "remember|save|note")?.takeIf { it.isNotBlank() }?.let { return Step.Remember(XarvisAgent.toSecondPerson(it)) }
         arg(t, "open|launch|open app")?.takeIf { it.isNotBlank() }?.let { return Step.LaunchApp(it.removeSuffix(" app").trim()) }

@@ -5,6 +5,7 @@ import com.xarvis.ai.llm.LocalLlm
 import com.xarvis.ai.memory.MemorySystem
 import com.xarvis.ai.net.DeviceLink
 import com.xarvis.ai.net.Peer
+import com.xarvis.ai.tools.WebLookup
 import com.xarvis.ai.workflow.Step
 import com.xarvis.ai.workflow.WorkflowEngine
 
@@ -49,7 +50,15 @@ class XarvisAgent(
                         out.append(chunk)
                         onPartial(ToolCalls.visibleText(out.toString()))
                     }
-                    finishReply(message, out.toString())
+                    val raw = withLookups(out.toString(), onPartial) { text ->
+                        val more = StringBuilder()
+                        llm.chat(systemPrompt(), text) { chunk ->
+                            more.append(chunk)
+                            onPartial(ToolCalls.visibleText(more.toString()))
+                        }
+                        more.toString()
+                    }
+                    finishReply(message, raw)
                 } catch (t: Throwable) {
                     "I couldn't look at that photo: ${t.message ?: t.javaClass.simpleName}"
                 }
@@ -91,17 +100,31 @@ class XarvisAgent(
         if (ToolCalls.parse(raw).isEmpty() && skippedTool(ToolCalls.visibleText(raw))) {
             runCatching { ask(TOOL_NUDGE) }.getOrNull()?.takeIf { ToolCalls.parse(it).isNotEmpty() }?.let { raw = it }
         }
+        raw = withLookups(raw, onPartial) { ask(it) }
         return finishReply(message, raw)
     }
 
     private suspend fun remoteChat(brain: Peer, message: String): String? =
         runCatching { link.remoteChat(brain, facts(), link.pairedPeers().map { it.name }, message) }.getOrNull()
 
+    /**
+     * When Gemma asked to look something up, reads Wikipedia and asks Gemma again with the facts,
+     * returning its new reply (or the facts themselves if it can't be asked).
+     */
+    private suspend fun withLookups(raw: String, onPartial: (String) -> Unit, ask: suspend (String) -> String?): String {
+        val lookups = ToolCalls.parse(raw).filterIsInstance<Step.Lookup>()
+        if (lookups.isEmpty()) return raw
+        onPartial("Looking it up on Wikipedia…")
+        val facts = lookups.take(2).joinToString("\n\n") { "Wikipedia on \"${it.query}\":\n" + WebLookup.lookup(it.query) }
+        val answer = runCatching { ask(LOOKUP_RESULT_PREFIX + facts) }.getOrNull()
+        return answer?.takeIf { ToolCalls.visibleText(it).isNotBlank() } ?: facts
+    }
+
     /** Gemma's text plus the results of the tools it asked for. */
     private suspend fun finishReply(message: String, raw: String): String {
         val text = fixIdentity(ToolCalls.visibleText(raw))
         val known = facts()
-        val steps = forUser(message, ToolCalls.parse(raw)).map { step ->
+        val steps = forUser(message, ToolCalls.parse(raw).filterNot { it is Step.Lookup }).map { step ->
             // Small models sometimes answer "what is my name?" by re-saving the fact; say it instead.
             val fact = (step as? Step.Remember)?.fact
             if (fact != null && known.any { it.equals(fact, ignoreCase = true) }) {
@@ -150,7 +173,11 @@ class XarvisAgent(
         private const val MAX_FACT_CHARS = 3000
 
         private const val PHOTO_HINT = "(Rex sent a photo. Look at it carefully and answer about it. " +
-            "If he wants information about something in it, add a TOOL: search line with good search words.)\n\n"
+            "Recognise famous things (films, places, logos, people) from what you know. " +
+            "If he wants facts you're unsure of, add a TOOL: lookup line with good words.)\n\n"
+
+        private const val LOOKUP_RESULT_PREFIX = "(Here is what Wikipedia says. Use it to answer Rex's last question " +
+            "in a few sentences, in your own words. Don't use another lookup.)\n\n"
 
         private const val TOOL_NUDGE = "(Rex wants you to do it now. Reply with only the matching TOOL line.)"
 
@@ -212,7 +239,8 @@ class XarvisAgent(
             TOOL: map <place, or nothing for where you are>
             TOOL: alarm <time>
             TOOL: timer <duration>
-            TOOL: search <web search words>
+            TOOL: lookup <words>   (XARVIS reads Wikipedia and gives you the facts, then you answer)
+            TOOL: search <web search words>   (only opens Google on the phone for Rex; you never see the results)
             TOOL: find <app>: <words to search inside that app>
             TOOL: ask <app>: <text to type into that app, e.g. a question for ChatGPT>
 
@@ -236,6 +264,8 @@ class XarvisAgent(
             User: wake me up at 6:30 am -> TOOL: alarm 6:30 am
             User: set a timer for 10 minutes -> TOOL: timer 10 minutes
             User: what's the weather in Lahore? -> TOOL: search weather in Lahore
+            User: who is the president of Brazil? -> TOOL: lookup president of Brazil
+            User: which movie is this ring from? (photo of the glowing gold ring with script) -> It's the One Ring from The Lord of the Rings.
             User: open gmail and search for ali@example.com -> TOOL: find gmail: ali@example.com
             User: open chat gpt -> TOOL: open chat gpt
             User: ask chat gpt how to build a mobile app -> TOOL: ask chat gpt: how to build a mobile app
@@ -246,7 +276,7 @@ class XarvisAgent(
             User: what is my name? -> answer from the facts below, without a tool.
             User: tell me a joke -> answer yourself, without a tool.
 
-            Use "search" only for the web. To search inside an app, use "find".
+            Answer from what you know when you're sure. Use "lookup" for facts you're unsure of, and "search" when Rex wants to browse live results (news, weather, prices). Never say what a search found: you can't see it. To search inside an app, use "find".
             If a task needs more than your tools can do, use the tools that help, then say plainly what you did and what Rex must do himself. Never pretend you did something.
             Use "remember" only when Rex tells you something new to keep. Never say you did something on the phone without a tool line.
             The facts below were told to you by Rex: "you" and "your" in them mean Rex, except that you, XARVIS, were created by Rex.
