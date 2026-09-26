@@ -4,6 +4,10 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.app.SearchManager
+import android.content.ClipData
+import android.content.ClipboardManager
+import com.xarvis.ai.device.AppNames
 import com.xarvis.ai.device.DeviceCapabilityManager
 import com.xarvis.ai.memory.MemorySync
 import com.xarvis.ai.net.DeviceLink
@@ -36,6 +40,8 @@ sealed interface Step {
     data class Timer(val seconds: Int) : Step
     data class Search(val query: String) : Step
     data class ShowMap(val place: String?) : Step
+    /** Search for [query] inside [app] ("find in Gmail: Adarsh"), rather than on the web. */
+    data class FindInApp(val app: String, val query: String) : Step
 
     // Linking phones (exact commands)
     data object ListDevices : Step
@@ -82,8 +88,16 @@ class WorkflowEngine(
         is Step.LaunchApp -> {
             val app = device.findApp(step.appName)
             val intent = app?.let { device.launchIntent(it) }
-            if (app == null || intent == null) {
-                StepResult(false, "I couldn't find an app called \"${step.appName}\".")
+            val web = AppNames.webApp(step.appName)
+            if (app == null && web != null) {
+                openUrl(web, null, "Opening ${step.appName} (${Uri.parse(web).host}).")
+            } else if (app == null || intent == null) {
+                val similar = AppNames.similar(step.appName, device.launchableApps())
+                StepResult(
+                    false,
+                    "I couldn't find an app called \"${step.appName}\" on this phone." +
+                        if (similar.isNotEmpty()) " Did you mean: ${similar.joinToString()}?" else " Is it installed?",
+                )
             } else {
                 try {
                     appContext.startActivity(intent)
@@ -95,6 +109,7 @@ class WorkflowEngine(
         }
 
         is Step.FindContact -> findContact(step.name)
+        is Step.FindInApp -> findInApp(step.app, step.query)
         Step.Location -> StepResult(true, location.read())
         Step.Battery -> StepResult(true, battery.read())
         Step.BluetoothStatus -> StepResult(true, bluetoothInfo.read())
@@ -129,6 +144,61 @@ class WorkflowEngine(
         is Step.Unlink -> withPeer(step.device) {
             link.unpair(it)
             StepResult(true, "Unlinked ${it.name}.")
+        }
+    }
+
+    /**
+     * Searches inside an app: the app's own search if it accepts one from other apps, or its
+     * search web page (which Android opens in the app); otherwise opens the app with the words
+     * copied, ready to paste into its search box.
+     */
+    private fun findInApp(appName: String, query: String): StepResult {
+        val app = device.findApp(appName)
+        val q = Uri.encode(query)
+        val page = when (app?.packageName ?: AppNames.normalize(appName)) {
+            "com.linkedin.android", "linkedin" -> "https://www.linkedin.com/search/results/all/?keywords=$q"
+            "com.google.android.apps.docs", "drive" -> "https://drive.google.com/drive/search?q=$q"
+            "com.github.android", "github" -> "https://github.com/search?q=$q"
+            "com.google.android.youtube", "youtube" -> "https://www.youtube.com/results?search_query=$q"
+            else -> null
+        }
+        if (page != null) return openUrl(page, app?.packageName, "Searching ${app?.label ?: appName} for \"$query\".")
+        if (app == null) return StepResult(false, "I couldn't find an app called \"$appName\" on this phone.")
+        try {
+            appContext.startActivity(
+                Intent(Intent.ACTION_SEARCH).setPackage(app.packageName).putExtra(SearchManager.QUERY, query)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            return StepResult(true, "Searching ${app.label} for \"$query\".")
+        } catch (e: Exception) {
+            // This app doesn't take searches from other apps.
+        }
+        val launch = device.launchIntent(app) ?: return StepResult(false, "${app.label} couldn't be opened.")
+        appContext.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("search", query))
+        return try {
+            appContext.startActivity(launch)
+            StepResult(true, "Opened ${app.label}. It doesn't accept searches from other apps, so I copied \"$query\": tap its search box and paste.")
+        } catch (e: ActivityNotFoundException) {
+            StepResult(false, "${app.label} couldn't be opened.")
+        }
+    }
+
+    /** Opens [url], in [pkg]'s app when it's given and can, otherwise wherever Android sends it. */
+    private fun openUrl(url: String, pkg: String?, success: String): StepResult {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (pkg != null) {
+            try {
+                appContext.startActivity(Intent(intent).setPackage(pkg))
+                return StepResult(true, success)
+            } catch (e: ActivityNotFoundException) {
+                // that app doesn't open these links; use the browser
+            }
+        }
+        return try {
+            appContext.startActivity(intent)
+            StepResult(true, success)
+        } catch (e: ActivityNotFoundException) {
+            StepResult(false, "There's no web browser on this phone.")
         }
     }
 

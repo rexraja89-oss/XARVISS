@@ -37,6 +37,8 @@ class ToolCallsTest {
         assertEquals(Step.Search("weather in Lahore"), one("TOOL: search weather in Lahore"))
         assertEquals(Step.ReportTime, one("TOOL: time")) // "time" and "timer" don't get mixed up
         assertEquals(Step.ShowMap(null), one("TOOL: map"))
+        assertEquals(Step.FindInApp("gmail", "Adarsh.Kelathedath@madinagulf.com"), one("TOOL: find gmail: Adarsh.Kelathedath@madinagulf.com"))
+        assertEquals(Step.FindContact("Atiq"), one("TOOL: find contact Atiq")) // not an app search
         assertEquals(Step.ShowMap("Dubai Mall"), one("TOOL: map Dubai Mall"))
     }
 

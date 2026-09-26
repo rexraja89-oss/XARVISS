@@ -52,15 +52,8 @@ class DeviceCapabilityManager(context: Context) {
             .distinctBy { it.packageName }
     }
 
-    /** Best match for a spoken app name: exact label, then prefix, then substring. */
-    fun findApp(name: String): InstalledApp? {
-        val query = name.trim().lowercase()
-        if (query.isEmpty()) return null
-        val apps = launchableApps()
-        return apps.firstOrNull { it.label.lowercase() == query }
-            ?: apps.firstOrNull { it.label.lowercase().startsWith(query) }
-            ?: apps.firstOrNull { it.label.lowercase().contains(query) }
-    }
+    /** The installed app Rex means by [name] ("chat gpt", "YT studio", "files"); see [AppNames]. */
+    fun findApp(name: String): InstalledApp? = AppNames.best(name, launchableApps())
 
     fun launchIntent(app: InstalledApp): Intent? =
         pm.getLaunchIntentForPackage(app.packageName)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
