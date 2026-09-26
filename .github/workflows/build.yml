@@ -10,6 +10,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # to publish each build as a GitHub release (a direct APK download)
     steps:
     - uses: actions/checkout@v5
     - name: Set up JDK 21
@@ -58,3 +60,16 @@ jobs:
       with:
         name: XARVIS-v1.0.${{ github.run_number }}-apk
         path: app/build/outputs/apk/debug/XARVIS-v1.0.${{ github.run_number }}.apk
+    # A direct download, no zip and no GitHub sign-in: the phone's browser downloads the APK and
+    # installs it. releases/latest/download/XARVIS.apk always points at the newest build.
+    - name: Publish as a release
+      if: github.event_name != 'pull_request'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        v="1.0.${{ github.run_number }}"
+        cd app/build/outputs/apk/debug
+        cp "XARVIS-v$v.apk" XARVIS.apk
+        gh release create "v$v" "XARVIS-v$v.apk" XARVIS.apk --repo "${{ github.repository }}" \
+          --target "${{ github.sha }}" --title "XARVIS v$v" --latest \
+          --notes "Tap XARVIS.apk to download, then open it and tap Update. Always newest: https://github.com/${{ github.repository }}/releases/latest/download/XARVIS.apk"

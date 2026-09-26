@@ -5,6 +5,7 @@ Personal on-device AI assistant for Android, owned by Rex (developer credit: Saj
 ## How development works now
 
 - There is no local machine with adb. Code changes go to `main` on GitHub; `.github/workflows/build.yml` runs the unit tests, builds `app-debug.apk` (artifact **XARVIS-v1.0.<run>-apk**, JDK 21) and checks its signature. A green CI run is the build check.
+- Every push to main is also published as a GitHub release `v1.0.<run>` with `XARVIS.apk`; **the install link for Rex is always https://github.com/rexraja89-oss/XARVISS/releases/latest/download/XARVIS.apk** (direct download in Chrome, no zip, no sign-in). The benco's Files app failed to extract artifact zips.
 - Rex installs each new APK on the phone himself (download the artifact from the Actions run, extract the zip, tap `XARVIS-v1.0.<run>.apk`, tap Update). Tell him exactly what to test after installing, since nobody else can run it on the device.
 - Unit tests (`app/src/test`, plain JVM logic: tool-line parsing, link commands, the prompt, identity guard, contact matching) run in CI before the build. Add a test when adding a tool. If CI fails, compiler and test errors show as a "Build errors" annotation on the check run (readable via the GitHub API even when raw logs aren't).
 - `./gradlew assembleDebug` needs an Android SDK with platform 37; if the environment has none, rely on CI.
