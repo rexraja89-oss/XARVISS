@@ -35,11 +35,18 @@ class PhoneActions(context: Context) {
     // ---- Calls and messages ----
 
     /**
-     * Opens the dialer with the number ready; the user taps the call button. Gemma decides what
-     * to do, and a misunderstanding must never phone someone.
+     * [direct]: Rex typed "call ..." himself, so the call is placed (asking for the call permission
+     * once). Otherwise the dialer opens with the number ready and he taps the call button, so a
+     * misunderstanding by Gemma can never phone someone.
      */
-    suspend fun call(target: String): StepResult {
+    suspend fun call(target: String, direct: Boolean): StepResult {
         val who = resolve(target).let { it as? Resolved.Found ?: return (it as Resolved.Problem).result }
+        if (direct) {
+            if (!PermissionGate.has(appContext, CALL)) PermissionGate.request(CALL)
+            if (PermissionGate.has(appContext, CALL)) {
+                return start(Intent(Intent.ACTION_CALL, Uri.fromParts("tel", who.number, null)), "Calling ${who.display}.")
+            }
+        }
         return start(
             Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", who.number, null)),
             "Opened the dialer for ${who.display}. Tap the green call button to call.",
@@ -198,6 +205,7 @@ class PhoneActions(context: Context) {
     }
 
     companion object {
+        private const val CALL = Manifest.permission.CALL_PHONE
         private const val READ_CONTACTS = Manifest.permission.READ_CONTACTS
         private const val BT_CONNECT = Manifest.permission.BLUETOOTH_CONNECT
         private val WHATSAPP_PACKAGES = listOf("com.whatsapp", "com.whatsapp.w4b")

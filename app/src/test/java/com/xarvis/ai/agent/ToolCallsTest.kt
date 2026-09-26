@@ -36,6 +36,8 @@ class ToolCallsTest {
         assertEquals(Step.Timer(5400), one("TOOL: timer 1 hour 30 min"))
         assertEquals(Step.Search("weather in Lahore"), one("TOOL: search weather in Lahore"))
         assertEquals(Step.ReportTime, one("TOOL: time")) // "time" and "timer" don't get mixed up
+        assertEquals(Step.ShowMap(null), one("TOOL: map"))
+        assertEquals(Step.ShowMap("Dubai Mall"), one("TOOL: map Dubai Mall"))
     }
 
     @Test fun unclearPhoneToolsAreIgnored() {

@@ -27,13 +27,15 @@ sealed interface Step {
     data object BluetoothStatus : Step
     data class Bluetooth(val on: Boolean) : Step
     data class Wifi(val on: Boolean) : Step
-    data class Call(val target: String) : Step
+    /** [direct] places the call at once (Rex typed "call ..."); otherwise the dialer opens. */
+    data class Call(val target: String, val direct: Boolean = false) : Step
     data class WhatsApp(val target: String, val text: String?) : Step
     data class Sms(val target: String, val text: String) : Step
     data class Flashlight(val on: Boolean) : Step
     data class Alarm(val hour: Int, val minute: Int, val label: String?) : Step
     data class Timer(val seconds: Int) : Step
     data class Search(val query: String) : Step
+    data class ShowMap(val place: String?) : Step
 
     // Linking phones (exact commands)
     data object ListDevices : Step
@@ -98,7 +100,14 @@ class WorkflowEngine(
         Step.BluetoothStatus -> StepResult(true, bluetoothInfo.read())
         is Step.Bluetooth -> phone.bluetooth(step.on)
         is Step.Wifi -> phone.wifi(step.on)
-        is Step.Call -> phone.call(step.target)
+        is Step.Call -> phone.call(step.target, step.direct)
+        is Step.ShowMap -> try {
+            val uri = step.place?.let { "geo:0,0?q=${Uri.encode(it)}" } ?: "geo:0,0"
+            appContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            StepResult(true, step.place?.let { "Opening the map for $it." } ?: "Opening the map.")
+        } catch (e: ActivityNotFoundException) {
+            StepResult(false, "There's no maps app on this phone.")
+        }
         is Step.WhatsApp -> phone.whatsApp(step.target, step.text)
         is Step.Sms -> phone.sms(step.target, step.text)
         is Step.Flashlight -> phone.flashlight(step.on)

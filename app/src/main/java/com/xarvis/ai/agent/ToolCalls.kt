@@ -35,6 +35,7 @@ object ToolCalls {
             val (who, text) = splitMessage(a)
             return if (who.isNotBlank() && text != null) Step.Sms(who, text) else null
         }
+        arg(t, "map|maps|navigate|navigate to|directions|directions to")?.let { return Step.ShowMap(it.ifBlank { null }) }
         arg(t, "search|google|web search")?.takeIf { it.isNotBlank() }?.let { return Step.Search(it) }
         arg(t, "remember|save|note")?.takeIf { it.isNotBlank() }?.let { return Step.Remember(XarvisAgent.toSecondPerson(it)) }
         arg(t, "open|launch|open app")?.takeIf { it.isNotBlank() }?.let { return Step.LaunchApp(it.removeSuffix(" app").trim()) }

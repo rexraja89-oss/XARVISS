@@ -40,34 +40,42 @@ class XarvisAgent(
     }
 
     private suspend fun askGemma(message: String, onPartial: (String) -> Unit): String {
-        val raw = if (llm.isReady) {
+        val brain = if (llm.isReady) null else link.findBrain() ?: return noBrain()
+        suspend fun ask(text: String): String? = if (brain == null) {
             val out = StringBuilder()
-            try {
-                // Rebuilt before every call, so identity and every saved memory are always current.
-                llm.chat(systemPrompt(), IDENTITY_REMINDER + message) { chunk ->
-                    out.append(chunk)
-                    onPartial(ToolCalls.visibleText(out.toString()))
-                }
-            } catch (t: Throwable) {
-                return "My language model hit an error: ${t.message ?: t.javaClass.simpleName}"
+            // Rebuilt before every call, so identity and every saved memory are always current.
+            llm.chat(systemPrompt(), IDENTITY_REMINDER + text) { chunk ->
+                out.append(chunk)
+                onPartial(ToolCalls.visibleText(out.toString()))
             }
             out.toString()
         } else {
-            val brain = link.findBrain() ?: return noBrain()
             onPartial("Asking ${brain.name}…")
-            remoteChat(brain, message) ?: return "I couldn't reach ${brain.name}'s AI model. Check both phones are on the same Wi-Fi."
+            remoteChat(brain, text)
         }
-        return finishReply(raw)
+
+        val first = try {
+            ask(message)
+        } catch (t: Throwable) {
+            return "My language model hit an error: ${t.message ?: t.javaClass.simpleName}"
+        }
+        var raw = first ?: return "I couldn't reach ${brain?.name}'s AI model. Check both phones are on the same Wi-Fi."
+        // Gemma sometimes says it could use a tool ("I can use the location tool if you ask")
+        // instead of using it. Nudge it once, the way "yes use it" worked for Rex.
+        if (ToolCalls.parse(raw).isEmpty() && skippedTool(ToolCalls.visibleText(raw))) {
+            runCatching { ask(TOOL_NUDGE) }.getOrNull()?.takeIf { ToolCalls.parse(it).isNotEmpty() }?.let { raw = it }
+        }
+        return finishReply(message, raw)
     }
 
     private suspend fun remoteChat(brain: Peer, message: String): String? =
         runCatching { link.remoteChat(brain, facts(), link.pairedPeers().map { it.name }, message) }.getOrNull()
 
     /** Gemma's text plus the results of the tools it asked for. */
-    private suspend fun finishReply(raw: String): String {
+    private suspend fun finishReply(message: String, raw: String): String {
         val text = fixIdentity(ToolCalls.visibleText(raw))
         val known = facts()
-        val steps = ToolCalls.parse(raw).map { step ->
+        val steps = forUser(message, ToolCalls.parse(raw)).map { step ->
             // Small models sometimes answer "what is my name?" by re-saving the fact; say it instead.
             val fact = (step as? Step.Remember)?.fact
             if (fact != null && known.any { it.equals(fact, ignoreCase = true) }) {
@@ -114,6 +122,41 @@ class XarvisAgent(
         }
 
         private const val MAX_FACT_CHARS = 3000
+
+        private const val TOOL_NUDGE = "(Rex wants you to do it now. Reply with only the matching TOOL line.)"
+
+        /** A reply that talks about a tool, or says it can't do something, instead of using a tool. */
+        private val SKIPPED_TOOL = Regex(
+            listOf(
+                """\btool\b""", """if you (?:ask|want|tell)""",
+                """(?:don't|do not|can't|cannot|can not|am unable to|unable to)\s+(?:have\s+)?(?:access|directly|interact|do that|check|see|open|take you|set|call|make)""",
+            ).joinToString("|"),
+            RegexOption.IGNORE_CASE,
+        )
+
+        internal fun skippedTool(reply: String): Boolean = reply.isNotBlank() && SKIPPED_TOOL.containsMatchIn(reply)
+
+        /** Rex's own words asking for a call: "call Atiq", "please ring mom", "Ali ko call karo". */
+        private val USER_SAYS_CALL = Regex(
+            """^(?:please\s+)?(?:call|phone|ring|dial)\s+\S|\bko\s+(?:call|phone|fone)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /**
+         * Adjusts Gemma's tool choice to what Rex actually typed. Only when his own message asks
+         * for a call is it placed directly (Gemma sometimes looks the contact up instead);
+         * a call Gemma decides on by itself only opens the dialer.
+         */
+        internal fun forUser(message: String, steps: List<Step>): List<Step> {
+            if (!USER_SAYS_CALL.containsMatchIn(message.trim())) return steps
+            return steps.map {
+                when (it) {
+                    is Step.Call -> it.copy(direct = true)
+                    is Step.FindContact -> Step.Call(it.name, direct = true)
+                    else -> it
+                }
+            }
+        }
         private val PAIRING_CODE = Regex("""\d{6}""")
 
         /** Put before each message: Gemma's template shows the system prompt only once, at the start of a chat. */
@@ -137,6 +180,7 @@ class XarvisAgent(
             TOOL: bluetooth on / TOOL: bluetooth off
             TOOL: wifi on / TOOL: wifi off
             TOOL: flashlight on / TOOL: flashlight off
+            TOOL: map <place, or nothing for where you are>
             TOOL: alarm <time>
             TOOL: timer <duration>
             TOOL: search <web search words>
@@ -156,6 +200,8 @@ class XarvisAgent(
             User: how much battery is left? -> TOOL: battery
             User: are my earbuds connected? -> TOOL: bluetooth
             User: turn on the torch -> TOOL: flashlight on
+            User: take me to the map -> TOOL: map
+            User: directions to Dubai Mall -> TOOL: map Dubai Mall
             User: wake me up at 6:30 am -> TOOL: alarm 6:30 am
             User: set a timer for 10 minutes -> TOOL: timer 10 minutes
             User: what's the weather in Lahore? -> TOOL: search weather in Lahore
