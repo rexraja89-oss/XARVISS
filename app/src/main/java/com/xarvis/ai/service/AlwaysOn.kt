@@ -21,8 +21,15 @@ object AlwaysOn {
 /** Restarts the background service after the phone reboots or XARVIS is updated. */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
-            if (AlwaysOn.isEnabled(context)) XarvisService.start(context)
-        }
+        if (intent.action in STARTS && AlwaysOn.isEnabled(context)) XarvisService.start(context)
+    }
+
+    private companion object {
+        val STARTS = setOf(
+            Intent.ACTION_BOOT_COMPLETED,
+            Intent.ACTION_MY_PACKAGE_REPLACED,
+            "android.intent.action.QUICKBOOT_POWERON",
+            "com.htc.intent.action.QUICKBOOT_POWERON",
+        )
     }
 }

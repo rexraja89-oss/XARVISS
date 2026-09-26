@@ -1,6 +1,10 @@
 package com.xarvis.ai.net
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Build
@@ -8,8 +12,10 @@ import android.provider.Settings
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
@@ -90,6 +96,8 @@ class DeviceLink(context: Context, private val handler: Handler) {
     private var nsd: NsdManager? = null
     private var registration: NsdManager.RegistrationListener? = null
     private var discovery: NsdManager.DiscoveryListener? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    @Volatile private var reconnectJob: Job? = null
 
     private val myPort: Int get() = server?.localPort ?: PORT
 
@@ -123,8 +131,8 @@ class DeviceLink(context: Context, private val handler: Handler) {
     }
 
     fun stop() {
-        runCatching { registration?.let { nsd?.unregisterService(it) } }
-        runCatching { discovery?.let { nsd?.stopServiceDiscovery(it) } }
+        runCatching { networkCallback?.let { appContext.getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(it) } }
+        stopNsd()
         runCatching { server?.close() }
         scope.cancel()
     }
@@ -275,7 +283,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
         }
         server = s
         Log.i(TAG, "Listening on ${s.localPort} as \"$deviceName\"")
-        startNsd(s.localPort)
+        watchWifi(s.localPort)
         while (!s.isClosed) {
             val socket = try { s.accept() } catch (e: Exception) { break }
             scope.launch { serve(socket) }
@@ -383,6 +391,64 @@ class DeviceLink(context: Context, private val handler: Handler) {
 
     // ---- Discovery ----------------------------------------------------------------------
 
+    /**
+     * Re-advertises and re-discovers whenever Wi-Fi (re)connects. After a reboot XARVIS
+     * usually starts before Wi-Fi is up, so a one-off announcement at startup would be lost;
+     * this also catches routers handing out new addresses and Wi-Fi dropping for a while.
+     */
+    private fun watchWifi(port: Int) {
+        val cm = appContext.getSystemService(ConnectivityManager::class.java)
+        if (cm == null) {
+            restartNsd(port)
+            return
+        }
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) = reconnect(port)
+        }
+        networkCallback = callback
+        runCatching {
+            cm.registerNetworkCallback(
+                NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build(), callback,
+            )
+        }.onFailure {
+            Log.w(TAG, "Can't watch Wi-Fi", it)
+            restartNsd(port)
+        }
+    }
+
+    /** Wi-Fi is back: advertise again, then tell linked devices where to find this one. */
+    private fun reconnect(port: Int) {
+        reconnectJob?.cancel()
+        reconnectJob = scope.launch {
+            delay(NETWORK_SETTLE_MS) // Wi-Fi reports "available" a moment before its address is usable
+            restartNsd(port)
+            announce()
+            handler.onPeersChanged()
+        }
+    }
+
+    /** Pings every linked device; each ping carries this device's current address and port. */
+    private suspend fun announce() {
+        for (p in pairedPeers()) {
+            runCatching { request(p, "ping", timeoutMs = PING_TIMEOUT_MS) }
+                .onFailure { Log.i(TAG, "${p.name} not reachable yet: ${it.message}") }
+        }
+    }
+
+    @Synchronized
+    private fun restartNsd(port: Int) {
+        stopNsd()
+        startNsd(port)
+    }
+
+    @Synchronized
+    private fun stopNsd() {
+        runCatching { registration?.let { nsd?.unregisterService(it) } }
+        runCatching { discovery?.let { nsd?.stopServiceDiscovery(it) } }
+        registration = null
+        discovery = null
+    }
+
     private fun startNsd(port: Int) {
         val mgr = appContext.getSystemService(NsdManager::class.java) ?: return
         nsd = mgr
@@ -437,6 +503,11 @@ class DeviceLink(context: Context, private val handler: Handler) {
                     peer.host = host
                     peer.port = info.port
                     savePeers()
+                    // Found a linked device at a new address (e.g. after it rebooted): say hello and catch up.
+                    scope.launch {
+                        runCatching { request(peer, "ping", timeoutMs = PING_TIMEOUT_MS) }
+                        handler.onPeersChanged()
+                    }
                 }
             }
         })
@@ -517,6 +588,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
         private const val CHAT_READ_TIMEOUT_MS = 180_000
         private const val PAIRING_TIMEOUT_MS = 5 * 60_000L
         private const val MAX_CLOCK_SKEW_MS = 5 * 60_000L
+        private const val NETWORK_SETTLE_MS = 3_000L
         private val ADDRESS = Regex("""^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d{1,5}))?$""")
 
         private fun sha256(data: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(data)
