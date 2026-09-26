@@ -9,7 +9,7 @@ class TimeTool : DeviceTool {
 
     override val label = "date and time"
 
-    override fun matches(message: String) = TOPIC.containsMatchIn(message.lowercase())
+    override fun matches(message: String) = isAbout(message)
 
     override suspend fun read(message: String): String {
         val now = ZonedDateTime.now()
@@ -19,7 +19,9 @@ class TimeTool : DeviceTool {
         return "Current date and time: $date, $time (time zone ${now.zone.id}, UTC$offset)"
     }
 
-    private companion object {
+    internal companion object {
+        fun isAbout(message: String) = TOPIC.containsMatchIn(message.lowercase())
+
         /** English, plus Hindi/Urdu "kitne baje" (what time), "aaj" (today), "kal" (tomorrow/yesterday), "tarikh" (date). */
         val TOPIC = Regex(
             """\b(time|date|day|days|today|tonight|tomorrow|yesterday|week|weekend|month|year|clock|""" +

@@ -22,12 +22,12 @@ jobs:
     - name: Build debug APK
       run: |
         set -o pipefail
-        ./gradlew assembleDebug 2>&1 | tee build.log
+        ./gradlew testDebugUnitTest assembleDebug 2>&1 | tee build.log
     - name: Report build errors
       if: failure()
       # Surfaces compiler errors as an annotation, readable through the GitHub API without the raw log.
       run: |
-        msg=$(grep -E "^e: |error:|What went wrong" -A3 build.log | head -60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+        msg=$(grep -E "^e: |error:|What went wrong| FAILED$" -A3 build.log | head -60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
         echo "::error title=Build errors::${msg}"
     - name: Upload APK
       uses: actions/upload-artifact@v4

@@ -34,6 +34,11 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        // Unit tests cover plain logic; any Android call they touch returns a default instead of throwing.
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -55,4 +60,6 @@ dependencies {
 
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.17.1")
     implementation("com.google.android.gms:play-services-location:21.3.0")
+
+    testImplementation("junit:junit:4.13.2")
 }

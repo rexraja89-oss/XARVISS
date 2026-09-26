@@ -6,6 +6,7 @@ Personal on-device AI assistant for Android, owned by Rex (developer credit: Saj
 
 - There is no local machine with adb. Code changes go to `main` on GitHub; `.github/workflows/build.yml` builds `app-debug.apk` (artifact **XARVIS-debug-apk**, JDK 21). A green CI run is the build check.
 - Rex installs each new APK on the phone himself (download the artifact from the Actions run, unzip, tap the APK). Tell him exactly what to test after installing, since nobody else can run it on the device.
+- Unit tests (`app/src/test`, plain JVM logic: command parsing, tool keywords, contact matching, the router) run in CI before the build: `./gradlew testDebugUnitTest`. Add a test when adding a command or tool. If CI fails, compiler and test errors show as a "Build errors" annotation on the check run (readable via the GitHub API even when raw logs aren't).
 - `./gradlew assembleDebug` needs an Android SDK with platform 37; if the environment has none, rely on CI.
 
 ## Devices

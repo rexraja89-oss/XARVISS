@@ -23,7 +23,7 @@ class BluetoothTool(context: Context) : DeviceTool {
 
     override val label = "Bluetooth"
 
-    override fun matches(message: String) = TOPIC.containsMatchIn(message.lowercase())
+    override fun matches(message: String) = isAbout(message)
 
     @SuppressLint("MissingPermission") // checked below; everything is also wrapped in runCatching
     override suspend fun read(message: String): String {
@@ -96,7 +96,9 @@ class BluetoothTool(context: Context) : DeviceTool {
         return if (kind != null) "$name ($kind)" else name
     }
 
-    private companion object {
+    internal companion object {
+        fun isAbout(message: String) = TOPIC.containsMatchIn(message.lowercase())
+
         const val CONNECT = Manifest.permission.BLUETOOTH_CONNECT
         const val PROXY_TIMEOUT_MS = 3_000L
         val TOPIC = Regex(

@@ -31,10 +31,7 @@ class LocationTool(context: Context) : DeviceTool {
 
     override val label = "location"
 
-    override fun matches(message: String): Boolean {
-        val t = message.lowercase()
-        return TOPIC.containsMatchIn(t) && !NOT_A_PLACE.containsMatchIn(t)
-    }
+    override fun matches(message: String) = isAbout(message)
 
     override suspend fun read(message: String): String {
         if (!PermissionGate.has(appContext, FINE)) PermissionGate.request(FINE, COARSE)
@@ -147,7 +144,13 @@ class LocationTool(context: Context) : DeviceTool {
         addOnCanceledListener { if (cont.isActive) cont.resume(null) }
     }
 
-    private companion object {
+    internal companion object {
+        /** Whether [message] asks where the phone is (kept separate from the class so tests can check it). */
+        fun isAbout(message: String): Boolean {
+            val t = message.lowercase()
+            return TOPIC.containsMatchIn(t) && !NOT_A_PLACE.containsMatchIn(t)
+        }
+
         const val TAG = "XarvisLocation"
         const val FINE = Manifest.permission.ACCESS_FINE_LOCATION
         const val COARSE = Manifest.permission.ACCESS_COARSE_LOCATION

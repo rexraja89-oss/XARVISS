@@ -13,7 +13,7 @@ class BatteryTool(context: Context) : DeviceTool {
 
     override val label = "battery"
 
-    override fun matches(message: String) = TOPIC.containsMatchIn(message.lowercase())
+    override fun matches(message: String) = isAbout(message)
 
     override suspend fun read(message: String): String {
         // The sticky battery broadcast holds the latest state; no receiver or permission needed.
@@ -52,7 +52,9 @@ class BatteryTool(context: Context) : DeviceTool {
         return if (m < 60) "$m min" else "${m / 60} h ${m % 60} min"
     }
 
-    private companion object {
+    internal companion object {
+        fun isAbout(message: String) = TOPIC.containsMatchIn(message.lowercase())
+
         val TOPIC = Regex("""\b(battery|batteries|charge|charging|charged|charger|power left|battery life|percent)\b""")
     }
 }

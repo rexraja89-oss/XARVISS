@@ -16,7 +16,7 @@ class ContactsTool(context: Context) : DeviceTool {
 
     override val label = "contacts"
 
-    override fun matches(message: String) = TOPIC.containsMatchIn(message.lowercase())
+    override fun matches(message: String) = isAbout(message)
 
     override suspend fun read(message: String): String? {
         if (!PermissionGate.has(appContext, READ)) PermissionGate.request(READ)
@@ -48,7 +48,9 @@ class ContactsTool(context: Context) : DeviceTool {
         }
     }
 
-    private companion object {
+    internal companion object {
+        fun isAbout(message: String) = TOPIC.containsMatchIn(message.lowercase())
+
         const val READ = Manifest.permission.READ_CONTACTS
         const val MAX_RESULTS = 5
 
