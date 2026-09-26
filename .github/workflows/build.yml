@@ -35,11 +35,11 @@ jobs:
     - name: Test and build debug APK
       run: |
         set -o pipefail
-        ./gradlew testDebugUnitTest assembleDebug 2>&1 | tee build.log
+        ./gradlew testFullDebugUnitTest assembleDebug 2>&1 | tee build.log
     - name: Check the APK is signed with the permanent key
       run: |
         apksigner=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
-        actual=$("$apksigner" verify --print-certs app/build/outputs/apk/debug/app-debug.apk | grep -m1 "SHA-256 digest" | awk '{print $NF}' | tr 'a-f' 'A-F' | sed 's/../&:/g; s/:$//')
+        actual=$("$apksigner" verify --print-certs app/build/outputs/apk/full/debug/app-full-debug.apk | grep -m1 "SHA-256 digest" | awk '{print $NF}' | tr 'a-f' 'A-F' | sed 's/../&:/g; s/:$//')
         expected=$(cat .github/signing-cert-sha256.txt)
         echo "::notice title=Signing certificate::$actual"
         if [ -n "$XARVIS_KEYSTORE_FILE" ] && [ "$actual" != "$expected" ]; then
@@ -53,13 +53,16 @@ jobs:
         msg=$(grep -E "^e: |error:|What went wrong| FAILED$" -A3 build.log | head -60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
         echo "::error title=Build errors::${msg}"
     # A new file name each version: a leftover app-debug.apk in Downloads made extracting fail.
-    - name: Name the APK after its version
-      run: mv app/build/outputs/apk/debug/app-debug.apk "app/build/outputs/apk/debug/XARVIS-v1.0.${{ github.run_number }}.apk"
+    - name: Name the APKs after their version
+      run: |
+        mkdir -p out
+        cp app/build/outputs/apk/full/debug/app-full-debug.apk "out/XARVIS-v1.0.${{ github.run_number }}.apk"
+        cp app/build/outputs/apk/benco/debug/app-benco-debug.apk "out/XARVIS-benco-v1.0.${{ github.run_number }}.apk"
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: XARVIS-v1.0.${{ github.run_number }}-apk
-        path: app/build/outputs/apk/debug/XARVIS-v1.0.${{ github.run_number }}.apk
+        path: out/*.apk
     # A direct download, no zip and no GitHub sign-in: the phone's browser downloads the APK and
     # installs it. releases/latest/download/XARVIS.apk always points at the newest build.
     - name: Publish as a release
@@ -68,8 +71,9 @@ jobs:
         GH_TOKEN: ${{ github.token }}
       run: |
         v="1.0.${{ github.run_number }}"
-        cd app/build/outputs/apk/debug
+        cd out
         cp "XARVIS-v$v.apk" XARVIS.apk
-        gh release create "v$v" "XARVIS-v$v.apk" XARVIS.apk --repo "${{ github.repository }}" \
+        cp "XARVIS-benco-v$v.apk" XARVIS-benco.apk
+        gh release create "v$v" "XARVIS-v$v.apk" "XARVIS-benco-v$v.apk" XARVIS.apk XARVIS-benco.apk --repo "${{ github.repository }}" \
           --target "${{ github.sha }}" --title "XARVIS v$v" --latest \
-          --notes "Tap XARVIS.apk to download, then open it and tap Update. Always newest: https://github.com/${{ github.repository }}/releases/latest/download/XARVIS.apk"
+          --notes "S22: XARVIS.apk. Benco: XARVIS-benco.apk (no permission to place calls; the benco rejects it). Always newest: https://github.com/${{ github.repository }}/releases/latest/download/XARVIS.apk and .../XARVIS-benco.apk"

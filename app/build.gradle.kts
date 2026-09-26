@@ -50,6 +50,15 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // Two builds of the same app: "full" for the S22, and "benco" without the permission to place
+    // calls, which the benco refuses to install ("package appears to be invalid"). On the benco,
+    // calls open the dialer instead.
+    flavorDimensions += "phone"
+    productFlavors {
+        create("full") { dimension = "phone" }
+        create("benco") { dimension = "phone" }
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
