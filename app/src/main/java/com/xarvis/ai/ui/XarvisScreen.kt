@@ -73,6 +73,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var input by rememberSaveable { mutableStateOf("") }
     var photo by rememberSaveable { mutableStateOf<Uri?>(null) }
+    var document by rememberSaveable { mutableStateOf<Uri?>(null) }
     // Android's photo picker: no storage permission needed, Rex picks one photo.
     val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
@@ -80,7 +81,6 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
             document = null
         }
     }
-    var document by rememberSaveable { mutableStateOf<Uri?>(null) }
     // Android's file picker: Rex picks any file (PDF, Word, Excel, text...); no storage permission needed.
     val pickDocument = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
