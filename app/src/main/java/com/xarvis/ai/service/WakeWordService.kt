@@ -208,6 +208,12 @@ object WakeWord {
     /** Set while the mic button or the voice screen is listening, so they get the mic. */
     @Volatile var paused = false
 
+    /** Whether this build asks for the microphone permission at all (the S22 refused it; see the manifest). */
+    fun available(context: Context): Boolean = runCatching {
+        context.packageManager.getPackageInfo(context.packageName, android.content.pm.PackageManager.GET_PERMISSIONS)
+            .requestedPermissions.orEmpty().contains(android.Manifest.permission.RECORD_AUDIO)
+    }.getOrDefault(false)
+
     fun isEnabled(context: Context): Boolean =
         context.getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("wakeWord", false)
 

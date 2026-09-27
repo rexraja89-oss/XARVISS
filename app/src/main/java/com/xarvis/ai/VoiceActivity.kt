@@ -50,8 +50,10 @@ class VoiceActivity : ComponentActivity() {
     private val asked = mutableStateOf(false)
     private var command: VoiceCommand? = null
 
-    private val micPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) listen() else finish()
+    // Without the microphone permission (see the manifest), Google's recognizer listens for us.
+    private val recognize = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val text = result.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+        heardCommand(text)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -106,8 +108,7 @@ class VoiceActivity : ComponentActivity() {
                 }
             }
         }
-        if (PermissionGate.has(this, Manifest.permission.RECORD_AUDIO)) listen()
-        else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        listen()
     }
 
     private fun listen() {
@@ -115,16 +116,31 @@ class VoiceActivity : ComponentActivity() {
         heard.value = ""
         listening.value = true
         WakeWord.paused = true
-        command = VoiceCommand(this, onHearing = { heard.value = it }, onDone = { text ->
-            listening.value = false
-            WakeWord.paused = false
-            command = null
-            if (text != null) {
-                heard.value = text
-                asked.value = true
-                (application as XarvisApp).core.submit(text, spoken = true)
+        if (!PermissionGate.has(this, Manifest.permission.RECORD_AUDIO)) {
+            val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Speak to XARVIS")
+            try {
+                recognize.launch(intent)
+            } catch (e: Exception) {
+                heardCommand(null)
             }
+            return
+        }
+        command = VoiceCommand(this, onHearing = { heard.value = it }, onDone = { text ->
+            command = null
+            heardCommand(text)
         }).also { it.start() }
+    }
+
+    private fun heardCommand(text: String?) {
+        listening.value = false
+        WakeWord.paused = false
+        if (text != null) {
+            heard.value = text
+            asked.value = true
+            (application as XarvisApp).core.submit(text, spoken = true)
+        }
     }
 
     override fun onDestroy() {

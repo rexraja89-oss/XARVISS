@@ -158,6 +158,10 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 wakeWord = state.wakeWord,
                 onWakeWord = { on ->
                     if (!on) WakeWord.setEnabled(context, false)
+                    else if (!WakeWord.available(context)) android.widget.Toast.makeText(
+                        context, "\"Hey Jarvis\" is coming soon: this phone refused the microphone permission, so it's being reworked.",
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
                     else if (PermissionGate.has(context, Manifest.permission.RECORD_AUDIO)) WakeWord.setEnabled(context, true)
                     else askMic.launch(Manifest.permission.RECORD_AUDIO)
                 },
