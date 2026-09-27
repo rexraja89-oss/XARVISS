@@ -221,8 +221,8 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                     onClick = viewModel::stop,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                 ) { Text("STOP") }
-            } else if (input.isBlank()) {
-                // Nothing typed: the mic, like ChatGPT (a photo or file can be asked about aloud too).
+            } else if (input.isBlank() && photo == null && document == null) {
+                // Nothing typed or attached: the mic, like ChatGPT.
                 Button(onClick = ::startListening) { Text("🎤", fontSize = 20.sp) }
             } else {
                 Button(onClick = ::send) { Text("SEND") }
