@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -53,6 +54,21 @@ class LocalLlm(context: Context) {
     private val sideConversations = mutableMapOf<String, kotlin.Pair<String, Conversation>>()
 
     val isReady: Boolean get() = _status.value is LlmStatus.Ready
+
+    /** Whether this phone has a model file (it may still be loading, e.g. just after a restart). */
+    fun modelPresent(): Boolean = MODEL_FILE_NAMES.any { File(modelDir, it).exists() }
+
+    /**
+     * Waits (up to [timeoutMs]) for a model this phone has to finish loading, so a question asked
+     * right after a restart gets an answer instead of "no AI model". True once it's ready.
+     */
+    suspend fun awaitLoaded(timeoutMs: Long): Boolean {
+        if (isReady) return true
+        if (!modelPresent()) return false
+        return kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+            _status.first { it is LlmStatus.Ready || it is LlmStatus.Failed }
+        } is LlmStatus.Ready
+    }
 
     /** Whether the loaded model was opened with its vision part, so it can look at photos. */
     @Volatile var canSeePhotos: Boolean = false

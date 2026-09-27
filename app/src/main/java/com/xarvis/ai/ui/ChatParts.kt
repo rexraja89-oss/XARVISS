@@ -199,7 +199,7 @@ fun ChatList(
             Column(Modifier.weight(1f)) {
                 Text("\"Hey Jarvis\"", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
                 Text(
-                    "Listens even with the screen off. Uses some battery; Android shows a green mic dot.",
+                    "Say \"Hey Jarvis\" (with a J), wait for the beep, then speak. Works with the screen off; after a phone restart, open XARVIS once. Uses some battery.",
                     style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
                 )
             }

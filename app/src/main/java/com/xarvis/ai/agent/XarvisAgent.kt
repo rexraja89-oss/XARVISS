@@ -92,6 +92,7 @@ class XarvisAgent(
     suspend fun handleDocument(doc: Document, message: String, onPartial: (String) -> Unit = {}): Reply {
         lastDocument = doc
         val question = message.ifBlank { "Summarise this file: what is it, and what are the main points?" }
+        brainReady(onPartial)
         val room = if (llm.isReady) llm.documentChars else REMOTE_DOCUMENT_CHARS
         val cut = doc.text.length > room
         val prompt = "(Rex attached the file \"${doc.name}\". Its text is between <<< and >>>" +
@@ -110,6 +111,7 @@ class XarvisAgent(
      */
     suspend fun handlePhoto(imagePath: String, message: String, onPartial: (String) -> Unit = {}): Reply {
         val question = message.ifBlank { "Describe this photo in detail and explain everything in it." }
+        brainReady(onPartial)
         val response = if (llm.isReady) photoHere(imagePath, message, question, onPartial)
             else photoElsewhere(imagePath, message, question, onPartial)
         memory.logInteraction("[photo] $question", response.text, chatId)
@@ -170,6 +172,7 @@ class XarvisAgent(
 
     /** [message] is what Rex typed; [prompt] is what Gemma is sent (the message, or it with a file's text). */
     private suspend fun askGemma(message: String, onPartial: (String) -> Unit, prompt: String = message): Reply {
+        brainReady(onPartial)
         val brain = if (llm.isReady) null else link.findBrain() ?: return Reply(noBrain())
         suspend fun ask(text: String): String? = if (brain == null) {
             chatHere(text, onPartial)
@@ -249,6 +252,13 @@ class XarvisAgent(
         return Reply(results.joinToString("\n") { it.message }.trim(), results.flatMap { it.files })
     }
 
+    /** Just after a restart the model takes about a minute to load: wait for it rather than fail. */
+    private suspend fun brainReady(onPartial: (String) -> Unit) {
+        if (llm.isReady || !llm.modelPresent()) return
+        onPartial("One moment, sir, my brain is still waking up…")
+        llm.awaitLoaded(BRAIN_LOAD_WAIT_MS)
+    }
+
     private fun noBrain(): String = when (val s = llm.status.value) {
         LlmStatus.Loading -> "My AI model is still loading. Try again in a moment."
         is LlmStatus.Failed -> "My AI model couldn't start (${s.reason}), and no linked phone with one is reachable."
@@ -308,6 +318,7 @@ class XarvisAgent(
         }
 
         private const val MAX_FACT_CHARS = 3000
+        private const val BRAIN_LOAD_WAIT_MS = 180_000L
         /** File text sent to a linked phone's Gemma, whose context size isn't known here. */
         private const val REMOTE_DOCUMENT_CHARS = 8000
 
