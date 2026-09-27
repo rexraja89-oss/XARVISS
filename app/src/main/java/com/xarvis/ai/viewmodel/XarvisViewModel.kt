@@ -17,8 +17,10 @@ class XarvisViewModel(application: Application) : AndroidViewModel(application) 
         core.refresh()
     }
 
-    fun submit(command: String, photo: android.net.Uri? = null, document: android.net.Uri? = null) =
-        core.submit(command, photo, document)
+    fun submit(command: String, photo: android.net.Uri? = null, document: android.net.Uri? = null, spoken: Boolean = false) =
+        core.submit(command, photo, document, spoken)
+
+    fun toggleSpeaker() = core.toggleSpeaker()
 
     fun stop() = core.stop()
 

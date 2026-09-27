@@ -61,6 +61,8 @@ data class XarvisUiState(
     /** Past chats for the ☰ menu, most recent first, and the one on screen. */
     val chats: List<com.xarvis.ai.memory.ChatSummary> = emptyList(),
     val chatId: String = "",
+    /** Read every reply aloud (the 🔊 switch); replies to the mic are always spoken. */
+    val speakReplies: Boolean = false,
     /** A newer XARVIS on GitHub ("1.0.46"), shown as an UPDATE button. */
     val update: String? = null,
 )
@@ -80,6 +82,8 @@ class XarvisCore(context: Context) {
     private val downloader = ModelDownloader(context) { agent.loadModel() }
 
     private val contacts = ContactFinder(context)
+    private val voice = com.xarvis.ai.voice.Voice(context)
+    private val settings = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
     private val link: DeviceLink = DeviceLink(context, object : DeviceLink.Handler {
         override suspend fun status(): String {
@@ -139,6 +143,7 @@ class XarvisCore(context: Context) {
             messages = listOf(ChatMessage(false, WELCOME)),
             capabilities = device.capabilities(),
             linkedCount = link.pairedPeers().size,
+            speakReplies = settings.getBoolean("speakReplies", false),
         )
     )
     val state: StateFlow<XarvisUiState> = _state.asStateFlow()
@@ -176,7 +181,7 @@ class XarvisCore(context: Context) {
      * Handles a message, with a [photo] or a [document] if Rex attached one (an empty question
      * means "describe it" / "summarise it").
      */
-    fun submit(command: String, photo: Uri? = null, document: Uri? = null) {
+    fun submit(command: String, photo: Uri? = null, document: Uri? = null, spoken: Boolean = false) {
         val text = command.trim()
         if ((text.isEmpty() && photo == null && document == null) || _state.value.isProcessing) return
         val shown = text.ifEmpty { if (photo != null) "What's in this photo?" else "What's in this file?" }
@@ -214,6 +219,7 @@ class XarvisCore(context: Context) {
                 Reply("Something went wrong: ${e.message}")
             }
             updateMessage(answer.id) { it.copy(text = reply.text, files = reply.files) }
+            if ((spoken || _state.value.speakReplies) && !reply.text.endsWith("(stopped)")) voice.speak(reply.text)
             // Also after STOP, which has cancelled this coroutine.
             withContext(NonCancellable) {
                 val memories = runCatching { memory.factCount() }.getOrDefault(_state.value.memoryCount)
@@ -234,8 +240,17 @@ class XarvisCore(context: Context) {
 
     /** The STOP button: XARVIS stops writing, and keeps what it wrote so far. */
     fun stop() {
+        voice.stop()
         llm.stop()
         replyJob?.cancel()
+    }
+
+    /** The 🔊 switch: read every reply aloud, or only replies to the mic. */
+    fun toggleSpeaker() {
+        val on = !_state.value.speakReplies
+        settings.edit().putBoolean("speakReplies", on).apply()
+        if (!on) voice.stop()
+        _state.update { it.copy(speakReplies = on) }
     }
 
     /** Reloads the chat list (when the ☰ menu opens). */

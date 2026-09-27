@@ -2,6 +2,7 @@ package com.xarvis.ai.ui
 
 import android.content.Context
 import android.content.Intent
+import android.speech.RecognizerIntent
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.ui.platform.LocalContext
@@ -98,6 +99,25 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
         }
     }
     val context = LocalContext.current
+    // The mic: Android's speech recognizer listens, and XARVIS answers aloud.
+    val listen = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val heard = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+        if (!heard.isNullOrBlank()) {
+            viewModel.submit(heard, photo, document, spoken = true)
+            photo = null
+            document = null
+        }
+    }
+    fun startListening() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to XARVIS")
+        try {
+            listen.launch(intent)
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(context, "This phone has no speech recognizer (install the Google app).", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
     val documentName = remember(document) { document?.let { DocumentReader.displayName(context, it) } }
     var showAttach by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
@@ -133,7 +153,10 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
             .imePadding()
             .padding(horizontal = 16.dp)
     ) {
-        Header(state.isProcessing, state.memoryCount, state.linkedCount, state.llmStatus) {
+        Header(
+            state.isProcessing, state.memoryCount, state.linkedCount, state.llmStatus,
+            speaker = state.speakReplies, onSpeaker = viewModel::toggleSpeaker,
+        ) {
             drawerScope.launch { drawer.open() }
         }
         state.update?.let { version ->
@@ -198,10 +221,11 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                     onClick = viewModel::stop,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                 ) { Text("STOP") }
+            } else if (input.isBlank()) {
+                // Nothing typed: the mic, like ChatGPT (a photo or file can be asked about aloud too).
+                Button(onClick = ::startListening) { Text("🎤", fontSize = 20.sp) }
             } else {
-                Button(onClick = ::send, enabled = input.isNotBlank() || photo != null || document != null) {
-                    Text("SEND")
-                }
+                Button(onClick = ::send) { Text("SEND") }
             }
         }
         if (showAttach) {
@@ -222,7 +246,10 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
 }
 
 @Composable
-private fun Header(isProcessing: Boolean, memoryCount: Int, linkedCount: Int, llmStatus: LlmStatus, onMenu: () -> Unit) {
+private fun Header(
+    isProcessing: Boolean, memoryCount: Int, linkedCount: Int, llmStatus: LlmStatus,
+    speaker: Boolean, onSpeaker: () -> Unit, onMenu: () -> Unit,
+) {
     Column(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // ☰: past chats and "New chat".
@@ -249,10 +276,17 @@ private fun Header(isProcessing: Boolean, memoryCount: Int, linkedCount: Int, ll
             is LlmStatus.Failed -> "AI MODEL: FAILED TO LOAD" to MaterialTheme.colorScheme.error
         }
         // The version leads this line so it is never cut off; it shows which update is installed.
-        Text(
-            "v${com.xarvis.ai.BuildConfig.VERSION_NAME} · $label", style = MaterialTheme.typography.labelSmall, color = color,
-            modifier = Modifier.padding(top = 6.dp),
-        )
+        Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "v${com.xarvis.ai.BuildConfig.VERSION_NAME} · $label", style = MaterialTheme.typography.labelSmall, color = color,
+                modifier = Modifier.weight(1f), maxLines = 1,
+            )
+            // 🔊 reads every reply aloud; 🔇 only replies to the mic.
+            Text(
+                if (speaker) "🔊" else "🔇", fontSize = 20.sp,
+                modifier = Modifier.clip(CircleShape).clickable(onClick = onSpeaker).padding(start = 8.dp),
+            )
+        }
     }
 }
 

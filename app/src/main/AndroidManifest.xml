@@ -28,6 +28,14 @@
 
     <!-- Lets the agent find launchable apps for "open <app>" commands. -->
     <queries>
+        <!-- The phone's text-to-speech engine, for XARVIS's voice. -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <!-- The phone's speech recognizer, for the mic button. -->
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
