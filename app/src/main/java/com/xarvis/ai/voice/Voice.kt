@@ -13,14 +13,23 @@ import java.util.Locale
 class Voice(context: Context) {
 
     @Volatile private var ready = false
-    private val tts: TextToSpeech = TextToSpeech(context.applicationContext) { status ->
+
+    /**
+     * Google's engine when the phone has it: Samsung's own engine only offered Rex a female
+     * voice ("sounds like Friday"), while Google's has British male voices.
+     */
+    private val engine: String? = GOOGLE_TTS.takeIf {
+        runCatching { context.packageManager.getPackageInfo(it, 0) }.isSuccess
+    }
+
+    private val tts: TextToSpeech = TextToSpeech(context.applicationContext, { status ->
         if (status == TextToSpeech.SUCCESS) {
             setUp()
             ready = true
         } else {
             Log.w(TAG, "Text-to-speech unavailable ($status)")
         }
-    }
+    }, engine)
 
     private fun setUp() {
         val voices = runCatching { tts.voices.orEmpty() }.getOrDefault(emptySet())
@@ -30,13 +39,17 @@ class Voice(context: Context) {
         Log.i(TAG, "Voice: ${tts.voice?.name}")
     }
 
-    /** A British male voice if the phone has one (Google's are named like "en-gb-x-rjs-local"). */
+    /**
+     * A British male voice: Google's (named like "en-gb-x-rjs-local"), one already on the phone
+     * first, else the online version of it; else any voice called male; else any British one.
+     */
     private fun pick(voices: Set<TtsVoice>): TtsVoice? {
-        val british = voices.filter { it.locale.language == "en" && it.locale.country == "GB" && !it.isNetworkConnectionRequired }
-            .ifEmpty { voices.filter { it.locale.language == "en" && it.locale.country == "GB" } }
-        return MALE_BRITISH.firstNotNullOfOrNull { id -> british.firstOrNull { it.name.contains(id, ignoreCase = true) } }
-            ?: british.firstOrNull { it.name.contains("male", ignoreCase = true) && !it.name.contains("female", ignoreCase = true) }
-            ?: british.firstOrNull()
+        val british = voices.filter { it.locale.language == "en" && it.locale.country == "GB" }
+        fun installed(v: TtsVoice) = !v.isNetworkConnectionRequired &&
+            TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED !in v.features.orEmpty()
+        val male = MALE_BRITISH.flatMap { id -> british.filter { it.name.contains(id, ignoreCase = true) } } +
+            british.filter { it.name.contains("male", ignoreCase = true) && !it.name.contains("female", ignoreCase = true) }
+        return male.firstOrNull(::installed) ?: male.firstOrNull() ?: british.firstOrNull(::installed) ?: british.firstOrNull()
     }
 
     /** Says [text] (replacing anything still being said). */
@@ -56,6 +69,7 @@ class Voice(context: Context) {
 
     companion object {
         private const val TAG = "XarvisVoice"
+        private const val GOOGLE_TTS = "com.google.android.tts"
         private const val PITCH = 0.88f
         private const val RATE = 1.0f
 

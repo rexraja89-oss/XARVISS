@@ -40,6 +40,8 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!-- Google's voice engine, which has British male voices. -->
+        <package android:name="com.google.android.tts" />
     </queries>
 
     <application
