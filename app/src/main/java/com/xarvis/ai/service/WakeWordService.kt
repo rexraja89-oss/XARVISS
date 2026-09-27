@@ -208,10 +208,15 @@ object WakeWord {
     /** Set while the mic button or the voice screen is listening, so they get the mic. */
     @Volatile var paused = false
 
-    /** Whether this build asks for the microphone permission at all (the S22 refused it; see the manifest). */
+    /**
+     * Whether "Hey Jarvis" can run on this phone: Android 14+ also needs FOREGROUND_SERVICE_MICROPHONE,
+     * which XARVIS leaves out because the S22 refuses to install it together with RECORD_AUDIO.
+     */
     fun available(context: Context): Boolean = runCatching {
-        context.packageManager.getPackageInfo(context.packageName, android.content.pm.PackageManager.GET_PERMISSIONS)
-            .requestedPermissions.orEmpty().contains(android.Manifest.permission.RECORD_AUDIO)
+        val asked = context.packageManager.getPackageInfo(context.packageName, android.content.pm.PackageManager.GET_PERMISSIONS)
+            .requestedPermissions.orEmpty()
+        android.Manifest.permission.RECORD_AUDIO in asked &&
+            (android.os.Build.VERSION.SDK_INT < 34 || "android.permission.FOREGROUND_SERVICE_MICROPHONE" in asked)
     }.getOrDefault(false)
 
     fun isEnabled(context: Context): Boolean =
