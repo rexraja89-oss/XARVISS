@@ -40,6 +40,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xarvis.ai.R
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.drawBehind
 import com.xarvis.ai.memory.ChatSummary
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -216,3 +222,40 @@ fun ChatList(chats: List<ChatSummary>, current: String, enabled: Boolean, onOpen
 }
 
 private val CHAT_TIME = SimpleDateFormat("d MMM, h:mm a", Locale.ENGLISH)
+
+/**
+ * The round black mic (Rex's picture). It lights up, with a pulsing cyan glow, only while it's
+ * listening, so it's clear when the phone is hearing him.
+ */
+@Composable
+fun MicButton(listening: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val glow = if (listening) {
+        val pulse = rememberInfiniteTransition(label = "mic")
+        pulse.animateFloat(
+            initialValue = 0.35f, targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "glow",
+        ).value
+    } else {
+        0f
+    }
+    Box(
+        Modifier.size(56.dp)
+            .drawBehind {
+                if (glow > 0f) {
+                    drawCircle(XarvisCyan, radius = size.minDimension / 2 + 6.dp.toPx(), alpha = 0.25f * glow)
+                    drawCircle(XarvisCyan, radius = size.minDimension / 2 + 2.dp.toPx(), alpha = 0.6f * glow)
+                }
+            }
+            .clip(CircleShape)
+            .background(Color.Black)
+            .border(1.5.dp, if (listening) XarvisCyan else XarvisMuted.copy(alpha = 0.4f), CircleShape)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            painterResource(R.drawable.ic_mic), contentDescription = "Speak to XARVIS",
+            modifier = Modifier.fillMaxSize(),
+            alpha = if (enabled) 1f else 0.4f,
+        )
+    }
+}

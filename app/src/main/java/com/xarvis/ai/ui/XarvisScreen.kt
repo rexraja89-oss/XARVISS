@@ -100,7 +100,9 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
     }
     val context = LocalContext.current
     // The mic: Android's speech recognizer listens, and XARVIS answers aloud.
+    var listening by remember { mutableStateOf(false) }
     val listen = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        listening = false
         val heard = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
         if (!heard.isNullOrBlank()) {
             viewModel.submit(heard, photo, document, spoken = true)
@@ -114,6 +116,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
             .putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to XARVIS")
         try {
             listen.launch(intent)
+            listening = true
         } catch (e: Exception) {
             android.widget.Toast.makeText(context, "This phone has no speech recognizer (install the Google app).", android.widget.Toast.LENGTH_LONG).show()
         }
@@ -223,7 +226,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 ) { Text("STOP") }
             } else if (input.isBlank() && photo == null && document == null) {
                 // Nothing typed or attached: the mic, like ChatGPT.
-                Button(onClick = ::startListening) { Text("🎤", fontSize = 20.sp) }
+                MicButton(listening = listening, enabled = true, onClick = ::startListening)
             } else {
                 Button(onClick = ::send) { Text("SEND") }
             }
