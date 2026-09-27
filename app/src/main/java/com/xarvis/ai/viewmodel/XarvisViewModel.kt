@@ -22,5 +22,10 @@ class XarvisViewModel(application: Application) : AndroidViewModel(application) 
 
     fun stop() = core.stop()
 
+    fun loadChats() = core.loadChats()
+
+    /** A past chat, or a new one when [id] is null. */
+    fun openChat(id: String?) = core.openChat(id)
+
     fun downloadModel() = core.downloadModel()
 }

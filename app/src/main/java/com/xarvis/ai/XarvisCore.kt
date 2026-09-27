@@ -58,6 +58,9 @@ data class XarvisUiState(
     val isProcessing: Boolean = false,
     val llmStatus: LlmStatus = LlmStatus.NotInstalled,
     val modelDownload: ModelDownload = ModelDownload.Idle,
+    /** Past chats for the ☰ menu, most recent first, and the one on screen. */
+    val chats: List<com.xarvis.ai.memory.ChatSummary> = emptyList(),
+    val chatId: String = "",
     /** A newer XARVIS on GitHub ("1.0.46"), shown as an UPDATE button. */
     val update: String? = null,
 )
@@ -133,7 +136,7 @@ class XarvisCore(context: Context) {
 
     private val _state: MutableStateFlow<XarvisUiState> = MutableStateFlow(
         XarvisUiState(
-            messages = listOf(ChatMessage(false, "XARVIS online. Ask me anything.")),
+            messages = listOf(ChatMessage(false, WELCOME)),
             capabilities = device.capabilities(),
             linkedCount = link.pairedPeers().size,
         )
@@ -144,12 +147,6 @@ class XarvisCore(context: Context) {
         link.start()
         scope.launch {
             _state.update { it.copy(memoryCount = memory.factCount()) }
-            // The chat from before XARVIS restarted, above today's welcome.
-            val past = runCatching { memory.recentExchanges(RESTORED_EXCHANGES) }.getOrDefault(emptyList())
-            if (past.isNotEmpty()) {
-                val earlier = past.flatMap { listOf(ChatMessage(true, it.user), ChatMessage(false, it.reply)) }
-                _state.update { it.copy(messages = earlier + it.messages) }
-            }
         }
         scope.launch { llm.status.collect { s -> _state.update { it.copy(llmStatus = s) } } }
         scope.launch { downloader.state.collect { d -> _state.update { it.copy(modelDownload = d) } } }
@@ -241,6 +238,26 @@ class XarvisCore(context: Context) {
         replyJob?.cancel()
     }
 
+    /** Reloads the chat list (when the ☰ menu opens). */
+    fun loadChats() {
+        scope.launch {
+            val chats = runCatching { memory.chats() }.getOrDefault(emptyList())
+            _state.update { it.copy(chats = chats, chatId = agent.chatId) }
+        }
+    }
+
+    /** Opens past chat [id] on screen, or a new empty chat when null. XARVIS picks up where it left off. */
+    fun openChat(id: String?) {
+        if (_state.value.isProcessing) return
+        scope.launch {
+            agent.openChat(id)
+            val past = if (id == null) emptyList() else runCatching { memory.chatExchanges(id) }.getOrDefault(emptyList())
+            val messages = if (past.isEmpty()) listOf(ChatMessage(false, WELCOME))
+                else past.flatMap { listOf(ChatMessage(true, it.user), ChatMessage(false, it.reply)) }
+            _state.update { it.copy(messages = messages, chatId = agent.chatId) }
+        }
+    }
+
     /** Refreshes things that can change while the screen is away, like battery level. */
     fun refresh() {
         _state.update { it.copy(capabilities = device.capabilities()) }
@@ -272,7 +289,8 @@ class XarvisCore(context: Context) {
         const val MEMORY_SYNC_START_DELAY_MS = 5_000L
         const val MEMORY_SYNC_INTERVAL_MS = 5 * 60_000L
         const val UPDATE_CHECK_INTERVAL_MS = 30 * 60_000L
+        const val WELCOME = "XARVIS online. Ask me anything."
         const val MIN_UPDATE_CHECK_GAP_MS = 60_000L
-        const val RESTORED_EXCHANGES = 30
+
     }
 }

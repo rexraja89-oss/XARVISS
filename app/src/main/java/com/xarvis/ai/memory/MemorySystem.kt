@@ -54,16 +54,32 @@ abstract class XarvisDatabase : RoomDatabase() {
     abstract fun memoryDao(): MemoryDao
 }
 
-/** One message from Rex and XARVIS's reply, saved at [time]. */
-data class Exchange(val user: String, val reply: String, val time: Long)
+/** One message from Rex and XARVIS's reply, saved at [time] in chat [chat]. */
+data class Exchange(val user: String, val reply: String, val time: Long, val chat: String = "")
 
-/** An exchange from the log: JSON now, "command => response" in older entries. */
+/** One chat in the chat list: its first message is its title. */
+data class ChatSummary(val id: String, val title: String, val lastTime: Long, val exchanges: Int)
+
+/**
+ * An exchange from the log: JSON now, "command => response" in older entries. Entries saved
+ * before chats existed are grouped by day.
+ */
 internal fun exchange(e: MemoryEntry): Exchange? {
     val c = e.content
-    if (c.startsWith("{")) return runCatching { JSONObject(c).let { Exchange(it.getString("u"), it.getString("x"), e.timestamp) } }.getOrNull()
+    val day = "day-" + java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ROOT).format(java.util.Date(e.timestamp))
+    if (c.startsWith("{")) return runCatching {
+        JSONObject(c).let { Exchange(it.getString("u"), it.getString("x"), e.timestamp, it.optString("c").ifEmpty { day }) }
+    }.getOrNull()
     val i = c.indexOf(" => ")
-    return if (i < 0) null else Exchange(c.substring(0, i), c.substring(i + 4), e.timestamp)
+    return if (i < 0) null else Exchange(c.substring(0, i), c.substring(i + 4), e.timestamp, day)
 }
+
+/** Chats from their exchanges, most recently used first. */
+internal fun chatsOf(exchanges: List<Exchange>): List<ChatSummary> =
+    exchanges.groupBy { it.chat }.map { (id, list) ->
+        val sorted = list.sortedBy { it.time }
+        ChatSummary(id, sorted.first().user.replace('\n', ' ').take(60), sorted.last().time, sorted.size)
+    }.sortedByDescending { it.lastTime }
 
 /** Persistent on-device memory. Survives app restarts; nothing leaves the device. */
 class MemorySystem(context: Context) {
@@ -97,8 +113,8 @@ class MemorySystem(context: Context) {
         else dao.search(CATEGORY_FACT, query, limit)
 
     /** Saves one exchange of the chat, so XARVIS remembers conversations after it restarts. */
-    suspend fun logInteraction(command: String, response: String) {
-        val json = JSONObject().put("u", command).put("x", response).toString()
+    suspend fun logInteraction(command: String, response: String, chat: String = "") {
+        val json = JSONObject().put("u", command).put("x", response).put("c", chat).toString()
         dao.insert(MemoryEntry(category = CATEGORY_INTERACTION, content = json))
     }
 
@@ -114,6 +130,13 @@ class MemorySystem(context: Context) {
             .filter { e -> words.all { w -> e.user.contains(w, true) || e.reply.contains(w, true) } }
             .take(limit).reversed()
     }
+
+    /** Every chat, most recently used first. */
+    suspend fun chats(): List<ChatSummary> = chatsOf(dao.allByCategory(CATEGORY_INTERACTION).mapNotNull(::exchange))
+
+    /** The exchanges of chat [id], oldest first. */
+    suspend fun chatExchanges(id: String): List<Exchange> =
+        dao.allByCategory(CATEGORY_INTERACTION).mapNotNull(::exchange).filter { it.chat == id }.sortedBy { it.time }
 
     /** Remembered facts (not chat history). */
     suspend fun factCount(): Int = dao.countOf(CATEGORY_FACT)

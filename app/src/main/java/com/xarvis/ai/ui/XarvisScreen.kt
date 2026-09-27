@@ -37,6 +37,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
@@ -93,6 +101,9 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
     val documentName = remember(document) { document?.let { DocumentReader.displayName(context, it) } }
     var showAttach by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val drawer = rememberDrawerState(DrawerValue.Closed)
+    val drawerScope = rememberCoroutineScope()
+    LaunchedEffect(drawer.isOpen) { if (drawer.isOpen) viewModel.loadChats() }
 
     LaunchedEffect(state.messages.size) {
         if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
@@ -105,6 +116,15 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
         document = null
     }
 
+    ModalNavigationDrawer(
+        drawerState = drawer,
+        drawerContent = {
+            ChatList(state.chats, state.chatId, enabled = !state.isProcessing) { id ->
+                viewModel.openChat(id)
+                drawerScope.launch { drawer.close() }
+            }
+        },
+    ) {
     Column(
         Modifier
             .fillMaxSize()
@@ -113,7 +133,9 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
             .imePadding()
             .padding(horizontal = 16.dp)
     ) {
-        Header(state.isProcessing, state.memoryCount, state.linkedCount, state.llmStatus)
+        Header(state.isProcessing, state.memoryCount, state.linkedCount, state.llmStatus) {
+            drawerScope.launch { drawer.open() }
+        }
         state.update?.let { version ->
             // One tap: Chrome downloads the new APK once; then Open, then Update.
             Button(
@@ -196,12 +218,18 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
             )
         }
     }
+    }
 }
 
 @Composable
-private fun Header(isProcessing: Boolean, memoryCount: Int, linkedCount: Int, llmStatus: LlmStatus) {
+private fun Header(isProcessing: Boolean, memoryCount: Int, linkedCount: Int, llmStatus: LlmStatus, onMenu: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            // ☰: past chats and "New chat".
+            Text(
+                "☰", fontSize = 26.sp, color = XarvisCyan,
+                modifier = Modifier.clip(CircleShape).clickable(onClick = onMenu).padding(end = 12.dp, top = 2.dp, bottom = 2.dp),
+            )
             Text("XARVIS", style = MaterialTheme.typography.titleLarge, color = XarvisCyan)
             Spacer(Modifier.weight(1f))
             if (isProcessing) {

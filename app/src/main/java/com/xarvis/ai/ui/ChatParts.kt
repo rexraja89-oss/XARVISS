@@ -40,6 +40,15 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xarvis.ai.R
+import com.xarvis.ai.memory.ChatSummary
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.ui.text.style.TextOverflow
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.xarvis.ai.ui.theme.XarvisCyan
 import com.xarvis.ai.ui.theme.XarvisMuted
 import kotlin.math.PI
@@ -162,3 +171,48 @@ fun AttachSheet(options: List<AttachOption>, onDismiss: () -> Unit) {
         Spacer(Modifier.height(28.dp))
     }
 }
+
+/** The ☰ menu: "New chat", then every past chat (newest first); tapping one reopens it. */
+@Composable
+fun ChatList(chats: List<ChatSummary>, current: String, enabled: Boolean, onOpen: (String?) -> Unit) {
+    ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surface) {
+        Text(
+            "CHATS", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+        )
+        Button(
+            onClick = { onOpen(null) }, enabled = enabled,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        ) { Text("+  NEW CHAT") }
+        Spacer(Modifier.height(12.dp))
+        if (chats.isEmpty()) {
+            Text(
+                "Your chats will appear here.", style = MaterialTheme.typography.bodyMedium, color = XarvisMuted,
+                modifier = Modifier.padding(20.dp),
+            )
+        }
+        LazyColumn(Modifier.fillMaxWidth()) {
+            items(chats, key = { it.id }) { chat ->
+                val selected = chat.id == current
+                Column(
+                    Modifier.fillMaxWidth()
+                        .background(if (selected) XarvisCyan.copy(alpha = 0.12f) else Color.Transparent)
+                        .clickable(enabled = enabled) { onOpen(chat.id) }
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                ) {
+                    Text(
+                        chat.title, style = MaterialTheme.typography.bodyLarge,
+                        color = if (selected) XarvisCyan else MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        CHAT_TIME.format(Date(chat.lastTime)) + " · ${chat.exchanges} message" + if (chat.exchanges == 1) "" else "s",
+                        style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private val CHAT_TIME = SimpleDateFormat("d MMM, h:mm a", Locale.ENGLISH)

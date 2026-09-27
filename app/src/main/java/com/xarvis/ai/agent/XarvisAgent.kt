@@ -36,15 +36,35 @@ class XarvisAgent(
     /** The last file Rex attached, for "convert it to PDF" (also asked in a later message). */
     private var lastDocument: Document? = null
 
+    /** The chat Rex is in (each opening of XARVIS starts a new one; the ☰ menu reopens old ones). */
+    var chatId: String = newChatId()
+        private set
+
     /**
-     * The last few exchanges, as they were when this conversation started: Gemma sees what was
-     * said before XARVIS restarted. Refreshed only when the conversation starts over, so the
-     * prompt stays the same (and Gemma's conversation continues) between messages.
+     * What Gemma is told about earlier talk: this chat so far (when it was reopened or the
+     * conversation restarted), or else the topics of recent chats. It changes only when the
+     * conversation starts over, so the prompt stays the same between messages.
      */
     private var history: String = ""
 
     private suspend fun loadHistory() {
-        history = historyNote(runCatching { memory.recentExchanges(HISTORY_EXCHANGES) }.getOrDefault(emptyList()))
+        history = runCatching {
+            val here = memory.chatExchanges(chatId).takeLast(HISTORY_EXCHANGES)
+            if (here.isNotEmpty()) {
+                "This chat so far (newest last; it may be from before XARVIS restarted):\n" + historyNote(here)
+            } else {
+                val recent = memory.chats().take(RECENT_CHAT_TOPICS)
+                if (recent.isEmpty()) "" else "This is a new chat. Rex's recent chats were about: " +
+                    recent.joinToString("; ") { it.title } + ". Use TOOL: recall to look at one."
+            }
+        }.getOrDefault("")
+    }
+
+    /** Switches to chat [id] (a new one when null): Gemma starts over with that chat's past. */
+    suspend fun openChat(id: String?) {
+        chatId = id ?: newChatId()
+        loadHistory()
+        llm.reset(systemPrompt())
     }
 
     suspend fun loadModel() {
@@ -61,7 +81,7 @@ class XarvisAgent(
     /** Handles one message; [onPartial] receives the reply so far while Gemma is writing it. */
     suspend fun handle(message: String, onPartial: (String) -> Unit = {}): Reply {
         val response = LinkCommands.parse(message, link.pairingInProgress)?.let { run(listOf(it)) } ?: askGemma(message, onPartial)
-        memory.logInteraction(message, response.text)
+        memory.logInteraction(message, response.text, chatId)
         return response
     }
 
@@ -80,7 +100,7 @@ class XarvisAgent(
             "To make a new, changed file from it, write a FILE block.)\n\n<<<\n" +
             doc.text.take(room) + "\n>>>\n\nRex: " + question
         val response = askGemma(question, onPartial, prompt)
-        memory.logInteraction("[file ${doc.name}] $question", response.text)
+        memory.logInteraction("[file ${doc.name}] $question", response.text, chatId)
         return response
     }
 
@@ -92,7 +112,7 @@ class XarvisAgent(
         val question = message.ifBlank { "Describe this photo in detail and explain everything in it." }
         val response = if (llm.isReady) photoHere(imagePath, message, question, onPartial)
             else photoElsewhere(imagePath, message, question, onPartial)
-        memory.logInteraction("[photo] $question", response.text)
+        memory.logInteraction("[photo] $question", response.text, chatId)
         return response
     }
 
@@ -268,13 +288,13 @@ class XarvisAgent(
                 append("\n\nFacts you know:\n")
                 facts.forEach { append("- $it\n") }
             }
-            if (history.isNotBlank()) {
-                append("\n\nYour latest chat with Rex before this one (it may be from before XARVIS restarted; newest last):\n")
-                append(history)
-            }
+            if (history.isNotBlank()) append("\n\n").append(history)
         }
 
         private const val HISTORY_EXCHANGES = 8
+        private const val RECENT_CHAT_TOPICS = 5
+
+        fun newChatId(): String = "chat-" + System.currentTimeMillis()
         private const val MAX_HISTORY_CHARS = 2500
         private const val RECALL_LATEST = 12
         private const val RECALL_MATCHES = 8
