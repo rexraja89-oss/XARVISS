@@ -40,6 +40,7 @@ object ToolCalls {
             val (app, text) = splitMessage(a)
             if (app.isNotBlank() && text != null) return Step.AskApp(app, text.trim('"', '\'').trim())
         }
+        arg(t, "jobs|job search|find jobs|job")?.takeIf { it.isNotBlank() }?.let { return jobs(it) }
         arg(t, "convert to|convert|save as|export as|export")?.let { a -> format(a)?.let { return Step.ConvertFile(it) } }
         arg(t, "files|file|my files|show files|find file|find files|send file|share file")?.let { return Step.ShowFiles(it.trim('"', '\'')) }
         arg(t, "find in|find|search in")?.let { a ->
@@ -65,6 +66,26 @@ object ToolCalls {
         t.startsWith("TOOL") || t.startsWith("ACTION") ||
             (t.isNotEmpty() && ("TOOL:".startsWith(t) || "ACTION:".startsWith(t)))
     }.joinToString("\n").trim()
+
+    /**
+     * "painting supervisor OR painting superintendent in Dubai on naukri" -> the titles, place and site.
+     * "linkedin: painting supervisor" also names the site.
+     */
+    internal fun jobs(arg: String): Step.Jobs {
+        var a = arg.trim().trim('"', '\'')
+        var site: String? = null
+        Regex("""^([A-Za-z ]{3,20}):\s*(.+)$""").find(a)?.let { site = it.groupValues[1].trim(); a = it.groupValues[2] }
+        Regex("""(?i)\s+on\s+([A-Za-z ]{3,20})$""").find(a)?.let { site = it.groupValues[1].trim(); a = a.substring(0, it.range.first) }
+        var place: String? = null
+        Regex("""(?i)\s+in\s+([^,]{2,40})$""").find(a)?.let { m ->
+            val p = m.groupValues[1].trim()
+            if (!p.equals("any country", true) && !p.equals("the world", true) && !p.equals("anywhere", true) && !p.equals("worldwide", true)) place = p
+            a = a.substring(0, m.range.first)
+        }
+        val titles = a.replace(Regex("""(?i)\b(jobs?|vacanc(y|ies)|openings?|requirements?|positions?)\b"""), " ")
+            .replace(Regex("""\s+"""), " ").trim().ifBlank { a.trim() }
+        return Step.Jobs(titles, place, site)
+    }
 
     /** "a Word file" -> "docx"; null if it names no format XARVIS can make. */
     internal fun format(arg: String): String? {

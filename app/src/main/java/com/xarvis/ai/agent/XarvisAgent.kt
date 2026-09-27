@@ -372,7 +372,22 @@ class XarvisAgent(
          * for a call is it placed directly (Gemma sometimes looks the contact up instead);
          * a call Gemma decides on by itself only opens the dialer.
          */
+        /** Rex asking about jobs to apply for; a web search or a LinkedIn people search then becomes the jobs tool. */
+        private val ABOUT_JOBS = Regex("""\b(?:jobs?|vacanc(?:y|ies)|hiring|openings?|apply|requirements?|positions?)\b""", RegexOption.IGNORE_CASE)
+
         internal fun forUser(message: String, steps: List<Step>): List<Step> {
+            val jobs = ABOUT_JOBS.containsMatchIn(message)
+            val adjusted = if (!jobs) steps else steps.map {
+                when {
+                    it is Step.Search -> ToolCalls.jobs(it.query.replace(Regex("(?i)\\blinkedin\\b"), " ").trim())
+                    it is Step.FindInApp && it.app.contains("linkedin", true) -> ToolCalls.jobs(it.query)
+                    else -> it
+                }
+            }
+            return callsFor(message, adjusted)
+        }
+
+        private fun callsFor(message: String, steps: List<Step>): List<Step> {
             if (!USER_SAYS_CALL.containsMatchIn(message.trim())) return steps
             return steps.map {
                 when (it) {
@@ -414,6 +429,7 @@ class XarvisAgent(
             TOOL: lookup <words>   (XARVIS reads Wikipedia and gives you the facts, then you answer)
             TOOL: search <web search words>   (only opens Google on the phone for Rex; you never see the results)
             TOOL: find <app>: <words to search inside that app>
+            TOOL: jobs <job titles> [in <place>] [on <site>]   (opens real job listings Rex can apply to: LinkedIn and the whole world unless he names a site or place)
             TOOL: ask <app>: <text to type into that app, e.g. a question for ChatGPT>
             TOOL: files <words from the file's name>   (shows files you made before, to open or share)
             TOOL: convert <pdf, docx, xlsx or txt>   (turns the file Rex attached into that format)
@@ -450,6 +466,8 @@ class XarvisAgent(
             User: who is the president of Brazil? -> TOOL: lookup president of Brazil
             User: which movie is this ring from? (photo of the glowing gold ring with script) -> It's the One Ring from The Lord of the Rings.
             User: open gmail and search for ali@example.com -> TOOL: find gmail: ali@example.com
+            User: search LinkedIn for painting supervisor or superintendent jobs I can apply to -> TOOL: jobs painting supervisor OR painting superintendent
+            User: find QC inspector vacancies in Saudi on naukri gulf -> TOOL: jobs QC inspector in Saudi Arabia on naukri gulf
             User: open chat gpt -> TOOL: open chat gpt
             User: open gallery -> TOOL: open gallery
             User: open compass -> TOOL: open compass

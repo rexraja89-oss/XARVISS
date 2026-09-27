@@ -51,6 +51,8 @@ sealed interface Step {
     data class AskApp(val app: String, val text: String) : Step
     /** Save a file Gemma wrote (PDF, Word, Excel, text) to Downloads/XARVIS. */
     data class MakeFile(val block: FileBlock) : Step
+    /** Open real job listings for [titles] on [site] (LinkedIn unless named), in [place] (worldwide unless named). */
+    data class Jobs(val titles: String, val place: String? = null, val site: String? = null) : Step
     /** Search earlier chats for [query] and give them back to Gemma (handled by the agent). */
     data class Recall(val query: String) : Step
     /** List everything XARVIS remembers. */
@@ -131,6 +133,15 @@ class WorkflowEngine(
         is Step.AskApp -> askApp(step.app, step.text)
         is Step.Lookup -> StepResult(true, "") // done by the agent before the reply is shown
         is Step.Recall -> StepResult(true, "") // done by the agent before the reply is shown
+        is Step.Jobs -> {
+            val site = JobSites.pick(step.site)
+            val app = device.findApp(site.appName)
+            openUrl(
+                JobSites.url(site, step.titles, step.place), app?.packageName,
+                "Opening ${site.label} jobs for \"${step.titles}\" ${step.place?.let { "in $it" } ?: "worldwide"}. " +
+                    "Tap a job to see it, and Apply (or Easy Apply) to apply; I can't press it for you yet.",
+            )
+        }
         Step.ListMemories -> {
             val facts = memorySync.facts()
             if (facts.isEmpty()) StepResult(true, "I don't remember anything yet. Tell me something to keep, e.g. \"remember my car is white\".")
