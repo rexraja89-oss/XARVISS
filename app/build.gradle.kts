@@ -18,7 +18,7 @@ android {
         versionName = "1.0.$build"
         // Both phones (and any phone that can run the AI) are 64-bit ARM; leaving out the others
         // keeps the APK about 30 MB smaller.
-        ndk { abiFilters += "arm64-v8a" }
+
     }
 
     // One permanent key, so every new build installs over the last one as an upgrade. CI decodes it
