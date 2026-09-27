@@ -48,6 +48,7 @@ object ToolCalls {
         }
         arg(t, "lookup|look up|wikipedia|wiki")?.takeIf { it.isNotBlank() }?.let { return Step.Lookup(it) }
         arg(t, "search|google|web search")?.takeIf { it.isNotBlank() }?.let { return Step.Search(it) }
+        arg(t, "recall|history|chat history|past chats|earlier chats|search chats")?.let { return Step.Recall(it.trim('"', '\'')) }
         arg(t, "memories|memory|my memories|list memories|what you remember")?.let { if (it.isBlank()) return Step.ListMemories }
         arg(t, "remember|save|note")?.takeIf { it.isNotBlank() }?.let { return Step.Remember(XarvisAgent.toSecondPerson(it)) }
         arg(t, "open|launch|open app")?.takeIf { it.isNotBlank() }?.let { return Step.LaunchApp(it.removeSuffix(" app").trim()) }

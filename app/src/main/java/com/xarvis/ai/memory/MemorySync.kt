@@ -39,6 +39,7 @@ class MemorySync(
 
     /** Every remembered fact, oldest first. */
     suspend fun facts(): List<String> = memory.allFacts().sortedBy { it.timestamp }.map { it.content }
+        .filterNot { Regex("""\d{6}""").matches(it.trim()) } // pairing codes once saved by mistake
 
     suspend fun forgetEverything() {
         val now = System.currentTimeMillis()

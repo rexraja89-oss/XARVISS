@@ -51,6 +51,8 @@ sealed interface Step {
     data class AskApp(val app: String, val text: String) : Step
     /** Save a file Gemma wrote (PDF, Word, Excel, text) to Downloads/XARVIS. */
     data class MakeFile(val block: FileBlock) : Step
+    /** Search earlier chats for [query] and give them back to Gemma (handled by the agent). */
+    data class Recall(val query: String) : Step
     /** List everything XARVIS remembers. */
     data object ListMemories : Step
     /** Turn the file Rex attached into [format] (pdf, docx, xlsx, txt...); the agent fills it in. */
@@ -128,6 +130,7 @@ class WorkflowEngine(
         is Step.FindInApp -> findInApp(step.app, step.query)
         is Step.AskApp -> askApp(step.app, step.text)
         is Step.Lookup -> StepResult(true, "") // done by the agent before the reply is shown
+        is Step.Recall -> StepResult(true, "") // done by the agent before the reply is shown
         Step.ListMemories -> {
             val facts = memorySync.facts()
             if (facts.isEmpty()) StepResult(true, "I don't remember anything yet. Tell me something to keep, e.g. \"remember my car is white\".")
@@ -135,7 +138,7 @@ class WorkflowEngine(
                 true,
                 "I remember ${facts.size} things you told me (shared with your linked phone):\n" +
                     facts.joinToString("\n") { "• $it" } +
-                    "\n\nI keep what you ask me to remember, not every chat: the chat itself is cleared when XARVIS restarts.",
+                    "\n\nI also remember our conversations, even after XARVIS restarts: ask me about anything we talked about.",
             )
         }
         is Step.ConvertFile -> StepResult(false, "Attach the file first: tap + and choose File, then ask me to convert it.")

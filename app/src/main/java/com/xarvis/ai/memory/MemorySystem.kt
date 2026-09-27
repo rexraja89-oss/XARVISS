@@ -9,6 +9,7 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import org.json.JSONObject
 
 @Entity(tableName = "memories")
 data class MemoryEntry(
@@ -41,6 +42,9 @@ interface MemoryDao {
     @Query("SELECT COUNT(*) FROM memories")
     suspend fun count(): Int
 
+    @Query("SELECT COUNT(*) FROM memories WHERE category = :category")
+    suspend fun countOf(category: String): Int
+
     @Query("DELETE FROM memories")
     suspend fun clear()
 }
@@ -48,6 +52,17 @@ interface MemoryDao {
 @Database(entities = [MemoryEntry::class], version = 1, exportSchema = false)
 abstract class XarvisDatabase : RoomDatabase() {
     abstract fun memoryDao(): MemoryDao
+}
+
+/** One message from Rex and XARVIS's reply, saved at [time]. */
+data class Exchange(val user: String, val reply: String, val time: Long)
+
+/** An exchange from the log: JSON now, "command => response" in older entries. */
+internal fun exchange(e: MemoryEntry): Exchange? {
+    val c = e.content
+    if (c.startsWith("{")) return runCatching { JSONObject(c).let { Exchange(it.getString("u"), it.getString("x"), e.timestamp) } }.getOrNull()
+    val i = c.indexOf(" => ")
+    return if (i < 0) null else Exchange(c.substring(0, i), c.substring(i + 4), e.timestamp)
 }
 
 /** Persistent on-device memory. Survives app restarts; nothing leaves the device. */
@@ -81,9 +96,27 @@ class MemorySystem(context: Context) {
         if (query.isNullOrBlank()) dao.byCategory(CATEGORY_FACT, limit)
         else dao.search(CATEGORY_FACT, query, limit)
 
+    /** Saves one exchange of the chat, so XARVIS remembers conversations after it restarts. */
     suspend fun logInteraction(command: String, response: String) {
-        dao.insert(MemoryEntry(category = CATEGORY_INTERACTION, content = "$command => $response"))
+        val json = JSONObject().put("u", command).put("x", response).toString()
+        dao.insert(MemoryEntry(category = CATEGORY_INTERACTION, content = json))
     }
+
+    /** The last [limit] exchanges, oldest first. */
+    suspend fun recentExchanges(limit: Int): List<Exchange> =
+        dao.byCategory(CATEGORY_INTERACTION, limit).mapNotNull(::exchange).reversed()
+
+    /** Earlier exchanges containing every word of [query] (newest [limit] of them), oldest first. */
+    suspend fun searchExchanges(query: String, limit: Int): List<Exchange> {
+        val words = query.lowercase().split(Regex("""[^\p{L}\p{N}]+""")).filter { it.length > 2 }
+        val key = words.maxByOrNull { it.length } ?: return recentExchanges(limit)
+        return dao.search(CATEGORY_INTERACTION, key, 500).mapNotNull(::exchange)
+            .filter { e -> words.all { w -> e.user.contains(w, true) || e.reply.contains(w, true) } }
+            .take(limit).reversed()
+    }
+
+    /** Remembered facts (not chat history). */
+    suspend fun factCount(): Int = dao.countOf(CATEGORY_FACT)
 
     suspend fun count(): Int = dao.count()
 

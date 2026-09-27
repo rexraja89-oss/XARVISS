@@ -66,7 +66,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
         suspend fun status(): String
 
         /** Runs a linked device's free-form message through this device's LLM; null if it has none. */
-        suspend fun brainChat(peerId: String, facts: List<String>, devices: List<String>, text: String): String?
+        suspend fun brainChat(peerId: String, facts: List<String>, devices: List<String>, text: String, history: String): String?
 
         /** Looks at a linked device's photo ([jpeg]) with this device's LLM; null if it can't. */
         suspend fun brainPhoto(peerId: String, facts: List<String>, jpeg: ByteArray, text: String): String?
@@ -206,10 +206,11 @@ class DeviceLink(context: Context, private val handler: Handler) {
         request(peer, "note", JSONObject().put("text", text))
     }
 
-    suspend fun remoteChat(peer: Peer, facts: List<String>, devices: List<String>, text: String): String =
+    suspend fun remoteChat(peer: Peer, facts: List<String>, devices: List<String>, text: String, history: String = ""): String =
         request(
             peer, "chat",
-            JSONObject().put("text", text).put("facts", JSONArray(facts)).put("devices", JSONArray(devices)),
+            JSONObject().put("text", text).put("facts", JSONArray(facts)).put("devices", JSONArray(devices))
+                .put("history", history),
             timeoutMs = CHAT_READ_TIMEOUT_MS,
         ).getString("text")
 
@@ -426,7 +427,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
             }
             "chat" -> {
                 val text = handler.brainChat(peer.id, req.optJSONArray("facts").toStrings(),
-                    req.optJSONArray("devices").toStrings(), req.getString("text"))
+                    req.optJSONArray("devices").toStrings(), req.getString("text"), req.optString("history"))
                     ?: return error("$deviceName has no AI model loaded")
                 reply.put("text", text)
             }

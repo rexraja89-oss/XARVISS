@@ -36,10 +36,27 @@ class XarvisAgent(
     /** The last file Rex attached, for "convert it to PDF" (also asked in a later message). */
     private var lastDocument: Document? = null
 
-    suspend fun loadModel() = llm.load(systemPrompt())
+    /**
+     * The last few exchanges, as they were when this conversation started: Gemma sees what was
+     * said before XARVIS restarted. Refreshed only when the conversation starts over, so the
+     * prompt stays the same (and Gemma's conversation continues) between messages.
+     */
+    private var history: String = ""
+
+    private suspend fun loadHistory() {
+        history = historyNote(runCatching { memory.recentExchanges(HISTORY_EXCHANGES) }.getOrDefault(emptyList()))
+    }
+
+    suspend fun loadModel() {
+        loadHistory()
+        llm.load(systemPrompt())
+    }
 
     /** Starts a fresh conversation, e.g. after memories change. */
-    suspend fun refreshPrompt() = llm.reset(systemPrompt())
+    suspend fun refreshPrompt() {
+        loadHistory()
+        llm.reset(systemPrompt())
+    }
 
     /** Handles one message; [onPartial] receives the reply so far while Gemma is writing it. */
     suspend fun handle(message: String, onPartial: (String) -> Unit = {}): Reply {
@@ -109,9 +126,9 @@ class XarvisAgent(
     }
 
     /** Answers a linked phone's message with this phone's Gemma; its tool lines run on that phone. */
-    suspend fun answerForPeer(peerId: String, facts: List<String>, devices: List<String>, text: String): String? {
+    suspend fun answerForPeer(peerId: String, facts: List<String>, devices: List<String>, text: String, history: String = ""): String? {
         if (!llm.isReady) return null
-        return llm.chatAs(peerId, buildPrompt(facts), IDENTITY_REMINDER + text)
+        return llm.chatAs(peerId, buildPrompt(facts, history), IDENTITY_REMINDER + text)
     }
 
     /** Looks at a linked phone's photo with this phone's Gemma; tools in the reply run on that phone. */
@@ -163,20 +180,23 @@ class XarvisAgent(
     }
 
     private suspend fun remoteChat(brain: Peer, message: String): String? =
-        runCatching { link.remoteChat(brain, facts(), link.pairedPeers().map { it.name }, message) }.getOrNull()
+        runCatching { link.remoteChat(brain, facts(), link.pairedPeers().map { it.name }, message, history) }.getOrNull()
 
     /**
      * When Gemma asked to look something up, reads Wikipedia and asks Gemma again with the facts,
      * returning its new reply (or the facts themselves if it can't be asked).
      */
     private suspend fun withLookups(raw: String, onPartial: (String) -> Unit, ask: suspend (String) -> String?): String {
-        val lookups = ToolCalls.parse(raw).filterIsInstance<Step.Lookup>()
-        if (lookups.isEmpty()) return raw
-        onPartial("Looking it up on Wikipedia…")
+        val steps = ToolCalls.parse(raw)
+        val lookups = steps.filterIsInstance<Step.Lookup>()
+        val recalls = steps.filterIsInstance<Step.Recall>()
+        if (lookups.isEmpty() && recalls.isEmpty()) return raw
+        onPartial(if (recalls.isNotEmpty()) "Looking through our earlier chats…" else "Looking it up on Wikipedia…")
         val found = mutableListOf<String>()
         for (l in lookups.take(2)) found += "Wikipedia on \"${l.query}\":\n" + WebLookup.lookup(l.query)
+        for (r in recalls.take(2)) found += recall(r.query)
         val facts = found.joinToString("\n\n")
-        val answer = runCatching { ask(LOOKUP_RESULT_PREFIX + facts) }.getOrNull()
+        val answer = runCatching { ask(FOUND_PREFIX + facts) }.getOrNull()
         return answer?.takeIf { ToolCalls.visibleText(it).isNotBlank() } ?: facts
     }
 
@@ -186,7 +206,7 @@ class XarvisAgent(
         val (fileBlocks, rest) = FileBlocks.split(raw)
         val text = fixIdentity(ToolCalls.visibleText(rest))
         val known = facts()
-        val steps: List<Step> = fileBlocks.map { Step.MakeFile(it) } + forUser(message, ToolCalls.parse(rest).filterNot { it is Step.Lookup }).map { step ->
+        val steps: List<Step> = fileBlocks.map { Step.MakeFile(it) } + forUser(message, ToolCalls.parse(rest).filterNot { it is Step.Lookup || it is Step.Recall }).map { step ->
             val doc = lastDocument
             if (step is Step.ConvertFile && doc != null) {
                 return@map Step.MakeFile(FileBlock(doc.name.substringBeforeLast('.') + "." + step.format, doc.text))
@@ -227,15 +247,44 @@ class XarvisAgent(
         return newestFirst.takeWhile { used += it.length + 3; used <= MAX_FACT_CHARS }.reversed()
     }
 
-    private suspend fun systemPrompt(): String = buildPrompt(facts())
+    private suspend fun systemPrompt(): String = buildPrompt(facts(), history)
+
+    /** Earlier chats matching [query] (the latest ones if it's blank), as text for Gemma. */
+    private suspend fun recall(query: String): String {
+        val found = runCatching {
+            if (query.isBlank()) memory.recentExchanges(RECALL_LATEST) else memory.searchExchanges(query, RECALL_MATCHES)
+        }.getOrDefault(emptyList())
+        val title = if (query.isBlank()) "Your latest chats with Rex" else "Earlier chats with Rex about \"$query\""
+        if (found.isEmpty()) return "$title: none found."
+        return "$title (oldest first):\n" + found.joinToString("\n") { e ->
+            "[${WHEN.format(java.util.Date(e.time))}] Rex: ${e.user.take(300)} | You: ${e.reply.take(400)}"
+        }
+    }
 
     companion object {
-        internal fun buildPrompt(facts: List<String>): String = buildString {
+        internal fun buildPrompt(facts: List<String>, history: String = ""): String = buildString {
             append(SYSTEM_PROMPT)
             if (facts.isNotEmpty()) {
                 append("\n\nFacts you know:\n")
                 facts.forEach { append("- $it\n") }
             }
+            if (history.isNotBlank()) {
+                append("\n\nYour latest chat with Rex before this one (it may be from before XARVIS restarted; newest last):\n")
+                append(history)
+            }
+        }
+
+        private const val HISTORY_EXCHANGES = 8
+        private const val MAX_HISTORY_CHARS = 2500
+        private const val RECALL_LATEST = 12
+        private const val RECALL_MATCHES = 8
+        private val WHEN = java.text.SimpleDateFormat("d MMM h:mm a", java.util.Locale.ENGLISH)
+
+        /** Recent exchanges for the prompt, newest kept when they don't all fit. */
+        internal fun historyNote(exchanges: List<com.xarvis.ai.memory.Exchange>): String {
+            val lines = exchanges.map { "Rex: ${it.user.take(200)}\nYou: ${it.reply.take(300)}" }
+            var used = 0
+            return lines.reversed().takeWhile { used += it.length + 1; used <= MAX_HISTORY_CHARS }.reversed().joinToString("\n")
         }
 
         private const val MAX_FACT_CHARS = 3000
@@ -249,8 +298,8 @@ class XarvisAgent(
             "Recognise famous things (films, places, logos, people) from what you know. " +
             "If he wants facts you're unsure of, add a TOOL: lookup line with good words.)\n\n"
 
-        private const val LOOKUP_RESULT_PREFIX = "(Here is what Wikipedia says. Use it to answer Rex's last question " +
-            "in a few sentences, in your own words. Don't use another lookup.)\n\n"
+        private const val FOUND_PREFIX = "(Here is what XARVIS found. Use it to answer Rex's last question " +
+            "in a few sentences, in your own words. Don't use another lookup or recall.)\n\n"
 
         private const val NOT_TIME_NUDGE = "(Rex didn't ask what time it is. Answer his last message again, " +
             "without the time tool.)"
@@ -315,6 +364,7 @@ class XarvisAgent(
             TOOL: time
             TOOL: remember <fact>
             TOOL: memories   (lists everything you remember)
+            TOOL: recall <words>   (searches all your earlier chats with Rex, also from before a restart; with no words, the latest ones)
             TOOL: open <app name>
             TOOL: contact <person's name>
             TOOL: call <person's name or number>
@@ -346,6 +396,8 @@ class XarvisAgent(
             User: kitne baje hain -> TOOL: time
             User: what do you remember about me? -> TOOL: memories
             User: do you remember everything I told you since I made you? -> TOOL: memories
+            User: what did I ask you about Gandhi yesterday? -> TOOL: recall Gandhi
+            User: what was my 4th last command? -> TOOL: recall
             User: remember my sister's name is Sara -> TOOL: remember my sister's name is Sara
             User: open youtube -> TOOL: open youtube
             User: what is Atiq's number? -> TOOL: contact Atiq

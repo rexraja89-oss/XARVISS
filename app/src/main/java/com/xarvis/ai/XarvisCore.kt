@@ -45,7 +45,10 @@ data class ChatMessage(
     val imagePath: String? = null,
     val attachment: String? = null,
     val files: List<SavedFile> = emptyList(),
+    val id: Long = nextMessageId.incrementAndGet(),
 )
+
+private val nextMessageId = java.util.concurrent.atomic.AtomicLong()
 
 data class XarvisUiState(
     val messages: List<ChatMessage> = emptyList(),
@@ -86,8 +89,8 @@ class XarvisCore(context: Context) {
             return device.summary() + "\n  " + ai
         }
 
-        override suspend fun brainChat(peerId: String, facts: List<String>, devices: List<String>, text: String): String? =
-            agent.answerForPeer(peerId, facts, devices, text)
+        override suspend fun brainChat(peerId: String, facts: List<String>, devices: List<String>, text: String, history: String): String? =
+            agent.answerForPeer(peerId, facts, devices, text, history)
 
         override suspend fun brainPhoto(peerId: String, facts: List<String>, jpeg: ByteArray, text: String): String? {
             val file = java.io.File(appContext.cacheDir, "photos/linked-${System.currentTimeMillis()}.jpg")
@@ -122,7 +125,7 @@ class XarvisCore(context: Context) {
 
     private val memorySync: MemorySync = MemorySync(memory, link) {
         agent.refreshPrompt()
-        _state.update { it.copy(memoryCount = memory.count()) }
+        _state.update { it.copy(memoryCount = memory.factCount()) }
     }
 
     private val agent: XarvisAgent =
@@ -139,7 +142,15 @@ class XarvisCore(context: Context) {
 
     init {
         link.start()
-        scope.launch { _state.update { it.copy(memoryCount = memory.count()) } }
+        scope.launch {
+            _state.update { it.copy(memoryCount = memory.factCount()) }
+            // The chat from before XARVIS restarted, above today's welcome.
+            val past = runCatching { memory.recentExchanges(RESTORED_EXCHANGES) }.getOrDefault(emptyList())
+            if (past.isNotEmpty()) {
+                val earlier = past.flatMap { listOf(ChatMessage(true, it.user), ChatMessage(false, it.reply)) }
+                _state.update { it.copy(messages = earlier + it.messages) }
+            }
+        }
         scope.launch { llm.status.collect { s -> _state.update { it.copy(llmStatus = s) } } }
         scope.launch { downloader.state.collect { d -> _state.update { it.copy(modelDownload = d) } } }
         scope.launch { link.events.collect(::post) }
@@ -172,25 +183,25 @@ class XarvisCore(context: Context) {
         val text = command.trim()
         if ((text.isEmpty() && photo == null && document == null) || _state.value.isProcessing) return
         val shown = text.ifEmpty { if (photo != null) "What's in this photo?" else "What's in this file?" }
-        var replyIndex = 0
+        val question = ChatMessage(true, shown)
+        val answer = ChatMessage(false, "")
         _state.update {
-            replyIndex = it.messages.size + 1
             it.copy(
-                messages = it.messages + ChatMessage(true, shown) + ChatMessage(false, ""),
+                messages = it.messages + question + answer,
                 isProcessing = true,
             )
         }
-        val onPartial = { partial: String -> replaceMessage(replyIndex, partial) }
+        val onPartial = { partial: String -> replaceMessage(answer.id, partial) }
         replyJob = scope.launch {
             val reply = try {
                 when {
                     photo != null -> {
                         val file = PhotoPrep.prepare(appContext, photo)
-                        updateMessage(replyIndex - 1) { it.copy(imagePath = file.path) }
+                        updateMessage(question.id) { it.copy(imagePath = file.path) }
                         agent.handlePhoto(file.path, text, onPartial)
                     }
                     document != null -> {
-                        updateMessage(replyIndex - 1) { it.copy(attachment = DocumentReader.displayName(appContext, document)) }
+                        updateMessage(question.id) { it.copy(attachment = DocumentReader.displayName(appContext, document)) }
                         onPartial("Reading the file…")
                         agent.handleDocument(DocumentReader.read(appContext, document), text, onPartial)
                     }
@@ -198,17 +209,17 @@ class XarvisCore(context: Context) {
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // STOP: keep what XARVIS wrote so far.
-                val sofar = _state.value.messages.getOrNull(replyIndex)?.text.orEmpty()
+                val sofar = _state.value.messages.firstOrNull { it.id == answer.id }?.text.orEmpty()
                 Reply(if (sofar.isBlank()) "Stopped." else "$sofar\n\n(stopped)")
             } catch (e: UnreadableFile) {
                 Reply(e.message ?: "I couldn't read that file.")
             } catch (e: Exception) {
                 Reply("Something went wrong: ${e.message}")
             }
-            updateMessage(replyIndex) { it.copy(text = reply.text, files = reply.files) }
+            updateMessage(answer.id) { it.copy(text = reply.text, files = reply.files) }
             // Also after STOP, which has cancelled this coroutine.
             withContext(NonCancellable) {
-                val memories = runCatching { memory.count() }.getOrDefault(_state.value.memoryCount)
+                val memories = runCatching { memory.factCount() }.getOrDefault(_state.value.memoryCount)
                 _state.update {
                     it.copy(
                         capabilities = device.capabilities(),
@@ -239,11 +250,11 @@ class XarvisCore(context: Context) {
         _state.update { it.copy(messages = it.messages + ChatMessage(false, text)) }
     }
 
-    private fun replaceMessage(index: Int, text: String) = updateMessage(index) { it.copy(text = text) }
+    private fun replaceMessage(id: Long, text: String) = updateMessage(id) { it.copy(text = text) }
 
-    private fun updateMessage(index: Int, change: (ChatMessage) -> ChatMessage) {
+    private fun updateMessage(id: Long, change: (ChatMessage) -> ChatMessage) {
         _state.update { s ->
-            s.copy(messages = s.messages.mapIndexed { i, m -> if (i == index) change(m) else m })
+            s.copy(messages = s.messages.map { m -> if (m.id == id) change(m) else m })
         }
     }
 
@@ -251,5 +262,6 @@ class XarvisCore(context: Context) {
         const val MEMORY_SYNC_START_DELAY_MS = 5_000L
         const val MEMORY_SYNC_INTERVAL_MS = 5 * 60_000L
         const val UPDATE_CHECK_INTERVAL_MS = 30 * 60_000L
+        const val RESTORED_EXCHANGES = 30
     }
 }
