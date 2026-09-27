@@ -67,6 +67,9 @@ class Voice(context: Context) {
         if (ready) tts.stop()
     }
 
+    /** Whether XARVIS is talking right now (the wake word waits, so it doesn't hear itself). */
+    val isSpeaking: Boolean get() = ready && runCatching { tts.isSpeaking }.getOrDefault(false)
+
     companion object {
         private const val TAG = "XarvisVoice"
         private const val GOOGLE_TTS = "com.google.android.tts"

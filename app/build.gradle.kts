@@ -16,6 +16,9 @@ android {
         val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionCode = build
         versionName = "1.0.$build"
+        // Both phones (and any phone that can run the AI) are 64-bit ARM; leaving out the others
+        // keeps the APK about 30 MB smaller.
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     // One permanent key, so every new build installs over the last one as an upgrade. CI decodes it
@@ -90,6 +93,8 @@ dependencies {
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.17.1")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("androidx.exifinterface:exifinterface:1.4.1")
+    // Runs the three small offline "Hey Jarvis" models (openWakeWord).
+    implementation("org.tensorflow:tensorflow-lite:2.17.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303") // the real org.json; Android's is a stub in unit tests

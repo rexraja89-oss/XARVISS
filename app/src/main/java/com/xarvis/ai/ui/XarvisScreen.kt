@@ -3,6 +3,10 @@ package com.xarvis.ai.ui
 import android.content.Context
 import android.content.Intent
 import android.speech.RecognizerIntent
+import android.Manifest
+import android.provider.Settings
+import com.xarvis.ai.service.WakeWord
+import com.xarvis.ai.tools.PermissionGate
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.ui.platform.LocalContext
@@ -101,8 +105,14 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
     val context = LocalContext.current
     // The mic: Android's speech recognizer listens, and XARVIS answers aloud.
     var listening by remember { mutableStateOf(false) }
+    // The "Hey Jarvis" switch needs the microphone permission first.
+    val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) WakeWord.setEnabled(context, true)
+        else android.widget.Toast.makeText(context, "\"Hey Jarvis\" needs the microphone permission.", android.widget.Toast.LENGTH_LONG).show()
+    }
     val listen = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         listening = false
+        WakeWord.paused = false
         val heard = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
         if (!heard.isNullOrBlank()) {
             viewModel.submit(heard, photo, document, spoken = true)
@@ -115,6 +125,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to XARVIS")
         try {
+            WakeWord.paused = true // the recognizer gets the mic
             listen.launch(intent)
             listening = true
         } catch (e: Exception) {
@@ -142,7 +153,16 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
     ModalNavigationDrawer(
         drawerState = drawer,
         drawerContent = {
-            ChatList(state.chats, state.chatId, enabled = !state.isProcessing) { id ->
+            ChatList(
+                state.chats, state.chatId, enabled = !state.isProcessing,
+                wakeWord = state.wakeWord,
+                onWakeWord = { on ->
+                    if (!on) WakeWord.setEnabled(context, false)
+                    else if (PermissionGate.has(context, Manifest.permission.RECORD_AUDIO)) WakeWord.setEnabled(context, true)
+                    else askMic.launch(Manifest.permission.RECORD_AUDIO)
+                },
+                onAssistantSettings = { openAssistantSettings(context) },
+            ) { id ->
                 viewModel.openChat(id)
                 drawerScope.launch { drawer.close() }
             }
@@ -443,6 +463,26 @@ private fun shareFile(context: Context, file: SavedFile) {
     val send = Intent(Intent.ACTION_SEND).setType(file.mime).putExtra(Intent.EXTRA_STREAM, Uri.parse(file.uri))
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     startChooser(context, Intent.createChooser(send, "Share ${file.name}"))
+}
+
+/**
+ * The phone's default-apps settings, where XARVIS can be chosen as the digital assistant
+ * (then the assistant button or gesture opens XARVIS Voice).
+ */
+private fun openAssistantSettings(context: Context) {
+    val tries = listOf(
+        Intent(Settings.ACTION_VOICE_INPUT_SETTINGS),
+        Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS),
+        Intent(Settings.ACTION_SETTINGS),
+    )
+    for (intent in tries) {
+        try {
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        } catch (e: Exception) {
+            // try the next screen
+        }
+    }
 }
 
 private fun startChooser(context: Context, intent: Intent) {

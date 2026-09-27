@@ -16,6 +16,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.xarvis.ai.service.AlwaysOn
+import com.xarvis.ai.service.WakeWord
 import com.xarvis.ai.service.XarvisService
 import com.xarvis.ai.tools.PermissionGate
 import com.xarvis.ai.ui.XarvisScreen
@@ -65,6 +66,10 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         (application as XarvisApp).core.refresh() // battery, and whether a newer XARVIS is out
+        // "Hey Jarvis" can only get the mic from here (the app on screen), e.g. after a restart.
+        if (WakeWord.isEnabled(this) && PermissionGate.has(this, Manifest.permission.RECORD_AUDIO)) {
+            com.xarvis.ai.service.WakeWordService.start(this)
+        }
     }
 
     override fun onDestroy() {

@@ -63,6 +63,8 @@ data class XarvisUiState(
     val chatId: String = "",
     /** Read every reply aloud (the 🔊 switch); replies to the mic are always spoken. */
     val speakReplies: Boolean = false,
+    /** "Hey Jarvis" listening is switched on. */
+    val wakeWord: Boolean = false,
     /** A newer XARVIS on GitHub ("1.0.46"), shown as an UPDATE button. */
     val update: String? = null,
 )
@@ -144,6 +146,7 @@ class XarvisCore(context: Context) {
             capabilities = device.capabilities(),
             linkedCount = link.pairedPeers().size,
             speakReplies = settings.getBoolean("speakReplies", false),
+            wakeWord = settings.getBoolean("wakeWord", false),
         )
     )
     val state: StateFlow<XarvisUiState> = _state.asStateFlow()
@@ -243,6 +246,13 @@ class XarvisCore(context: Context) {
         voice.stop()
         llm.stop()
         replyJob?.cancel()
+    }
+
+    /** XARVIS is thinking or talking: the wake word waits. */
+    fun busy(): Boolean = _state.value.isProcessing || voice.isSpeaking
+
+    fun wakeWordChanged(on: Boolean) {
+        _state.update { it.copy(wakeWord = on) }
     }
 
     /** The 🔊 switch: read every reply aloud, or only replies to the mic. */

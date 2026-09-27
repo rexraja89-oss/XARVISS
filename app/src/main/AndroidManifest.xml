@@ -12,6 +12,9 @@
     <!-- Calls Rex asks for himself ("call Atiq") are placed directly. -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- "Hey Jarvis" and voice commands. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
     <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
     <!-- Linking with other XARVIS devices on the local network. -->
@@ -68,6 +71,44 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- XARVIS Voice: opens listening, also over the lock screen. The phone's assistant
+             button/gesture opens it once XARVIS is chosen as the digital assistant app. -->
+        <activity
+            android:name=".VoiceActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VOICE_COMMAND" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <!-- Its own icon, so Samsung's side-button "Open app" can open it. -->
+        <activity-alias
+            android:name=".VoiceLauncher"
+            android:exported="true"
+            android:label="XARVIS Voice"
+            android:icon="@mipmap/ic_launcher"
+            android:targetActivity=".VoiceActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <service
+            android:name=".service.WakeWordService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
         <service
             android:name=".service.XarvisService"

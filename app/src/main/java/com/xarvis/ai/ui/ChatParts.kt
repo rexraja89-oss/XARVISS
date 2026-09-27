@@ -51,6 +51,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.Switch
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.text.style.TextOverflow
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -180,8 +182,34 @@ fun AttachSheet(options: List<AttachOption>, onDismiss: () -> Unit) {
 
 /** The ☰ menu: "New chat", then every past chat (newest first); tapping one reopens it. */
 @Composable
-fun ChatList(chats: List<ChatSummary>, current: String, enabled: Boolean, onOpen: (String?) -> Unit) {
+fun ChatList(
+    chats: List<ChatSummary>, current: String, enabled: Boolean,
+    wakeWord: Boolean, onWakeWord: (Boolean) -> Unit, onAssistantSettings: () -> Unit,
+    onOpen: (String?) -> Unit,
+) {
     ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surface) {
+        Text(
+            "VOICE", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp),
+        )
+        Row(
+            Modifier.fillMaxWidth().clickable { onWakeWord(!wakeWord) }.padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("\"Hey Jarvis\"", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    "Listens even with the screen off. Uses some battery; Android shows a green mic dot.",
+                    style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+                )
+            }
+            Switch(checked = wakeWord, onCheckedChange = onWakeWord)
+        }
+        Text(
+            "Make XARVIS the phone's assistant ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan,
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onAssistantSettings).padding(horizontal = 20.dp, vertical = 10.dp),
+        )
+        HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
         Text(
             "CHATS", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
