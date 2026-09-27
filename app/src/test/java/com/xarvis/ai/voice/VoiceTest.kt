@@ -24,4 +24,9 @@ class VoiceTest {
         assertFalse(Voice.isHindi("Speak regular Hindi like Iron Man? Well, I do my best, sir."))
         assertFalse(Voice.isHindi("You're at 78%, sir. That's good for now."))
     }
+
+    @Test fun saysTheNameAsAWord() {
+        assertEquals("Good evening, sir. Zarvis here.", Voice.sayName("Good evening, sir. XARVIS here.", hindi = false))
+        assertEquals("main ज़ार्विस hoon", Voice.sayName("main XARVIS hoon", hindi = true))
+    }
 }

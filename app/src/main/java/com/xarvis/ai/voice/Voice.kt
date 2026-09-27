@@ -72,12 +72,18 @@ class Voice(context: Context) {
     /** Says [text] (replacing anything still being said), in Hindi when the reply is Hindi or Hinglish. */
     fun speak(text: String) {
         if (!ready) return
-        val clean = speakable(text)
+        val inHindi = isHindi(speakable(text))
+        val clean = sayName(speakable(text), inHindi)
         if (clean.isBlank()) return
-        if (isHindi(clean)) {
+        if (inHindi) {
             hindi?.let { tts.voice = it } ?: tts.setLanguage(Locale("hi", "IN"))
+            // The Hindi voice sounds most natural at its own pitch, a touch slower.
+            tts.setPitch(HINDI_PITCH)
+            tts.setSpeechRate(HINDI_RATE)
         } else {
             english?.let { tts.voice = it } ?: tts.setLanguage(Locale.UK)
+            tts.setPitch(PITCH)
+            tts.setSpeechRate(RATE)
         }
         // Long replies go in chunks: the engine has a per-call length limit.
         clean.chunked(3500).forEachIndexed { i, part ->
@@ -105,8 +111,10 @@ class Voice(context: Context) {
         if (hindiVoice) hindi = next else english = next
         prefs.edit().putString(if (hindiVoice) "voiceHindi" else "voiceEnglish", next.name).apply()
         tts.voice = next
+        tts.setPitch(if (hindiVoice) HINDI_PITCH else PITCH)
+        tts.setSpeechRate(if (hindiVoice) HINDI_RATE else RATE)
         tts.speak(
-            if (hindiVoice) "Namaste sir, main XARVIS hoon. Kya yeh awaaz theek hai?" else "Good evening, sir. XARVIS here. Will this voice do?",
+            sayName(if (hindiVoice) "Namaste sir, main XARVIS hoon. Kya yeh awaaz theek hai?" else "Good evening, sir. XARVIS here. Will this voice do?", hindiVoice),
             TextToSpeech.QUEUE_FLUSH, null, "xarvis-sample",
         )
         return voiceLabel(next, all.indexOf(next) + 1, all.size)
@@ -131,6 +139,15 @@ class Voice(context: Context) {
         private const val GOOGLE_TTS = "com.google.android.tts"
         private const val PITCH = 0.88f
         private const val RATE = 1.0f
+        private const val HINDI_PITCH = 0.95f
+        private const val HINDI_RATE = 0.92f
+
+        /**
+         * "XARVIS" in capitals was read letter by letter ("X. A. R. V. I. S."): say it as a word.
+         * The Hindi voice gets it in Devanagari so it doesn't spell it either.
+         */
+        fun sayName(text: String, hindi: Boolean): String =
+            text.replace(Regex("""\bXARVIS\b""", RegexOption.IGNORE_CASE), if (hindi) "ज़ार्विस" else "Zarvis")
 
         /** Google's Hindi voices that sound male, best first. */
         private val MALE_HINDI = listOf("hic", "hid")
