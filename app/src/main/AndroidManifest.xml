@@ -107,6 +107,12 @@
             </intent-filter>
         </activity-alias>
 
+        <!-- Record my voice: Rex reads sentences to train XARVIS's voice on his own. -->
+        <activity
+            android:name=".RecordVoiceActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
         <service
             android:name=".service.WakeWordService"
             android:exported="false"

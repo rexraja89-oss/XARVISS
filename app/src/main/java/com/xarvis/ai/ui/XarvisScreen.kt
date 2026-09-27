@@ -168,6 +168,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                     else askMic.launch(Manifest.permission.RECORD_AUDIO)
                 },
                 onAssistantSettings = { openAssistantSettings(context) },
+                onRecordVoice = { context.startActivity(Intent(context, com.xarvis.ai.RecordVoiceActivity::class.java)) },
                 smartBrain = state.smartBrain, smartDownload = state.smartDownload,
                 hasModel = state.llmStatus != LlmStatus.NotInstalled,
                 onSmartBrain = viewModel::setSmartBrain,

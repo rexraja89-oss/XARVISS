@@ -187,7 +187,7 @@ fun AttachSheet(options: List<AttachOption>, onDismiss: () -> Unit) {
 @Composable
 fun ChatList(
     chats: List<ChatSummary>, current: String, enabled: Boolean,
-    wakeWord: Boolean, onWakeWord: (Boolean) -> Unit, onAssistantSettings: () -> Unit,
+    wakeWord: Boolean, onWakeWord: (Boolean) -> Unit, onAssistantSettings: () -> Unit, onRecordVoice: () -> Unit,
     smartBrain: Boolean, smartDownload: ModelDownload, hasModel: Boolean, onSmartBrain: (Boolean) -> Unit,
     voiceLabel: (Boolean) -> String, onNextVoice: (Boolean) -> String,
     onOpen: (String?) -> Unit,
@@ -234,11 +234,15 @@ fun ChatList(
         var hindi by remember { mutableStateOf(voiceLabel(true)) }
         VoiceButton("English voice", english) { english = onNextVoice(false) }
         VoiceButton("Hindi voice", hindi) { hindi = onNextVoice(true) }
+        // Rex reads sentences aloud so XARVIS can learn to speak in his voice.
         val ownVoice = remember { com.xarvis.ai.voice.OwnVoice.status }
-        Text(
-            "Own-voice engine: $ownVoice", style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-        )
+        Column(Modifier.fillMaxWidth().clickable(onClick = onRecordVoice).padding(horizontal = 20.dp, vertical = 10.dp)) {
+            Text("Record my voice ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+            Text(
+                "Read sentences aloud so XARVIS can learn to speak like you. Voice engine: $ownVoice",
+                style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+            )
+        }
         Text(
             "Make XARVIS the phone's assistant ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan,
             modifier = Modifier.fillMaxWidth().clickable(onClick = onAssistantSettings).padding(horizontal = 20.dp, vertical = 10.dp),
