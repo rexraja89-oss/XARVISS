@@ -232,6 +232,14 @@ fun ChatList(
         // Pick XARVIS's voices by ear: each tap plays the next one.
         var english by remember { mutableStateOf(voiceLabel(false)) }
         var hindi by remember { mutableStateOf(voiceLabel(true)) }
+        // The menu is drawn before the phone's speech engine has started: read the labels again once it has.
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            repeat(10) {
+                kotlinx.coroutines.delay(2000)
+                english = voiceLabel(false)
+                hindi = voiceLabel(true)
+            }
+        }
         VoiceButton("English voice", english) { english = onNextVoice(false) }
         VoiceButton("Hindi voice", hindi) { hindi = onNextVoice(true) }
         // Rex reads sentences aloud so XARVIS can learn to speak in his voice.
