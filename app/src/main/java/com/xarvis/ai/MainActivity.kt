@@ -62,6 +62,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        (application as XarvisApp).core.refresh() // battery, and whether a newer XARVIS is out
+    }
+
     override fun onDestroy() {
         PermissionGate.detach(permissionRequester)
         onToolPermissionResult?.invoke()

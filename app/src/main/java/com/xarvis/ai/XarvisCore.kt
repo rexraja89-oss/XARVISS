@@ -159,7 +159,7 @@ class XarvisCore(context: Context) {
         scope.launch {
             // Check for a newer XARVIS now and then (it's one small request).
             while (true) {
-                Updates.newerVersion()?.let { v -> _state.update { it.copy(update = v) } }
+                checkForUpdate()
                 delay(UPDATE_CHECK_INTERVAL_MS)
             }
         }
@@ -244,6 +244,16 @@ class XarvisCore(context: Context) {
     /** Refreshes things that can change while the screen is away, like battery level. */
     fun refresh() {
         _state.update { it.copy(capabilities = device.capabilities()) }
+        // Also each time XARVIS is opened: the always-on service keeps this process alive, so
+        // "closing" the app doesn't restart it.
+        if (System.currentTimeMillis() - lastUpdateCheck > MIN_UPDATE_CHECK_GAP_MS) scope.launch { checkForUpdate() }
+    }
+
+    @Volatile private var lastUpdateCheck = 0L
+
+    private suspend fun checkForUpdate() {
+        lastUpdateCheck = System.currentTimeMillis()
+        Updates.newerVersion()?.let { v -> _state.update { it.copy(update = v) } }
     }
 
     private fun post(text: String) {
@@ -262,6 +272,7 @@ class XarvisCore(context: Context) {
         const val MEMORY_SYNC_START_DELAY_MS = 5_000L
         const val MEMORY_SYNC_INTERVAL_MS = 5 * 60_000L
         const val UPDATE_CHECK_INTERVAL_MS = 30 * 60_000L
+        const val MIN_UPDATE_CHECK_GAP_MS = 60_000L
         const val RESTORED_EXCHANGES = 30
     }
 }
