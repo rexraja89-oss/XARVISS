@@ -73,11 +73,11 @@ class Voice(context: Context) {
     fun speak(text: String) {
         if (!ready) return
         val inHindi = isHindi(speakable(text))
-        val clean = sayName(speakable(text), inHindi)
+        val clean = sayName(speakable(text), inHindi).let { if (inHindi) HindiScript.forSpeech(it) else it }
         if (clean.isBlank()) return
         if (inHindi) {
             hindi?.let { tts.voice = it } ?: tts.setLanguage(Locale("hi", "IN"))
-            // The Hindi voice sounds most natural at its own pitch, a touch slower.
+            // The Hindi voice sounds most natural at its own pitch and speed.
             tts.setPitch(HINDI_PITCH)
             tts.setSpeechRate(HINDI_RATE)
         } else {
@@ -114,7 +114,8 @@ class Voice(context: Context) {
         tts.setPitch(if (hindiVoice) HINDI_PITCH else PITCH)
         tts.setSpeechRate(if (hindiVoice) HINDI_RATE else RATE)
         tts.speak(
-            sayName(if (hindiVoice) "Namaste sir, main XARVIS hoon. Kya yeh awaaz theek hai?" else "Good evening, sir. XARVIS here. Will this voice do?", hindiVoice),
+            if (hindiVoice) HindiScript.forSpeech(sayName("Namaste sir, main XARVIS hoon. Bataiye, kya yeh awaaz aapko theek lagti hai?", true))
+            else sayName("Good evening, sir. XARVIS here. Will this voice do?", false),
             TextToSpeech.QUEUE_FLUSH, null, "xarvis-sample",
         )
         return voiceLabel(next, all.indexOf(next) + 1, all.size)
@@ -139,8 +140,8 @@ class Voice(context: Context) {
         private const val GOOGLE_TTS = "com.google.android.tts"
         private const val PITCH = 0.88f
         private const val RATE = 1.0f
-        private const val HINDI_PITCH = 0.95f
-        private const val HINDI_RATE = 0.92f
+        private const val HINDI_PITCH = 1.0f
+        private const val HINDI_RATE = 1.0f
 
         /**
          * "XARVIS" in capitals was read letter by letter ("X. A. R. V. I. S."): say it as a word.

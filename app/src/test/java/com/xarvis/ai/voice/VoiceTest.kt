@@ -29,4 +29,9 @@ class VoiceTest {
         assertEquals("Good evening, sir. Zarvis here.", Voice.sayName("Good evening, sir. XARVIS here.", hindi = false))
         assertEquals("main ज़ार्विस hoon", Voice.sayName("main XARVIS hoon", hindi = true))
     }
+
+    @Test fun hindiVoiceReadsHindiInItsOwnScript() {
+        assertEquals("जी sir, सब ठीक है. File तैयार है.", HindiScript.forSpeech("Ji sir, sab theek hai. File taiyaar hai."))
+        assertEquals("मैं ज़ार्विस हूँ", HindiScript.forSpeech(Voice.sayName("main XARVIS hoon", hindi = true)))
+    }
 }
