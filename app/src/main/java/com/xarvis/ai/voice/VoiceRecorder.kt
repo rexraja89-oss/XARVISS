@@ -142,7 +142,7 @@ class VoiceRecorder(context: Context) {
             if (first < 0) return ShortArray(0)
             val last = samples.indexOfLast { abs(it.toInt()) > threshold }
             val pad = RATE / 4
-            return samples.copyOfRange(maxOf(0, first - pad), minOf(samples.size, last + pad))
+            return samples.copyOfRange(maxOf(0, first - pad), minOf(samples.size, last + 1 + pad))
         }
 
         fun writeWav(file: File, samples: ShortArray) {
