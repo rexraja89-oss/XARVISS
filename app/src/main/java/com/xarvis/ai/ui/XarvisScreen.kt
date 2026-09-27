@@ -42,6 +42,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
@@ -196,13 +198,19 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
         CapabilityRow(state.capabilities)
         if (state.llmStatus == LlmStatus.NotInstalled) ModelSetup(state.modelDownload, viewModel::downloadModel)
 
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            itemsIndexed(state.messages) { i, message ->
-                MessageBubble(message, thinking = state.isProcessing && !message.fromUser && i == state.messages.lastIndex)
+        // The code rain welcomes a new chat, then fades away with Rex's first command.
+        val newChat = state.messages.none { it.fromUser }
+        val rainAlpha by animateFloatAsState(if (newChat) 1f else 0f, tween(1800), label = "rain")
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            if (rainAlpha > 0.01f) CodeRain(Modifier.matchParentSize(), alpha = rainAlpha)
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                itemsIndexed(state.messages) { i, message ->
+                    MessageBubble(message, thinking = state.isProcessing && !message.fromUser && i == state.messages.lastIndex)
+                }
             }
         }
 
