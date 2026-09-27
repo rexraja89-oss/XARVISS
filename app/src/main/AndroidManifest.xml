@@ -12,6 +12,7 @@
     <!-- Calls Rex asks for himself ("call Atiq") are placed directly. -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- No microphone permission for now: with it, the S22 refuses to install XARVIS ("package
          appears to be invalid", found with test builds). Voice goes through Google's recognizer,
          which needs none; "Hey Jarvis" (WakeWordService) needs it and stays off until solved. -->
@@ -108,7 +109,7 @@
         <service
             android:name=".service.WakeWordService"
             android:exported="false"
-            android:foregroundServiceType="connectedDevice" />
+            android:foregroundServiceType="microphone" />
 
         <service
             android:name=".service.XarvisService"
