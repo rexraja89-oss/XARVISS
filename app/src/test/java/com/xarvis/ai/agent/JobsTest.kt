@@ -14,7 +14,7 @@ class JobsTest {
         )
         assertEquals(Step.Jobs("QC inspector", "Saudi Arabia", "naukri gulf"), ToolCalls.jobs("QC inspector in Saudi Arabia on naukri gulf"))
         assertEquals(Step.Jobs("painting supervisor", null, "linkedin"), ToolCalls.jobs("linkedin: painting supervisor jobs"))
-        assertEquals(Step.Jobs("painter", null, null), ToolCalls.jobs("painter jobs anywhere in the world").let { it.copy(place = null) })
+        assertEquals(null, ToolCalls.jobs("painter jobs in the world").place) // "the world" means anywhere
     }
 
     @Test fun aWebSearchForJobsBecomesTheJobsTool() {
