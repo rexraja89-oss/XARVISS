@@ -114,6 +114,13 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
             .padding(horizontal = 16.dp)
     ) {
         Header(state.isProcessing, state.memoryCount, state.linkedCount, state.llmStatus)
+        state.update?.let { version ->
+            // One tap: Chrome downloads the new APK once; then Open, then Update.
+            Button(
+                onClick = { com.xarvis.ai.update.Updates.openDownload(context) },
+                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+            ) { Text("UPDATE TO v$version") }
+        }
         CapabilityRow(state.capabilities)
         if (state.llmStatus == LlmStatus.NotInstalled) ModelSetup(state.modelDownload, viewModel::downloadModel)
 

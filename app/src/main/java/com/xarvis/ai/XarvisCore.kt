@@ -19,6 +19,7 @@ import com.xarvis.ai.memory.MemorySync
 import com.xarvis.ai.memory.MemorySystem
 import com.xarvis.ai.net.DeviceLink
 import com.xarvis.ai.tools.ContactFinder
+import com.xarvis.ai.update.Updates
 import com.xarvis.ai.workflow.WorkflowEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -54,6 +55,8 @@ data class XarvisUiState(
     val isProcessing: Boolean = false,
     val llmStatus: LlmStatus = LlmStatus.NotInstalled,
     val modelDownload: ModelDownload = ModelDownload.Idle,
+    /** A newer XARVIS on GitHub ("1.0.46"), shown as an UPDATE button. */
+    val update: String? = null,
 )
 
 /**
@@ -142,6 +145,13 @@ class XarvisCore(context: Context) {
         scope.launch { link.events.collect(::post) }
         scope.launch { agent.loadModel() }
         downloader.resume()
+        scope.launch {
+            // Check for a newer XARVIS now and then (it's one small request).
+            while (true) {
+                Updates.newerVersion()?.let { v -> _state.update { it.copy(update = v) } }
+                delay(UPDATE_CHECK_INTERVAL_MS)
+            }
+        }
         scope.launch {
             delay(MEMORY_SYNC_START_DELAY_MS) // give mDNS a moment to find linked devices' current addresses
             while (true) {
@@ -240,5 +250,6 @@ class XarvisCore(context: Context) {
     private companion object {
         const val MEMORY_SYNC_START_DELAY_MS = 5_000L
         const val MEMORY_SYNC_INTERVAL_MS = 5 * 60_000L
+        const val UPDATE_CHECK_INTERVAL_MS = 30 * 60_000L
     }
 }
