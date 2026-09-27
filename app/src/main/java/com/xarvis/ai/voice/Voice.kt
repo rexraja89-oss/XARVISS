@@ -12,7 +12,8 @@ import java.util.Locale
  */
 class Voice(context: Context) {
 
-    private val prefs = context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val prefs = appContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
     @Volatile private var ready = false
 
@@ -71,10 +72,17 @@ class Voice(context: Context) {
 
     /** Says [text] (replacing anything still being said), in Hindi when the reply is Hindi or Hinglish. */
     fun speak(text: String) {
-        if (!ready) return
         val inHindi = isHindi(speakable(text))
         val clean = sayName(speakable(text), inHindi).let { if (inHindi) HindiScript.forSpeech(it) else it }
         if (clean.isBlank()) return
+        // Rex's own voice, once he has trained and loaded one for this language.
+        if (OwnVoice.use(appContext, inHindi)) {
+            if (ready) tts.stop()
+            OwnVoice.speak(appContext, clean, inHindi)
+            return
+        }
+        if (!ready) return
+        OwnVoice.stop()
         if (inHindi) {
             hindi?.let { tts.voice = it } ?: tts.setLanguage(Locale("hi", "IN"))
             // The Hindi voice sounds most natural at its own pitch and speed.
@@ -92,6 +100,7 @@ class Voice(context: Context) {
     }
 
     fun stop() {
+        OwnVoice.stop()
         if (ready) tts.stop()
     }
 
@@ -133,7 +142,7 @@ class Voice(context: Context) {
         "voice $n of $of" + if (v.isNetworkConnectionRequired) " (online)" else ""
 
     /** Whether XARVIS is talking right now (the wake word waits, so it doesn't hear itself). */
-    val isSpeaking: Boolean get() = ready && runCatching { tts.isSpeaking }.getOrDefault(false)
+    val isSpeaking: Boolean get() = OwnVoice.isSpeaking || (ready && runCatching { tts.isSpeaking }.getOrDefault(false))
 
     companion object {
         private const val TAG = "XarvisVoice"

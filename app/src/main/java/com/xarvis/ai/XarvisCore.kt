@@ -278,6 +278,35 @@ class XarvisCore(context: Context) {
 
     fun voiceLabel(hindi: Boolean): String = voice.currentLabel(hindi)
 
+    /** "Load my voice": installs a voice file from the training page and says hello in it. */
+    fun loadOwnVoice(uri: android.net.Uri, done: (String) -> Unit) {
+        scope.launch {
+            val msg = try {
+                val hindi = kotlinx.coroutines.withContext(Dispatchers.IO) { com.xarvis.ai.voice.OwnVoice.install(appContext, uri) }
+                com.xarvis.ai.voice.OwnVoice.setEnabled(appContext, true)
+                voice.speak(if (hindi) "Namaste sir, main XARVIS hoon. Ab main aapki awaaz mein bol raha hoon." else "Hello sir. XARVIS here, speaking in your voice now.")
+                if (hindi) "Your Hindi voice is loaded ✓" else "Your English voice is loaded ✓"
+            } catch (e: Exception) {
+                "Couldn't load that voice: ${e.message}"
+            }
+            done(msg)
+        }
+    }
+
+    /** The "Speak in my voice" switch. */
+    fun ownVoiceOn(): Boolean = com.xarvis.ai.voice.OwnVoice.enabled(appContext)
+
+    fun setOwnVoice(on: Boolean) {
+        voice.stop()
+        com.xarvis.ai.voice.OwnVoice.setEnabled(appContext, on)
+    }
+
+    /** Which own voices are loaded, for the menu ("Hindi" / "English" / "Hindi + English"), or null. */
+    fun ownVoices(): String? = listOfNotNull(
+        "Hindi".takeIf { com.xarvis.ai.voice.OwnVoice.installed(appContext, true) },
+        "English".takeIf { com.xarvis.ai.voice.OwnVoice.installed(appContext, false) },
+    ).joinToString(" + ").ifEmpty { null }
+
     /** XARVIS is thinking or talking: the wake word waits. */
     fun busy(): Boolean = _state.value.isProcessing || voice.isSpeaking
 

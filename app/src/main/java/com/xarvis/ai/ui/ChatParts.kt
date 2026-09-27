@@ -188,6 +188,7 @@ fun AttachSheet(options: List<AttachOption>, onDismiss: () -> Unit) {
 fun ChatList(
     chats: List<ChatSummary>, current: String, enabled: Boolean,
     wakeWord: Boolean, onWakeWord: (Boolean) -> Unit, onAssistantSettings: () -> Unit, onRecordVoice: () -> Unit,
+    onLoadVoice: () -> Unit, ownVoices: () -> String?, ownVoiceOn: () -> Boolean, onOwnVoice: (Boolean) -> Unit,
     smartBrain: Boolean, smartDownload: ModelDownload, hasModel: Boolean, onSmartBrain: (Boolean) -> Unit,
     voiceLabel: (Boolean) -> String, onNextVoice: (Boolean) -> String,
     onOpen: (String?) -> Unit,
@@ -250,6 +251,24 @@ fun ChatList(
                 "Read sentences aloud so XARVIS can learn to speak like you. Voice engine: $ownVoice",
                 style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
             )
+        }
+        Column(Modifier.fillMaxWidth().clickable(onClick = onLoadVoice).padding(horizontal = 20.dp, vertical = 10.dp)) {
+            Text("Load my voice ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+            Text(
+                "Pick xarvis-voice-hi.zip or xarvis-voice-en.zip from the training page (Google Drive → XARVIS voice).",
+                style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+            )
+        }
+        val loaded = ownVoices()
+        if (loaded != null) {
+            var mine by remember { mutableStateOf(ownVoiceOn()) }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Speak in my voice", style = MaterialTheme.typography.bodyLarge)
+                    Text("Loaded: $loaded. Off = the phone's voices.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+                }
+                Switch(checked = mine, onCheckedChange = { mine = it; onOwnVoice(it) })
+            }
         }
         Text(
             "Make XARVIS the phone's assistant ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan,

@@ -30,6 +30,14 @@ class XarvisViewModel(application: Application) : AndroidViewModel(application) 
 
     fun voiceLabel(hindi: Boolean) = core.voiceLabel(hindi)
 
+    fun loadOwnVoice(uri: android.net.Uri, done: (String) -> Unit) = core.loadOwnVoice(uri, done)
+
+    fun ownVoiceOn() = core.ownVoiceOn()
+
+    fun setOwnVoice(on: Boolean) = core.setOwnVoice(on)
+
+    fun ownVoices() = core.ownVoices()
+
     fun setSmartBrain(on: Boolean) = core.setSmartBrain(on)
 
     /** A past chat, or a new one when [id] is null. */

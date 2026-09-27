@@ -112,6 +112,12 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
         if (granted) WakeWord.setEnabled(context, true)
         else android.widget.Toast.makeText(context, "\"Hey Jarvis\" needs the microphone permission.", android.widget.Toast.LENGTH_LONG).show()
     }
+    // "Load my voice": the voice zip made by the training page.
+    val pickVoice = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) viewModel.loadOwnVoice(uri) { msg ->
+            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
     val listen = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         listening = false
         WakeWord.paused = false
@@ -169,6 +175,10 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 },
                 onAssistantSettings = { openAssistantSettings(context) },
                 onRecordVoice = { context.startActivity(Intent(context, com.xarvis.ai.RecordVoiceActivity::class.java)) },
+                onLoadVoice = { pickVoice.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
+                ownVoices = viewModel::ownVoices,
+                ownVoiceOn = viewModel::ownVoiceOn,
+                onOwnVoice = viewModel::setOwnVoice,
                 smartBrain = state.smartBrain, smartDownload = state.smartDownload,
                 hasModel = state.llmStatus != LlmStatus.NotInstalled,
                 onSmartBrain = viewModel::setSmartBrain,
