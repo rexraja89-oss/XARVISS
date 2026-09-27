@@ -26,6 +26,10 @@ class XarvisViewModel(application: Application) : AndroidViewModel(application) 
 
     fun loadChats() = core.loadChats()
 
+    fun nextVoice(hindi: Boolean) = core.nextVoice(hindi)
+
+    fun voiceLabel(hindi: Boolean) = core.voiceLabel(hindi)
+
     fun setSmartBrain(on: Boolean) = core.setSmartBrain(on)
 
     /** A past chat, or a new one when [id] is null. */

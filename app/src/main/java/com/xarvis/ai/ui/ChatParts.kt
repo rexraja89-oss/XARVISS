@@ -53,6 +53,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.Switch
 import androidx.compose.material3.RadioButton
+import androidx.compose.runtime.mutableStateOf
 import com.xarvis.ai.llm.ModelDownload
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.text.style.TextOverflow
@@ -188,6 +189,7 @@ fun ChatList(
     chats: List<ChatSummary>, current: String, enabled: Boolean,
     wakeWord: Boolean, onWakeWord: (Boolean) -> Unit, onAssistantSettings: () -> Unit,
     smartBrain: Boolean, smartDownload: ModelDownload, hasModel: Boolean, onSmartBrain: (Boolean) -> Unit,
+    voiceLabel: (Boolean) -> String, onNextVoice: (Boolean) -> String,
     onOpen: (String?) -> Unit,
 ) {
     ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surface) {
@@ -227,6 +229,11 @@ fun ChatList(
             }
             Switch(checked = wakeWord, onCheckedChange = onWakeWord)
         }
+        // Pick XARVIS's voices by ear: each tap plays the next one.
+        var english by remember { mutableStateOf(voiceLabel(false)) }
+        var hindi by remember { mutableStateOf(voiceLabel(true)) }
+        VoiceButton("English voice", english) { english = onNextVoice(false) }
+        VoiceButton("Hindi voice", hindi) { hindi = onNextVoice(true) }
         Text(
             "Make XARVIS the phone's assistant ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan,
             modifier = Modifier.fillMaxWidth().clickable(onClick = onAssistantSettings).padding(horizontal = 20.dp, vertical = 10.dp),
@@ -272,6 +279,20 @@ fun ChatList(
 }
 
 private val CHAT_TIME = SimpleDateFormat("d MMM, h:mm a", Locale.ENGLISH)
+
+@Composable
+private fun VoiceButton(title: String, label: String, onNext: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onNext).padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+            Text("$label · tap to hear the next one", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+        }
+        Text("▶", color = XarvisCyan, fontSize = 20.sp)
+    }
+}
 
 @Composable
 private fun BrainOption(title: String, detail: String, selected: Boolean, enabled: Boolean, onPick: () -> Unit) {

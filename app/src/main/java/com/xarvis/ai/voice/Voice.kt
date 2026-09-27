@@ -12,6 +12,8 @@ import java.util.Locale
  */
 class Voice(context: Context) {
 
+    private val prefs = context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
+
     @Volatile private var ready = false
 
     /**
@@ -36,8 +38,9 @@ class Voice(context: Context) {
 
     private fun setUp() {
         val voices = runCatching { tts.voices.orEmpty() }.getOrDefault(emptySet())
-        english = pick(voices)
-        hindi = pickHindi(voices)
+        // Rex's own pick (the ☰ menu's voice buttons) wins over the guess.
+        english = voices.firstOrNull { it.name == prefs.getString("voiceEnglish", null) } ?: pick(voices)
+        hindi = voices.firstOrNull { it.name == prefs.getString("voiceHindi", null) } ?: pickHindi(voices)
         english?.let { tts.voice = it } ?: tts.setLanguage(Locale.UK)
         tts.setPitch(PITCH)
         tts.setSpeechRate(RATE)
@@ -85,6 +88,40 @@ class Voice(context: Context) {
     fun stop() {
         if (ready) tts.stop()
     }
+
+    /**
+     * The ☰ menu's voice button: switches to the next voice of that language on the phone
+     * (Hindi when [hindiVoice], else British English), says a sample, and remembers it.
+     * Returns a short label for the button, or null if the phone has none.
+     */
+    fun nextVoice(hindiVoice: Boolean): String? {
+        if (!ready) return null
+        val all = runCatching { tts.voices.orEmpty() }.getOrDefault(emptySet())
+            .filter { if (hindiVoice) it.locale.language == "hi" else it.locale.language == "en" && it.locale.country == "GB" }
+            .sortedBy { it.name }
+        if (all.isEmpty()) return null
+        val current = if (hindiVoice) hindi else english
+        val next = all[(all.indexOfFirst { it.name == current?.name } + 1) % all.size]
+        if (hindiVoice) hindi = next else english = next
+        prefs.edit().putString(if (hindiVoice) "voiceHindi" else "voiceEnglish", next.name).apply()
+        tts.voice = next
+        tts.speak(
+            if (hindiVoice) "Namaste sir, main XARVIS hoon. Kya yeh awaaz theek hai?" else "Good evening, sir. XARVIS here. Will this voice do?",
+            TextToSpeech.QUEUE_FLUSH, null, "xarvis-sample",
+        )
+        return voiceLabel(next, all.indexOf(next) + 1, all.size)
+    }
+
+    /** The label for the voice in use ("Voice 2 of 4"), for the menu. */
+    fun currentLabel(hindiVoice: Boolean): String {
+        val v = (if (hindiVoice) hindi else english) ?: return "phone default"
+        val all = runCatching { tts.voices.orEmpty() }.getOrDefault(emptySet())
+            .filter { it.locale.language == v.locale.language && it.locale.country == v.locale.country }.sortedBy { it.name }
+        return voiceLabel(v, all.indexOfFirst { it.name == v.name } + 1, all.size)
+    }
+
+    private fun voiceLabel(v: TtsVoice, n: Int, of: Int) =
+        "voice $n of $of" + if (v.isNetworkConnectionRequired) " (online)" else ""
 
     /** Whether XARVIS is talking right now (the wake word waits, so it doesn't hear itself). */
     val isSpeaking: Boolean get() = ready && runCatching { tts.isSpeaking }.getOrDefault(false)

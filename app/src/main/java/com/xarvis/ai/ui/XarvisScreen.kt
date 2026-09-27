@@ -171,6 +171,8 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 smartBrain = state.smartBrain, smartDownload = state.smartDownload,
                 hasModel = state.llmStatus != LlmStatus.NotInstalled,
                 onSmartBrain = viewModel::setSmartBrain,
+                voiceLabel = viewModel::voiceLabel,
+                onNextVoice = viewModel::nextVoice,
             ) { id ->
                 viewModel.openChat(id)
                 drawerScope.launch { drawer.close() }

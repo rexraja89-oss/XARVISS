@@ -273,6 +273,11 @@ class XarvisCore(context: Context) {
         }
     }
 
+    /** The ☰ menu's voice buttons: next voice, with a sample; returns its label. */
+    fun nextVoice(hindi: Boolean): String = voice.nextVoice(hindi) ?: "none on this phone"
+
+    fun voiceLabel(hindi: Boolean): String = voice.currentLabel(hindi)
+
     /** XARVIS is thinking or talking: the wake word waits. */
     fun busy(): Boolean = _state.value.isProcessing || voice.isSpeaking
 
