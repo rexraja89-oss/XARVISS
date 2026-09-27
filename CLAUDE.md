@@ -21,6 +21,9 @@ Personal on-device AI assistant for Android, owned by Rex (developer credit: Saj
 
 - Gemma lives in the app's own folder (`Android/data/com.xarvis.ai/files/models/`), so **uninstalling XARVIS deletes it**. With no model, the screen shows a "DOWNLOAD AI MODEL" button (`llm/ModelDownloader.kt`): Android's DownloadManager fetches `gemma-4-E2B-it.litertlm` (~2.4 GB, Wi-Fi or mobile data, not roaming: Rex chose mobile data) from huggingface.co/litert-community/gemma-4-E2B-it-litert-lm to a `.download` file, renames it when complete, then loads it. huggingface.co is blocked from the Claude sandbox, so this can't be tested here.
 
+- **Brain switch** (☰ menu, BRAIN): Fast = Gemma 4 E2B, Smart = Gemma 4 E4B (`LocalLlm.SMART_MODEL_FILE` `gemma-4-E4B-it.litertlm`, fetched by a second `ModelDownloader` from huggingface.co/litert-community/gemma-4-E4B-it-litert-lm; the file name and URL are the E2B pattern and couldn't be checked from the sandbox). `LocalLlm.preferSmart` picks the file; `reload()` switches; the header shows which. The GPU calibration is skipped for new model files once any file needed the CPU.
+- Rex asked for XARVIS to tap through apps and send job applications for him; that ("XARVIS Hands", Accessibility) was not built.
+
 ## Devices
 
 - **Galaxy S22 Ultra** (SM-S908E, Android 13, Snapdragon 8 Gen 1, 12 GB): main phone. Has the model at `/sdcard/Android/data/com.xarvis.ai/files/models/gemma-4-E2B-it.litertlm`.

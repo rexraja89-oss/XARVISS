@@ -168,6 +168,9 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                     else askMic.launch(Manifest.permission.RECORD_AUDIO)
                 },
                 onAssistantSettings = { openAssistantSettings(context) },
+                smartBrain = state.smartBrain, smartDownload = state.smartDownload,
+                hasModel = state.llmStatus != LlmStatus.NotInstalled,
+                onSmartBrain = viewModel::setSmartBrain,
             ) { id ->
                 viewModel.openChat(id)
                 drawerScope.launch { drawer.close() }
@@ -307,7 +310,7 @@ private fun Header(
         val (label, color) = when (llmStatus) {
             LlmStatus.NotInstalled -> "AI MODEL: NOT INSTALLED" to XarvisMuted
             LlmStatus.Loading -> "AI MODEL: LOADING…" to XarvisPurple
-            is LlmStatus.Ready -> "AI MODEL: GEMMA 4 E2B · ${llmStatus.backend} · ON-DEVICE" to XarvisCyan
+            is LlmStatus.Ready -> "AI MODEL: GEMMA 4 ${llmStatus.model} · ${llmStatus.backend} · ON-DEVICE" to XarvisCyan
             is LlmStatus.Failed -> "AI MODEL: FAILED TO LOAD" to MaterialTheme.colorScheme.error
         }
         // The version leads this line so it is never cut off; it shows which update is installed.

@@ -29,7 +29,12 @@ sealed interface ModelDownload {
  * written under a temporary name and renamed when complete, so a half-finished download is
  * never loaded as a model. [onComplete] runs when the model is ready to load.
  */
-class ModelDownloader(context: Context, private val onComplete: suspend () -> Unit) {
+class ModelDownloader(
+    context: Context,
+    /** The model file to fetch; the default is the Fast brain (E2B), [LocalLlm.SMART_MODEL_FILE] the Smart one. */
+    private val modelFile: String = MODEL_FILE,
+    private val onComplete: suspend () -> Unit,
+) {
 
     private val appContext = context.applicationContext
     private val manager = appContext.getSystemService(DownloadManager::class.java)
@@ -41,21 +46,24 @@ class ModelDownloader(context: Context, private val onComplete: suspend () -> Un
     val state: StateFlow<ModelDownload> = _state.asStateFlow()
 
     private val modelDir get() = File(appContext.getExternalFilesDir(null), "models")
-    private val partFile get() = File(modelDir, "$MODEL_FILE.download")
-    private val finalFile get() = File(modelDir, MODEL_FILE)
+    private val partFile get() = File(modelDir, "$modelFile.download")
+    private val finalFile get() = File(modelDir, modelFile)
+    /** Each model has its own download in progress. */
+    private val keyId = if (modelFile == MODEL_FILE) KEY_ID else "$KEY_ID:$modelFile"
+    private val url = "https://huggingface.co/litert-community/${modelFile.removeSuffix(".litertlm")}-litert-lm/resolve/main/$modelFile"
 
     /** Follows a download started before XARVIS was last closed, which carried on meanwhile. */
     fun resume() {
-        if (prefs.getLong(KEY_ID, -1L) != -1L) watch()
+        if (prefs.getLong(keyId, -1L) != -1L) watch()
     }
 
     fun start() {
-        if (_state.value is ModelDownload.Running || prefs.getLong(KEY_ID, -1L) != -1L) return
+        if (_state.value is ModelDownload.Running || prefs.getLong(keyId, -1L) != -1L) return
         modelDir.mkdirs()
         partFile.delete()
-        val request = DownloadManager.Request(Uri.parse(URL))
-            .setTitle("XARVIS AI model")
-            .setDescription("Gemma 4 (about 2.4 GB)")
+        val request = DownloadManager.Request(Uri.parse(url))
+            .setTitle(if (modelFile == MODEL_FILE) "XARVIS AI model" else "XARVIS Smart brain")
+            .setDescription(if (modelFile == MODEL_FILE) "Gemma 4 E2B (about 2.4 GB)" else "Gemma 4 E4B (about 4 GB)")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
             .setDestinationInExternalFilesDir(appContext, null, "models/${partFile.name}")
             .setAllowedOverMetered(true) // Rex chose mobile data (faster for him than his Wi-Fi)
@@ -67,7 +75,7 @@ class ModelDownloader(context: Context, private val onComplete: suspend () -> Un
             _state.value = ModelDownload.Failed(e.message ?: "couldn't start")
             return
         }
-        prefs.edit().putLong(KEY_ID, id).apply()
+        prefs.edit().putLong(keyId, id).apply()
         watch()
     }
 
@@ -75,7 +83,7 @@ class ModelDownloader(context: Context, private val onComplete: suspend () -> Un
         watcher?.cancel()
         watcher = scope.launch {
             while (isActive) {
-                val id = prefs.getLong(KEY_ID, -1L)
+                val id = prefs.getLong(keyId, -1L)
                 if (id == -1L) return@launch
                 val cursor = manager.query(DownloadManager.Query().setFilterById(id))
                 if (cursor == null || !cursor.moveToFirst()) {
@@ -111,7 +119,7 @@ class ModelDownloader(context: Context, private val onComplete: suspend () -> Un
     }
 
     private fun finish(result: ModelDownload) {
-        prefs.edit().remove(KEY_ID).apply()
+        prefs.edit().remove(keyId).apply()
         if (result is ModelDownload.Failed) partFile.delete()
         _state.value = result
     }
@@ -123,7 +131,7 @@ class ModelDownloader(context: Context, private val onComplete: suspend () -> Un
     }
 
     private fun failure(reason: Int) = when (reason) {
-        DownloadManager.ERROR_INSUFFICIENT_SPACE -> "not enough free space (it needs about 2.5 GB)"
+        DownloadManager.ERROR_INSUFFICIENT_SPACE -> "not enough free space"
         DownloadManager.ERROR_HTTP_DATA_ERROR, DownloadManager.ERROR_CANNOT_RESUME -> "the connection broke"
         else -> "error $reason"
     }
@@ -134,6 +142,5 @@ class ModelDownloader(context: Context, private val onComplete: suspend () -> Un
         private const val POLL_MS = 1_000L
         /** The general build of Gemma 4 E2B, which runs on the CPU (the -gpu build can't). */
         const val MODEL_FILE = "gemma-4-E2B-it.litertlm"
-        const val URL = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/$MODEL_FILE"
     }
 }

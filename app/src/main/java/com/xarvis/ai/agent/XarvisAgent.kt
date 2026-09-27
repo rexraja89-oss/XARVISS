@@ -72,6 +72,12 @@ class XarvisAgent(
         llm.load(systemPrompt())
     }
 
+    /** Switches to the brain [LocalLlm.preferSmart] picks (Fast or Smart). */
+    suspend fun reloadModel() {
+        loadHistory()
+        llm.reload(systemPrompt())
+    }
+
     /** Starts a fresh conversation, e.g. after memories change. */
     suspend fun refreshPrompt() {
         loadHistory()

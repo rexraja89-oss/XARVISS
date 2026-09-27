@@ -65,6 +65,9 @@ data class XarvisUiState(
     val speakReplies: Boolean = false,
     /** "Hey Jarvis" listening is switched on. */
     val wakeWord: Boolean = false,
+    /** The Smart brain (Gemma 4 E4B) is chosen, and its download when it's being fetched. */
+    val smartBrain: Boolean = false,
+    val smartDownload: ModelDownload = ModelDownload.Idle,
     /** A newer XARVIS on GitHub ("1.0.46"), shown as an UPDATE button. */
     val update: String? = null,
 )
@@ -82,6 +85,9 @@ class XarvisCore(context: Context) {
     private val device = DeviceCapabilityManager(context)
     private val llm = LocalLlm(context)
     private val downloader = ModelDownloader(context) { agent.loadModel() }
+    private val smartDownloader = ModelDownloader(context, LocalLlm.SMART_MODEL_FILE) {
+        if (llm.preferSmart) agent.reloadModel()
+    }
 
     private val contacts = ContactFinder(context)
     private val voice = com.xarvis.ai.voice.Voice(context)
@@ -147,6 +153,7 @@ class XarvisCore(context: Context) {
             linkedCount = link.pairedPeers().size,
             speakReplies = settings.getBoolean("speakReplies", false),
             wakeWord = settings.getBoolean("wakeWord", false),
+            smartBrain = settings.getBoolean("smartBrain", false),
         )
     )
     val state: StateFlow<XarvisUiState> = _state.asStateFlow()
@@ -158,7 +165,10 @@ class XarvisCore(context: Context) {
         }
         scope.launch { llm.status.collect { s -> _state.update { it.copy(llmStatus = s) } } }
         scope.launch { downloader.state.collect { d -> _state.update { it.copy(modelDownload = d) } } }
+        scope.launch { smartDownloader.state.collect { d -> _state.update { it.copy(smartDownload = d) } } }
+        smartDownloader.resume()
         scope.launch { link.events.collect(::post) }
+        llm.preferSmart = settings.getBoolean("smartBrain", false)
         scope.launch { agent.loadModel() }
         downloader.resume()
         scope.launch {
@@ -246,6 +256,21 @@ class XarvisCore(context: Context) {
         voice.stop()
         llm.stop()
         replyJob?.cancel()
+    }
+
+    /**
+     * The brain switch: Smart (Gemma 4 E4B, downloaded the first time it's chosen) or Fast (E2B).
+     * XARVIS switches as soon as the chosen one is on the phone.
+     */
+    fun setSmartBrain(on: Boolean) {
+        if (_state.value.isProcessing) return
+        settings.edit().putBoolean("smartBrain", on).apply()
+        llm.preferSmart = on
+        _state.update { it.copy(smartBrain = on) }
+        when {
+            on && !llm.smartPresent() -> smartDownloader.start()
+            on || (llm.status.value as? LlmStatus.Ready)?.model == "E4B" -> scope.launch { agent.reloadModel() }
+        }
     }
 
     /** XARVIS is thinking or talking: the wake word waits. */

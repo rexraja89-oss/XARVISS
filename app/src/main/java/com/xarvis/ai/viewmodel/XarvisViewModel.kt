@@ -26,6 +26,8 @@ class XarvisViewModel(application: Application) : AndroidViewModel(application) 
 
     fun loadChats() = core.loadChats()
 
+    fun setSmartBrain(on: Boolean) = core.setSmartBrain(on)
+
     /** A past chat, or a new one when [id] is null. */
     fun openChat(id: String?) = core.openChat(id)
 

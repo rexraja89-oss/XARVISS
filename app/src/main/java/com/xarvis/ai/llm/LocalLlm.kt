@@ -24,7 +24,7 @@ import java.io.File
 sealed interface LlmStatus {
     data object NotInstalled : LlmStatus
     data object Loading : LlmStatus
-    data class Ready(val backend: String) : LlmStatus
+    data class Ready(val backend: String, val model: String = "E2B") : LlmStatus
     data class Failed(val reason: String) : LlmStatus
 }
 
@@ -77,7 +77,9 @@ class LocalLlm(context: Context) {
     suspend fun load(systemPrompt: String) = withContext(Dispatchers.IO) {
         lock.withLock {
             if (engine != null) return@withLock
-            val modelFile = MODEL_FILE_NAMES.map { File(modelDir, it) }.firstOrNull { it.exists() }
+            // The Smart brain (E4B) when Rex picked it and it's downloaded; otherwise the Fast one.
+            val order = if (preferSmart) listOf(SMART_MODEL_FILE) + MODEL_FILE_NAMES else MODEL_FILE_NAMES + SMART_MODEL_FILE
+            val modelFile = order.map { File(modelDir, it) }.firstOrNull { it.exists() }
             if (modelFile == null) {
                 _status.value = LlmStatus.NotInstalled
                 return@withLock
@@ -90,7 +92,9 @@ class LocalLlm(context: Context) {
             val gpu = Setup("GPU", Backend.GPU())
             val cpu = Setup("CPU", Backend.CPU())
             val decisionKey = "backend:${modelFile.name}:${modelFile.length()}"
-            val decision = prefs.getString(decisionKey, null) ?: calibrate(modelFile, gpu, cpu).also {
+            // Once one model file was found to need the CPU, the phone's GPU is the problem: don't re-test.
+            val knownCpu = prefs.all.any { (k, v) -> k.startsWith("backend:") && v == cpu.label }
+            val decision = prefs.getString(decisionKey, null) ?: (if (knownCpu) cpu.label else null) ?: calibrate(modelFile, gpu, cpu).also {
                 prefs.edit().putString(decisionKey, it).apply()
             }
             val setups = if (decision == gpu.label) listOf(gpu, cpu) else listOf(cpu)
@@ -111,7 +115,7 @@ class LocalLlm(context: Context) {
                     engine = e
                     conversation = e.createConversation(conversationConfig(systemPrompt))
                     conversationPrompt = systemPrompt
-                    _status.value = LlmStatus.Ready(setup.label)
+                    _status.value = LlmStatus.Ready(setup.label, if (modelFile.name == SMART_MODEL_FILE) "E4B" else "E2B")
                     Log.i(TAG, "Loaded ${modelFile.name} on ${setup.label}")
                     return@withLock
                 } catch (t: Throwable) {
@@ -258,6 +262,25 @@ class LocalLlm(context: Context) {
         }
     }
 
+    /** Prefer the Smart brain (Gemma 4 E4B) when its file is on the phone. */
+    @Volatile var preferSmart: Boolean = false
+
+    /** Whether the Smart brain's file is on the phone. */
+    fun smartPresent(): Boolean = File(modelDir, SMART_MODEL_FILE).exists()
+
+    /** Closes the loaded model and loads the preferred one (after switching brains). */
+    suspend fun reload(systemPrompt: String) {
+        withContext(Dispatchers.IO) {
+            lock.withLock {
+                inference.withLock {
+                    close()
+                    _status.value = LlmStatus.Loading
+                }
+            }
+        }
+        load(systemPrompt)
+    }
+
     fun close() {
         sideConversations.values.forEach { it.second.close() }
         sideConversations.clear()
@@ -368,6 +391,8 @@ class LocalLlm(context: Context) {
     companion object {
         /** In order of preference; the general build runs on CPU and GPU, the -gpu build only on GPU. */
         val MODEL_FILE_NAMES = listOf("gemma-4-E2B-it.litertlm", "gemma-4-E2B-it-gpu.litertlm")
+        /** The Smart brain: Gemma 4 E4B, about twice the size of E2B. */
+        const val SMART_MODEL_FILE = "gemma-4-E4B-it.litertlm"
         private const val TAG = "XarvisLlm"
         private val CONTEXT_TOKEN_CHOICES = listOf(8192, 4096)
         /** Long enough for a file Gemma writes (about a page and a half). */

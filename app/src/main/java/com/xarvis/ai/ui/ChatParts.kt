@@ -52,6 +52,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.Switch
+import androidx.compose.material3.RadioButton
+import com.xarvis.ai.llm.ModelDownload
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.text.style.TextOverflow
 import java.text.SimpleDateFormat
@@ -185,9 +187,29 @@ fun AttachSheet(options: List<AttachOption>, onDismiss: () -> Unit) {
 fun ChatList(
     chats: List<ChatSummary>, current: String, enabled: Boolean,
     wakeWord: Boolean, onWakeWord: (Boolean) -> Unit, onAssistantSettings: () -> Unit,
+    smartBrain: Boolean, smartDownload: ModelDownload, hasModel: Boolean, onSmartBrain: (Boolean) -> Unit,
     onOpen: (String?) -> Unit,
 ) {
     ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surface) {
+        // The brain only matters on a phone that runs one itself (not the benco).
+        if (hasModel || smartBrain) {
+            Text(
+                "BRAIN", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp),
+            )
+            BrainOption("Fast", "Gemma 4 E2B: quick answers.", selected = !smartBrain, enabled = enabled) { onSmartBrain(false) }
+            val detail = when (smartDownload) {
+                is ModelDownload.Running -> {
+                    val pct = if (smartDownload.total > 0) (smartDownload.done * 100 / smartDownload.total).toInt() else 0
+                    "Downloading… $pct%. XARVIS switches when it's done."
+                }
+                is ModelDownload.Waiting -> "Download paused: ${smartDownload.why}."
+                is ModelDownload.Failed -> "Download failed: ${smartDownload.why}. Tap to try again."
+                else -> "Gemma 4 E4B: about twice as smart, replies about half as fast. First time: a ~4 GB download."
+            }
+            BrainOption("Smart", detail, selected = smartBrain, enabled = enabled) { onSmartBrain(true) }
+            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
+        }
         Text(
             "VOICE", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
             modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp),
@@ -250,6 +272,20 @@ fun ChatList(
 }
 
 private val CHAT_TIME = SimpleDateFormat("d MMM, h:mm a", Locale.ENGLISH)
+
+@Composable
+private fun BrainOption(title: String, detail: String, selected: Boolean, enabled: Boolean, onPick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onPick).padding(horizontal = 12.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = onPick, enabled = enabled)
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+            Text(detail, style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+        }
+    }
+}
 
 /**
  * The round black mic (Rex's picture). It lights up, with a pulsing cyan glow, only while it's
