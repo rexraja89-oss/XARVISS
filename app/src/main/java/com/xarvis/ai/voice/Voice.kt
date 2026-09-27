@@ -31,9 +31,14 @@ class Voice(context: Context) {
         }
     }, engine)
 
+    private var english: TtsVoice? = null
+    private var hindi: TtsVoice? = null
+
     private fun setUp() {
         val voices = runCatching { tts.voices.orEmpty() }.getOrDefault(emptySet())
-        pick(voices)?.let { tts.voice = it } ?: tts.setLanguage(Locale.UK)
+        english = pick(voices)
+        hindi = pickHindi(voices)
+        english?.let { tts.voice = it } ?: tts.setLanguage(Locale.UK)
         tts.setPitch(PITCH)
         tts.setSpeechRate(RATE)
         Log.i(TAG, "Voice: ${tts.voice?.name}")
@@ -52,11 +57,25 @@ class Voice(context: Context) {
         return male.firstOrNull(::installed) ?: male.firstOrNull() ?: british.firstOrNull(::installed) ?: british.firstOrNull()
     }
 
-    /** Says [text] (replacing anything still being said). */
+    /** A Hindi male voice (Google's hi-IN ones), for replies in Hindi or Hinglish. */
+    private fun pickHindi(voices: Set<TtsVoice>): TtsVoice? {
+        val hi = voices.filter { it.locale.language == "hi" }
+        fun installed(v: TtsVoice) = !v.isNetworkConnectionRequired &&
+            TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED !in v.features.orEmpty()
+        val male = MALE_HINDI.flatMap { id -> hi.filter { it.name.contains(id, ignoreCase = true) } }
+        return male.firstOrNull(::installed) ?: male.firstOrNull() ?: hi.firstOrNull(::installed) ?: hi.firstOrNull()
+    }
+
+    /** Says [text] (replacing anything still being said), in Hindi when the reply is Hindi or Hinglish. */
     fun speak(text: String) {
         if (!ready) return
         val clean = speakable(text)
         if (clean.isBlank()) return
+        if (isHindi(clean)) {
+            hindi?.let { tts.voice = it } ?: tts.setLanguage(Locale("hi", "IN"))
+        } else {
+            english?.let { tts.voice = it } ?: tts.setLanguage(Locale.UK)
+        }
         // Long replies go in chunks: the engine has a per-call length limit.
         clean.chunked(3500).forEachIndexed { i, part ->
             tts.speak(part, if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, "xarvis-$i")
@@ -75,6 +94,22 @@ class Voice(context: Context) {
         private const val GOOGLE_TTS = "com.google.android.tts"
         private const val PITCH = 0.88f
         private const val RATE = 1.0f
+
+        /** Google's Hindi voices that sound male, best first. */
+        private val MALE_HINDI = listOf("hic", "hid")
+
+        private val HINGLISH = Regex(
+            """\b(?:hai|hain|hoon|hun|kya|kyun|aap|aapka|aapke|aapko|main|mein|mujhe|hum|tum|nahi|nahin|theek|thik|sab|ke|ki|ka|liye|karna|karo|kar|raha|rahi|rahe|bataiye|batao|ji|haan|acha|accha|bilkul|zaroor|abhi|kaise|kaisa|yahan|wahan|toh|bhi)\b""",
+            RegexOption.IGNORE_CASE,
+        )
+
+        /** Hindi in Devanagari, or Hinglish (Hindi in English letters, like "sab theek hai"). */
+        fun isHindi(text: String): Boolean {
+            if (text.any { it in '\u0900'..'\u097F' }) return true
+            val words = text.split(Regex("""\s+""")).count { it.isNotBlank() }
+            val hindiWords = HINGLISH.findAll(text).count()
+            return hindiWords >= 3 && hindiWords * 5 >= words
+        }
 
         /** Google's British male voices, best first. */
         private val MALE_BRITISH = listOf("rjs", "gbd", "gbb")
