@@ -94,7 +94,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("androidx.exifinterface:exifinterface:1.4.1")
     // Runs the three small offline "Hey Jarvis" models (openWakeWord).
-    implementation("org.tensorflow:tensorflow-lite:2.17.0")
+
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303") // the real org.json; Android's is a stub in unit tests

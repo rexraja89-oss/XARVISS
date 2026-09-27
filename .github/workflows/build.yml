@@ -2,7 +2,7 @@ name: Build XARVIS APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, 'test-*' ]
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
@@ -74,6 +74,6 @@ jobs:
         cd out
         cp "XARVIS-v$v.apk" XARVIS.apk
         cp "XARVIS-benco-v$v.apk" XARVIS-benco.apk
-        gh release create "v$v" "XARVIS-v$v.apk" "XARVIS-benco-v$v.apk" XARVIS.apk XARVIS-benco.apk --repo "${{ github.repository }}" \
-          --target "${{ github.sha }}" --title "XARVIS v$v" --latest \
+        gh release create "test-notflite-v$v" "XARVIS-v$v.apk" "XARVIS-benco-v$v.apk" XARVIS.apk XARVIS-benco.apk --repo "${{ github.repository }}" \
+          --target "${{ github.sha }}" --title "TEST test-notflite v$v" --prerelease --latest=false \
           --notes "S22: XARVIS.apk. Benco: XARVIS-benco.apk (no permission to place calls; the benco rejects it). Always newest: https://github.com/${{ github.repository }}/releases/latest/download/XARVIS.apk and .../XARVIS-benco.apk"
