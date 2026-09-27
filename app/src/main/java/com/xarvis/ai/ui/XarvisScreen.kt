@@ -179,6 +179,10 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 ownVoices = viewModel::ownVoices,
                 ownVoiceOn = viewModel::ownVoiceOn,
                 onOwnVoice = viewModel::setOwnVoice,
+                onPermissions = { context.startActivity(Intent(context, com.xarvis.ai.PolicyActivity::class.java)) },
+                onActivityLog = {
+                    context.startActivity(Intent(context, com.xarvis.ai.PolicyActivity::class.java).putExtra(com.xarvis.ai.PolicyActivity.EXTRA_LOG, true))
+                },
                 smartBrain = state.smartBrain, smartDownload = state.smartDownload,
                 hasModel = state.llmStatus != LlmStatus.NotInstalled,
                 onSmartBrain = viewModel::setSmartBrain,
@@ -250,6 +254,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 TextButton(onClick = { document = null }) { Text("REMOVE") }
             }
         }
+        state.ask?.let { AskCard(it, viewModel::answerAsk) }
         Row(
             Modifier.fillMaxWidth().padding(vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,

@@ -103,6 +103,7 @@ class VoiceActivity : ComponentActivity() {
                             textAlign = TextAlign.Center, modifier = Modifier.verticalScroll(rememberScrollState()),
                         )
                     }
+                    state.ask?.let { com.xarvis.ai.ui.AskCard(it, core::answerAsk) }
                     Spacer(Modifier.height(28.dp))
                     Text("Tap anywhere to close", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
                 }

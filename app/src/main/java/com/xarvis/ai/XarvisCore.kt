@@ -70,7 +70,11 @@ data class XarvisUiState(
     val smartDownload: ModelDownload = ModelDownload.Idle,
     /** A newer XARVIS on GitHub ("1.0.46"), shown as an UPDATE button. */
     val update: String? = null,
+    /** An action waiting for Rex's OK (its category is set to "Ask me"). */
+    val ask: PendingAsk? = null,
 )
+
+data class PendingAsk(val category: com.xarvis.ai.policy.Category, val action: String)
 
 /**
  * Everything that should outlive the screen: the loaded model, the device-link server and
@@ -143,8 +147,14 @@ class XarvisCore(context: Context) {
         _state.update { it.copy(memoryCount = memory.factCount()) }
     }
 
-    private val agent: XarvisAgent =
-        XarvisAgent(WorkflowEngine(context, device, link, memorySync, contacts, FileStore(context)), memory, llm, link)
+    /** Rex's permissions and the activity log (☰ → Permissions / Activity log). */
+    val policy = com.xarvis.ai.policy.PolicyLayer(context)
+
+    private val engine = WorkflowEngine(context, device, link, memorySync, contacts, FileStore(context), policy).also {
+        it.confirm = ::askRex
+    }
+
+    private val agent: XarvisAgent = XarvisAgent(engine, memory, llm, link)
 
     private val _state: MutableStateFlow<XarvisUiState> = MutableStateFlow(
         XarvisUiState(
@@ -207,6 +217,7 @@ class XarvisCore(context: Context) {
             )
         }
         val onPartial = { partial: String -> replaceMessage(answer.id, partial) }
+        replySpoken = spoken
         replyJob = scope.launch {
             val reply = try {
                 when {
@@ -246,6 +257,31 @@ class XarvisCore(context: Context) {
                 }
             }
         }
+    }
+
+    private var askAnswer: kotlinx.coroutines.CompletableDeferred<com.xarvis.ai.policy.Answer>? = null
+    @Volatile private var replySpoken = false
+
+    /**
+     * An "Ask me" action: shows the card (in the chat and on the voice screen) and waits up to
+     * a minute for Rex's answer; a spoken request also hears the question.
+     */
+    private suspend fun askRex(category: com.xarvis.ai.policy.Category, action: String): com.xarvis.ai.policy.Answer {
+        val answer = kotlinx.coroutines.CompletableDeferred<com.xarvis.ai.policy.Answer>()
+        askAnswer = answer
+        _state.update { it.copy(ask = PendingAsk(category, action)) }
+        if (replySpoken) voice.speak("Shall I ${action.replaceFirstChar { it.lowercase() }}? Tap allow on the screen.")
+        return try {
+            kotlinx.coroutines.withTimeoutOrNull(ASK_WAIT_MS) { answer.await() } ?: com.xarvis.ai.policy.Answer.NO_ANSWER
+        } finally {
+            askAnswer = null
+            _state.update { it.copy(ask = null) }
+        }
+    }
+
+    /** Rex's tap on the Ask card. */
+    fun answerAsk(answer: com.xarvis.ai.policy.Answer) {
+        askAnswer?.complete(answer)
     }
 
     /** The reply being worked on, so STOP can cancel it. */
@@ -375,6 +411,8 @@ class XarvisCore(context: Context) {
         const val UPDATE_CHECK_INTERVAL_MS = 30 * 60_000L
         const val WELCOME = "XARVIS online. Ask me anything."
         const val MIN_UPDATE_CHECK_GAP_MS = 60_000L
+        /** How long an "Ask me" card waits for Rex before the answer counts as no. */
+        const val ASK_WAIT_MS = 60_000L
 
     }
 }

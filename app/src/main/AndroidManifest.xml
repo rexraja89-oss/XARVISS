@@ -107,6 +107,11 @@
             </intent-filter>
         </activity-alias>
 
+        <!-- Permissions and the activity log (☰ → CONTROL). -->
+        <activity
+            android:name=".PolicyActivity"
+            android:exported="false" />
+
         <!-- Record my voice: Rex reads sentences to train XARVIS's voice on his own. -->
         <activity
             android:name=".RecordVoiceActivity"

@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -189,6 +192,7 @@ fun ChatList(
     chats: List<ChatSummary>, current: String, enabled: Boolean,
     wakeWord: Boolean, onWakeWord: (Boolean) -> Unit, onAssistantSettings: () -> Unit, onRecordVoice: () -> Unit,
     onLoadVoice: () -> Unit, ownVoices: () -> String?, ownVoiceOn: () -> Boolean, onOwnVoice: (Boolean) -> Unit,
+    onPermissions: () -> Unit, onActivityLog: () -> Unit,
     smartBrain: Boolean, smartDownload: ModelDownload, hasModel: Boolean, onSmartBrain: (Boolean) -> Unit,
     voiceLabel: (Boolean) -> String, onNextVoice: (Boolean) -> String,
     onOpen: (String?) -> Unit,
@@ -274,6 +278,19 @@ fun ChatList(
             "Make XARVIS the phone's assistant ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan,
             modifier = Modifier.fillMaxWidth().clickable(onClick = onAssistantSettings).padding(horizontal = 20.dp, vertical = 10.dp),
         )
+        HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
+        Text(
+            "CONTROL", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+        )
+        Column(Modifier.fillMaxWidth().clickable(onClick = onPermissions).padding(horizontal = 20.dp, vertical = 10.dp)) {
+            Text("Permissions ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+            Text("Choose what XARVIS may do by itself, what it asks first, and what's off.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+        }
+        Column(Modifier.fillMaxWidth().clickable(onClick = onActivityLog).padding(horizontal = 20.dp, vertical = 10.dp)) {
+            Text("Activity log ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+            Text("Everything XARVIS did for you, newest first.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+        }
         HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
         Text(
             "CHATS", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
@@ -378,5 +395,23 @@ fun MicButton(listening: Boolean, enabled: Boolean, onClick: () -> Unit) {
             modifier = Modifier.fillMaxSize(),
             alpha = if (enabled) 1f else 0.4f,
         )
+    }
+}
+
+/** "XARVIS wants to: Call Atiq" with ALLOW ONCE / ALWAYS / NO, for actions set to "Ask me". */
+@Composable
+fun AskCard(ask: com.xarvis.ai.PendingAsk, onAnswer: (com.xarvis.ai.policy.Answer) -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(12.dp))
+            .background(XarvisCyan.copy(alpha = 0.12f)).padding(12.dp),
+    ) {
+        Text("XARVIS wants to:", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+        Text(ask.action, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+        Text("${ask.category.title} is set to \"Ask me\".", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { onAnswer(com.xarvis.ai.policy.Answer.ONCE) }, modifier = Modifier.weight(1f)) { Text("ALLOW") }
+            OutlinedButton(onClick = { onAnswer(com.xarvis.ai.policy.Answer.ALWAYS) }, modifier = Modifier.weight(1f)) { Text("ALWAYS") }
+            OutlinedButton(onClick = { onAnswer(com.xarvis.ai.policy.Answer.NO) }, modifier = Modifier.weight(1f)) { Text("NO") }
+        }
     }
 }

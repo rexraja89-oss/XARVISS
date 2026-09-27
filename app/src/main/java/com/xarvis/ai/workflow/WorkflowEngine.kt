@@ -15,6 +15,12 @@ import com.xarvis.ai.files.SavedFile
 import com.xarvis.ai.memory.MemorySync
 import com.xarvis.ai.net.DeviceLink
 import com.xarvis.ai.net.Peer
+import com.xarvis.ai.policy.Answer
+import com.xarvis.ai.policy.Category
+import com.xarvis.ai.policy.Decision
+import com.xarvis.ai.policy.Level
+import com.xarvis.ai.policy.PolicyLayer
+import com.xarvis.ai.policy.PolicyRules
 import com.xarvis.ai.tools.BatteryTool
 import com.xarvis.ai.tools.BluetoothTool
 import com.xarvis.ai.tools.ContactFinder
@@ -79,7 +85,14 @@ class WorkflowEngine(
     private val memorySync: MemorySync,
     private val contacts: ContactFinder,
     private val files: FileStore,
+    private val policy: PolicyLayer,
 ) {
+    /**
+     * Shows Rex an "Ask me" card for an action and waits for his answer (set by XarvisCore).
+     * Without a screen to ask on, the answer is no.
+     */
+    var confirm: suspend (Category, String) -> Answer = { _, _ -> Answer.NO_ANSWER }
+
     private val appContext = context.applicationContext
     private val phone = PhoneActions(appContext)
     private val location = LocationTool(appContext)
@@ -89,11 +102,58 @@ class WorkflowEngine(
     suspend fun execute(steps: List<Step>): List<StepResult> {
         val results = mutableListOf<StepResult>()
         for (step in steps) {
-            val result = run(step)
+            val result = guarded(step)
             results += result
             if (!result.success) break
         }
         return results
+    }
+
+    /**
+     * Every action goes through Rex's permissions (PolicyLayer) and into the activity log.
+     * Steps with no category (answers, readouts, pairing) run as before, unlogged.
+     */
+    private suspend fun guarded(step: Step): StepResult {
+        val category = PolicyRules.categoryOf(step) ?: return run(step)
+        val action = PolicyRules.describe(step)
+        val target = PolicyRules.targetOf(step)
+        val level = policy.level(category)
+        val used: String = when (PolicyRules.decide(level)) {
+            Decision.ALLOW -> "ALLOW"
+            Decision.BLOCK -> {
+                policy.log(target, action, category, level.name, "blocked")
+                return StepResult(false, "I didn't: \"${category.title}\" is set to ${level.label} in ☰ → Permissions.")
+            }
+            Decision.ASK -> when (confirm(category, action)) {
+                Answer.ONCE -> "ASK → allowed once"
+                Answer.ALWAYS -> {
+                    policy.setLevel(category, Level.ALLOW)
+                    "ASK → always allowed"
+                }
+                Answer.NO -> {
+                    policy.log(target, action, category, "ASK", "declined")
+                    return StepResult(false, "Okay, I won't.")
+                }
+                Answer.NO_ANSWER -> {
+                    policy.log(target, action, category, "ASK", "no answer")
+                    return StepResult(
+                        false,
+                        "I need your OK on the screen for that (${action.lowercase()}). Open XARVIS and ask again, " +
+                            "or set \"${category.title}\" to Allow in ☰ → Permissions.",
+                    )
+                }
+            }
+        }
+        val result = try {
+            run(step)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            policy.log(target, action, category, used, "stopped")
+            throw e
+        } catch (e: Exception) {
+            StepResult(false, "That didn't work: ${e.message ?: e.javaClass.simpleName}")
+        }
+        policy.log(target, action, category, used, if (result.success) "done" else "failed", result.message.takeIf { !result.success })
+        return result
     }
 
     private suspend fun run(step: Step): StepResult = when (step) {
