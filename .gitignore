@@ -13,3 +13,4 @@ local.properties
 
 # On-device models are downloaded separately (see README), never committed
 *.litertlm
+app/libs/*.aar

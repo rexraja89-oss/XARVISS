@@ -5,6 +5,8 @@ plugins {
 }
 
 android {
+    // Two native libraries may bring the same C++ runtime; keep one.
+    packaging { jniLibs { pickFirsts += "**/libc++_shared.so" } }
     namespace = "com.xarvis.ai"
     compileSdk = 37
 
@@ -95,6 +97,8 @@ dependencies {
     implementation("androidx.exifinterface:exifinterface:1.4.1")
     // Runs the three small offline "Hey Jarvis" models (openWakeWord).
     implementation("org.tensorflow:tensorflow-lite:2.17.0")
+    // Offline speech engine for Rex's own voice; CI downloads the AAR into app/libs (see build.yml).
+    implementation(files("libs/sherpa-onnx-1.13.8.aar"))
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303") // the real org.json; Android's is a stub in unit tests

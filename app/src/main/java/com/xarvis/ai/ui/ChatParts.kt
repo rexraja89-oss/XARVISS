@@ -234,6 +234,11 @@ fun ChatList(
         var hindi by remember { mutableStateOf(voiceLabel(true)) }
         VoiceButton("English voice", english) { english = onNextVoice(false) }
         VoiceButton("Hindi voice", hindi) { hindi = onNextVoice(true) }
+        val ownVoice = remember { com.xarvis.ai.voice.OwnVoice.status }
+        Text(
+            "Own-voice engine: $ownVoice", style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+        )
         Text(
             "Make XARVIS the phone's assistant ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan,
             modifier = Modifier.fillMaxWidth().clickable(onClick = onAssistantSettings).padding(horizontal = 20.dp, vertical = 10.dp),

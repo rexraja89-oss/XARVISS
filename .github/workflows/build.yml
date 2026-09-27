@@ -2,7 +2,7 @@ name: Build XARVIS APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, 'test-*' ]
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
@@ -32,6 +32,11 @@ jobs:
         else
           echo "::warning title=No permanent signing key::The XARVIS_KEYSTORE secret isn't set, so this APK can't install as an upgrade over one signed with the permanent key."
         fi
+    - name: Download the voice engine
+      run: |
+        mkdir -p app/libs
+        curl -fsSL -o app/libs/sherpa-onnx-1.13.8.aar https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar
+        ls -l app/libs
     - name: Test and build debug APK
       run: |
         set -o pipefail
@@ -74,6 +79,6 @@ jobs:
         cd out
         cp "XARVIS-v$v.apk" XARVIS.apk
         cp "XARVIS-benco-v$v.apk" XARVIS-benco.apk
-        gh release create "v$v" "XARVIS-v$v.apk" "XARVIS-benco-v$v.apk" XARVIS.apk XARVIS-benco.apk --repo "${{ github.repository }}" \
-          --target "${{ github.sha }}" --title "XARVIS v$v" --latest \
+        gh release create "test-ownvoice-v$v" "XARVIS-v$v.apk" "XARVIS-benco-v$v.apk" XARVIS.apk XARVIS-benco.apk --repo "${{ github.repository }}" \
+          --target "${{ github.sha }}" --title "TEST own-voice engine v$v" --prerelease --latest=false \
           --notes "S22: XARVIS.apk. Benco: XARVIS-benco.apk (no permission to place calls; the benco rejects it). Always newest: https://github.com/${{ github.repository }}/releases/latest/download/XARVIS.apk and .../XARVIS-benco.apk"
