@@ -108,6 +108,8 @@ class XarvisCore(context: Context) {
             return device.summary() + "\n  " + ai
         }
 
+        override suspend fun battery(): String = com.xarvis.ai.tools.BatteryTool(appContext).read()
+
         override suspend fun brainChat(peerId: String, facts: List<String>, devices: List<String>, text: String, history: String): String? =
             agent.answerForPeer(peerId, facts, devices, text, history)
 

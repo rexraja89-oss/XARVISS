@@ -65,6 +65,9 @@ class DeviceLink(context: Context, private val handler: Handler) {
         /** Device status to report to a linked device. */
         suspend fun status(): String
 
+        /** This phone's battery, for a linked phone that asks. */
+        suspend fun battery(): String
+
         /** Runs a linked device's free-form message through this device's LLM; null if it has none. */
         suspend fun brainChat(peerId: String, facts: List<String>, devices: List<String>, text: String, history: String): String?
 
@@ -201,6 +204,9 @@ class DeviceLink(context: Context, private val handler: Handler) {
     }
 
     suspend fun remoteStatus(peer: Peer): String = request(peer, "status").getString("text")
+
+    /** A linked phone's battery, as it reads it itself. */
+    suspend fun remoteBattery(peer: Peer): String = request(peer, "battery").getString("text")
 
     suspend fun sendNote(peer: Peer, text: String) {
         request(peer, "note", JSONObject().put("text", text))
@@ -421,6 +427,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
             "ping" -> reply.put("name", deviceName).put("llm", handler.llmReady())
                 .apply { tailnetAddress()?.let { put("tailnet", it) } }
             "status" -> reply.put("text", handler.status())
+            "battery" -> reply.put("text", handler.battery())
             "note" -> {
                 handler.onNote(peer.name, req.getString("text"))
                 reply.put("ok", true)
@@ -685,5 +692,24 @@ class DeviceLink(context: Context, private val handler: Handler) {
             .removeSuffix(" phone").removeSuffix(" mobile").removeSuffix(" device").trim()
 
         fun shortName(name: String): String = name.split(' ').firstOrNull { it.length > 2 }?.lowercase() ?: name
+
+        /** Whether [query] ("s22 ultra", "my benco") means the phone called [name]. */
+        fun sameDevice(query: String, name: String): Boolean {
+            val words = normalize(query).split(' ').filter { it.isNotBlank() }
+            return words.isNotEmpty() && words.all { name.lowercase().contains(it) }
+        }
+
+        private val GENERIC = setOf("galaxy", "phone", "mobile", "plus", "pro", "max", "mini", "lite", "the", "my")
+
+        /**
+         * The phone Rex's [message] is about, among [names] (this phone's and the linked ones), or
+         * null if it names none: "what is s22 ultra battery status" -> "Galaxy S22 Ultra".
+         */
+        fun namedIn(message: String, names: List<String>): String? {
+            val said = message.lowercase().split(Regex("""[^\p{L}\p{N}]+""")).toSet()
+            return names.firstOrNull { name ->
+                name.lowercase().split(Regex("""[^\p{L}\p{N}]+""")).any { it.length >= 3 && it !in GENERIC && it in said }
+            }
+        }
     }
 }

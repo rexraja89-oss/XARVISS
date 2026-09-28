@@ -20,7 +20,11 @@ object ToolCalls {
         val t = call.replace("<", "").replace(">", "").trim().trim('"', '\'', '.').trim()
         arg(t, "time|date|day|clock")?.let { return Step.ReportTime }
         arg(t, "location|where am i|where")?.let { return Step.Location }
-        arg(t, "battery|charge")?.let { return Step.Battery }
+        arg(t, "battery|charge")?.let { a ->
+            // "battery s22": a linked phone's battery.
+            val device = a.replace(Regex("""(?i)\b(?:status|level|percentage|percent|of|on|the|my|phone)\b|'s"""), " ").trim()
+            return if (device.isBlank()) Step.Battery else Step.DeviceBattery(device)
+        }
         arg(t, "bluetooth")?.let { return onOff(it)?.let(Step::Bluetooth) ?: Step.BluetoothStatus }
         arg(t, "wifi|wi-fi")?.let { a -> onOff(a)?.let { return Step.Wifi(it) } }
         arg(t, "flashlight|flash light|torch|flash")?.let { return Step.Flashlight(onOff(it) ?: true) }

@@ -235,7 +235,7 @@ class XarvisAgent(
         val (fileBlocks, rest) = FileBlocks.split(raw)
         val text = fixIdentity(ToolCalls.visibleText(rest))
         val known = facts()
-        val steps: List<Step> = fileBlocks.map { Step.MakeFile(it) } + forUser(message, ToolCalls.parse(rest).filterNot { it is Step.Lookup || it is Step.Recall }).map { step ->
+        val steps: List<Step> = fileBlocks.map { Step.MakeFile(it) } + onPhone(message, forUser(message, ToolCalls.parse(rest).filterNot { it is Step.Lookup || it is Step.Recall })).map { step ->
             val doc = lastDocument
             if (step is Step.ConvertFile && doc != null) {
                 return@map Step.MakeFile(FileBlock(doc.name.substringBeforeLast('.') + "." + step.format, doc.text))
@@ -256,6 +256,17 @@ class XarvisAgent(
     private suspend fun run(steps: List<Step>): Reply {
         val results = engine.execute(steps)
         return Reply(results.joinToString("\n") { it.message }.trim(), results.flatMap { it.files })
+    }
+
+    /**
+     * Rex asked about a particular phone ("what is s22 ultra battery status", typed on the benco):
+     * Gemma only says "battery", so the battery is read on the phone he named.
+     */
+    private fun onPhone(message: String, steps: List<Step>): List<Step> {
+        if (steps.none { it == Step.Battery }) return steps
+        val named = DeviceLink.namedIn(message, listOf(link.deviceName) + link.pairedPeers().map { it.name })
+        if (named == null || named == link.deviceName) return steps
+        return steps.map { if (it == Step.Battery) Step.DeviceBattery(named) else it }
     }
 
     /** Just after a restart the model takes about a minute to load: wait for it rather than fail. */

@@ -37,6 +37,8 @@ sealed interface Step {
     data class FindContact(val name: String) : Step
     data object Location : Step
     data object Battery : Step
+    /** The battery of a linked phone ("what's the S22's battery?" asked on the benco). */
+    data class DeviceBattery(val device: String) : Step
     data object BluetoothStatus : Step
     data class Bluetooth(val on: Boolean) : Step
     data class Wifi(val on: Boolean) : Step
@@ -233,6 +235,9 @@ class WorkflowEngine(
         }
         Step.Location -> StepResult(true, location.read())
         Step.Battery -> StepResult(true, battery.read())
+        is Step.DeviceBattery ->
+            if (DeviceLink.sameDevice(step.device, link.deviceName)) StepResult(true, battery.read())
+            else withPeer(step.device) { StepResult(true, "${it.name}: " + link.remoteBattery(it)) }
         Step.BluetoothStatus -> StepResult(true, bluetoothInfo.read())
         is Step.Bluetooth -> phone.bluetooth(step.on)
         is Step.Wifi -> phone.wifi(step.on)
