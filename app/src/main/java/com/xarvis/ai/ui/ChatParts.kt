@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material3.OutlinedButton
@@ -186,112 +188,120 @@ fun AttachSheet(options: List<AttachOption>, onDismiss: () -> Unit) {
     }
 }
 
-/** The ☰ menu: "New chat", then every past chat (newest first); tapping one reopens it. */
+/** The ☰ menu (left): brain, voice and control settings. Chats are in the right-hand menu ([ChatSessions]). */
 @Composable
-fun ChatList(
-    chats: List<ChatSummary>, current: String, enabled: Boolean,
+fun SettingsMenu(
+    enabled: Boolean,
     wakeWord: Boolean, onWakeWord: (Boolean) -> Unit, onAssistantSettings: () -> Unit, onRecordVoice: () -> Unit,
     onLoadVoice: () -> Unit, ownVoices: () -> String?, ownVoiceOn: () -> Boolean, onOwnVoice: (Boolean) -> Unit,
     onPermissions: () -> Unit, onActivityLog: () -> Unit,
     smartBrain: Boolean, smartDownload: ModelDownload, hasModel: Boolean, onSmartBrain: (Boolean) -> Unit,
     voiceLabel: (Boolean) -> String, onNextVoice: (Boolean) -> String,
-    onOpen: (String?) -> Unit,
 ) {
     ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surface) {
-        // The brain only matters on a phone that runs one itself (not the benco).
-        if (hasModel || smartBrain) {
+        // It no longer shares the drawer with the chat list, so it scrolls.
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+            // The brain only matters on a phone that runs one itself (not the benco).
+            if (hasModel || smartBrain) {
+                Text(
+                    "BRAIN", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
+                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp),
+                )
+                BrainOption("Fast", "Gemma 4 E2B: quick answers.", selected = !smartBrain, enabled = enabled) { onSmartBrain(false) }
+                val detail = when (smartDownload) {
+                    is ModelDownload.Running -> {
+                        val pct = if (smartDownload.total > 0) (smartDownload.done * 100 / smartDownload.total).toInt() else 0
+                        "Downloading… $pct%. XARVIS switches when it's done."
+                    }
+                    is ModelDownload.Waiting -> "Download paused: ${smartDownload.why}."
+                    is ModelDownload.Failed -> "Download failed: ${smartDownload.why}. Tap to try again."
+                    else -> "Gemma 4 E4B: about twice as smart, replies about half as fast. First time: a ~4 GB download."
+                }
+                BrainOption("Smart", detail, selected = smartBrain, enabled = enabled) { onSmartBrain(true) }
+                HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
+            }
             Text(
-                "BRAIN", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
+                "VOICE", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
                 modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp),
             )
-            BrainOption("Fast", "Gemma 4 E2B: quick answers.", selected = !smartBrain, enabled = enabled) { onSmartBrain(false) }
-            val detail = when (smartDownload) {
-                is ModelDownload.Running -> {
-                    val pct = if (smartDownload.total > 0) (smartDownload.done * 100 / smartDownload.total).toInt() else 0
-                    "Downloading… $pct%. XARVIS switches when it's done."
+            Row(
+                Modifier.fillMaxWidth().clickable { onWakeWord(!wakeWord) }.padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("\"Hey Jarvis\"", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        "Say \"Hey Jarvis\" (with a J), wait for the beep, then speak. Works with the screen off; after a phone restart, open XARVIS once. Uses some battery.",
+                        style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+                    )
                 }
-                is ModelDownload.Waiting -> "Download paused: ${smartDownload.why}."
-                is ModelDownload.Failed -> "Download failed: ${smartDownload.why}. Tap to try again."
-                else -> "Gemma 4 E4B: about twice as smart, replies about half as fast. First time: a ~4 GB download."
+                Switch(checked = wakeWord, onCheckedChange = onWakeWord)
             }
-            BrainOption("Smart", detail, selected = smartBrain, enabled = enabled) { onSmartBrain(true) }
-            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
-        }
-        Text(
-            "VOICE", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
-            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp),
-        )
-        Row(
-            Modifier.fillMaxWidth().clickable { onWakeWord(!wakeWord) }.padding(horizontal = 20.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("\"Hey Jarvis\"", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+            // Pick XARVIS's voices by ear: each tap plays the next one.
+            var english by remember { mutableStateOf(voiceLabel(false)) }
+            var hindi by remember { mutableStateOf(voiceLabel(true)) }
+            // The menu is drawn before the phone's speech engine has started: read the labels again once it has.
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                repeat(10) {
+                    kotlinx.coroutines.delay(2000)
+                    english = voiceLabel(false)
+                    hindi = voiceLabel(true)
+                }
+            }
+            VoiceButton("English voice", english) { english = onNextVoice(false) }
+            VoiceButton("Hindi voice", hindi) { hindi = onNextVoice(true) }
+            // Rex reads sentences aloud so XARVIS can learn to speak in his voice.
+            val ownVoice = remember { com.xarvis.ai.voice.OwnVoice.status }
+            Column(Modifier.fillMaxWidth().clickable(onClick = onRecordVoice).padding(horizontal = 20.dp, vertical = 10.dp)) {
+                Text("Record my voice ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
                 Text(
-                    "Say \"Hey Jarvis\" (with a J), wait for the beep, then speak. Works with the screen off; after a phone restart, open XARVIS once. Uses some battery.",
+                    "Read sentences aloud so XARVIS can learn to speak like you. Voice engine: $ownVoice",
                     style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
                 )
             }
-            Switch(checked = wakeWord, onCheckedChange = onWakeWord)
-        }
-        // Pick XARVIS's voices by ear: each tap plays the next one.
-        var english by remember { mutableStateOf(voiceLabel(false)) }
-        var hindi by remember { mutableStateOf(voiceLabel(true)) }
-        // The menu is drawn before the phone's speech engine has started: read the labels again once it has.
-        androidx.compose.runtime.LaunchedEffect(Unit) {
-            repeat(10) {
-                kotlinx.coroutines.delay(2000)
-                english = voiceLabel(false)
-                hindi = voiceLabel(true)
+            Column(Modifier.fillMaxWidth().clickable(onClick = onLoadVoice).padding(horizontal = 20.dp, vertical = 10.dp)) {
+                Text("Load my voice ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+                Text(
+                    "Pick xarvis-voice-hi.zip or xarvis-voice-en.zip from the training page (Google Drive → XARVIS voice).",
+                    style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+                )
             }
-        }
-        VoiceButton("English voice", english) { english = onNextVoice(false) }
-        VoiceButton("Hindi voice", hindi) { hindi = onNextVoice(true) }
-        // Rex reads sentences aloud so XARVIS can learn to speak in his voice.
-        val ownVoice = remember { com.xarvis.ai.voice.OwnVoice.status }
-        Column(Modifier.fillMaxWidth().clickable(onClick = onRecordVoice).padding(horizontal = 20.dp, vertical = 10.dp)) {
-            Text("Record my voice ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-            Text(
-                "Read sentences aloud so XARVIS can learn to speak like you. Voice engine: $ownVoice",
-                style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
-            )
-        }
-        Column(Modifier.fillMaxWidth().clickable(onClick = onLoadVoice).padding(horizontal = 20.dp, vertical = 10.dp)) {
-            Text("Load my voice ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-            Text(
-                "Pick xarvis-voice-hi.zip or xarvis-voice-en.zip from the training page (Google Drive → XARVIS voice).",
-                style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
-            )
-        }
-        val loaded = ownVoices()
-        if (loaded != null) {
-            var mine by remember { mutableStateOf(ownVoiceOn()) }
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Speak in my voice", style = MaterialTheme.typography.bodyLarge)
-                    Text("Loaded: $loaded. Off = the phone's voices.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+            val loaded = ownVoices()
+            if (loaded != null) {
+                var mine by remember { mutableStateOf(ownVoiceOn()) }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Speak in my voice", style = MaterialTheme.typography.bodyLarge)
+                        Text("Loaded: $loaded. Off = the phone's voices.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+                    }
+                    Switch(checked = mine, onCheckedChange = { mine = it; onOwnVoice(it) })
                 }
-                Switch(checked = mine, onCheckedChange = { mine = it; onOwnVoice(it) })
+            }
+            Text(
+                "Make XARVIS the phone's assistant ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan,
+                modifier = Modifier.fillMaxWidth().clickable(onClick = onAssistantSettings).padding(horizontal = 20.dp, vertical = 10.dp),
+            )
+            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
+            Text(
+                "CONTROL", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+            )
+            Column(Modifier.fillMaxWidth().clickable(onClick = onPermissions).padding(horizontal = 20.dp, vertical = 10.dp)) {
+                Text("Permissions ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+                Text("Choose what XARVIS may do by itself, what it asks first, and what's off.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+            }
+            Column(Modifier.fillMaxWidth().clickable(onClick = onActivityLog).padding(horizontal = 20.dp, vertical = 10.dp)) {
+                Text("Activity log ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+                Text("Everything XARVIS did for you, newest first.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
             }
         }
-        Text(
-            "Make XARVIS the phone's assistant ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan,
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onAssistantSettings).padding(horizontal = 20.dp, vertical = 10.dp),
-        )
-        HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
-        Text(
-            "CONTROL", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
-        )
-        Column(Modifier.fillMaxWidth().clickable(onClick = onPermissions).padding(horizontal = 20.dp, vertical = 10.dp)) {
-            Text("Permissions ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-            Text("Choose what XARVIS may do by itself, what it asks first, and what's off.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
-        }
-        Column(Modifier.fillMaxWidth().clickable(onClick = onActivityLog).padding(horizontal = 20.dp, vertical = 10.dp)) {
-            Text("Activity log ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-            Text("Everything XARVIS did for you, newest first.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
-        }
-        HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
+    }
+}
+
+/** The right-hand menu (swipe from the right edge, or the 💬 button): New chat, then every past chat, newest first. */
+@Composable
+fun ChatSessions(chats: List<ChatSummary>, current: String, enabled: Boolean, onOpen: (String?) -> Unit) {
+    ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surface) {
         Text(
             "CHATS", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),

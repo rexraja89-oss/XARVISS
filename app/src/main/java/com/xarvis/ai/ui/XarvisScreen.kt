@@ -46,6 +46,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.clickable
@@ -143,9 +146,11 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
     val documentName = remember(document) { document?.let { DocumentReader.displayName(context, it) } }
     var showAttach by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    // Left (☰): settings. Right (💬 or a swipe from the right edge): chats.
     val drawer = rememberDrawerState(DrawerValue.Closed)
+    val chatsDrawer = rememberDrawerState(DrawerValue.Closed)
     val drawerScope = rememberCoroutineScope()
-    LaunchedEffect(drawer.isOpen) { if (drawer.isOpen) viewModel.loadChats() }
+    LaunchedEffect(chatsDrawer.isOpen) { if (chatsDrawer.isOpen) viewModel.loadChats() }
 
     LaunchedEffect(state.messages.size) {
         if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
@@ -158,11 +163,29 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
         document = null
     }
 
+    // Compose's drawer only opens from the start side, so the chats drawer is laid out right-to-left
+    // (it then slides in from the right) and everything inside it is switched back to left-to-right.
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+    ModalNavigationDrawer(
+        drawerState = chatsDrawer,
+        // Swiping opens chats; the settings menu opens with ☰ (two swipe drawers would fight over the gesture).
+        gesturesEnabled = !drawer.isOpen,
+        drawerContent = {
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                ChatSessions(state.chats, state.chatId, enabled = !state.isProcessing) { id ->
+                    viewModel.openChat(id)
+                    drawerScope.launch { chatsDrawer.close() }
+                }
+            }
+        },
+    ) {
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
     ModalNavigationDrawer(
         drawerState = drawer,
+        gesturesEnabled = drawer.isOpen,
         drawerContent = {
-            ChatList(
-                state.chats, state.chatId, enabled = !state.isProcessing,
+            SettingsMenu(
+                enabled = !state.isProcessing,
                 wakeWord = state.wakeWord,
                 onWakeWord = { on ->
                     if (!on) WakeWord.setEnabled(context, false)
@@ -188,10 +211,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 onSmartBrain = viewModel::setSmartBrain,
                 voiceLabel = viewModel::voiceLabel,
                 onNextVoice = viewModel::nextVoice,
-            ) { id ->
-                viewModel.openChat(id)
-                drawerScope.launch { drawer.close() }
-            }
+            )
         },
     ) {
     Column(
@@ -205,6 +225,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
         Header(
             state.isProcessing, state.memoryCount, state.linkedCount, state.llmStatus,
             speaker = state.speakReplies, onSpeaker = viewModel::toggleSpeaker,
+            onChats = { drawerScope.launch { chatsDrawer.open() } },
         ) {
             drawerScope.launch { drawer.open() }
         }
@@ -299,16 +320,19 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
         }
     }
     }
+    }
+    }
+    }
 }
 
 @Composable
 private fun Header(
     isProcessing: Boolean, memoryCount: Int, linkedCount: Int, llmStatus: LlmStatus,
-    speaker: Boolean, onSpeaker: () -> Unit, onMenu: () -> Unit,
+    speaker: Boolean, onSpeaker: () -> Unit, onChats: () -> Unit, onMenu: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // ☰: past chats and "New chat".
+            // ☰: settings (brain, voice, control).
             Text(
                 "☰", fontSize = 26.sp, color = XarvisCyan,
                 modifier = Modifier.clip(CircleShape).clickable(onClick = onMenu).padding(end = 12.dp, top = 2.dp, bottom = 2.dp),
@@ -324,6 +348,11 @@ private fun Header(
                 Spacer(Modifier.size(8.dp))
                 Text("ONLINE · $memoryCount MEM · $linkedCount LINKED", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
             }
+            // 💬: past chats and "New chat" (the right-hand menu).
+            Text(
+                "💬", fontSize = 22.sp,
+                modifier = Modifier.clip(CircleShape).clickable(onClick = onChats).padding(start = 12.dp, top = 2.dp, bottom = 2.dp),
+            )
         }
         val (label, color) = when (llmStatus) {
             LlmStatus.NotInstalled -> "AI MODEL: NOT INSTALLED" to XarvisMuted
