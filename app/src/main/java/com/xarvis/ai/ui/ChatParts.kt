@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -145,8 +147,9 @@ fun UserAvatar(modifier: Modifier = Modifier, size: Dp = 40.dp) {
 @Composable
 fun PlusButton(enabled: Boolean, onClick: () -> Unit) {
     Box(
-        Modifier.size(44.dp).clip(CircleShape)
-            .border(1.5.dp, if (enabled) XarvisCyan else XarvisMuted, CircleShape)
+        Modifier.size(InputHeight).clip(InputShape)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.5.dp, if (enabled) XarvisCyan else XarvisMuted, InputShape)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -387,22 +390,27 @@ fun MicButton(listening: Boolean, enabled: Boolean, onClick: () -> Unit) {
         0f
     }
     Box(
-        Modifier.size(56.dp)
+        Modifier.size(InputHeight)
             .drawBehind {
+                // Glows only while listening.
                 if (glow > 0f) {
-                    drawCircle(XarvisCyan, radius = size.minDimension / 2 + 6.dp.toPx(), alpha = 0.25f * glow)
-                    drawCircle(XarvisCyan, radius = size.minDimension / 2 + 2.dp.toPx(), alpha = 0.6f * glow)
+                    fun ring(grow: Float, alpha: Float) = drawRoundRect(
+                        XarvisCyan, topLeft = Offset(-grow, -grow), size = Size(size.width + 2 * grow, size.height + 2 * grow),
+                        cornerRadius = CornerRadius(12.dp.toPx() + grow), alpha = alpha,
+                    )
+                    ring(6.dp.toPx(), 0.25f * glow)
+                    ring(2.dp.toPx(), 0.6f * glow)
                 }
             }
-            .clip(CircleShape)
-            .background(Color.Black)
-            .border(1.5.dp, if (listening) XarvisCyan else XarvisMuted.copy(alpha = 0.4f), CircleShape)
+            .clip(InputShape)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.5.dp, if (listening || enabled) XarvisCyan else XarvisMuted, InputShape)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Image(
             painterResource(R.drawable.ic_mic), contentDescription = "Speak to XARVIS",
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().padding(6.dp).clip(CircleShape),
             alpha = if (enabled) 1f else 0.4f,
         )
     }

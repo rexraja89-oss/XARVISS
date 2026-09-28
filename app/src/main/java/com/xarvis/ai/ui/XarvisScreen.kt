@@ -60,12 +60,14 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -285,9 +287,16 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).height(InputHeight),
                 placeholder = { Text("Command…") },
                 singleLine = true,
+                shape = InputShape,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                    focusedBorderColor = XarvisCyan,
+                    unfocusedBorderColor = XarvisCyan.copy(alpha = 0.4f),
+                ),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { send() }),
             )
@@ -295,14 +304,14 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
             if (state.isProcessing) {
                 // Stops XARVIS mid-reply, keeping what it wrote so far.
                 Button(
-                    onClick = viewModel::stop,
+                    onClick = viewModel::stop, shape = InputShape, modifier = Modifier.height(InputHeight),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                 ) { Text("STOP") }
             } else if (input.isBlank() && photo == null && document == null) {
                 // Nothing typed or attached: the mic, like ChatGPT.
                 MicButton(listening = listening, enabled = true, onClick = ::startListening)
             } else {
-                Button(onClick = ::send) { Text("SEND") }
+                Button(onClick = ::send, shape = InputShape, modifier = Modifier.height(InputHeight)) { Text("SEND") }
             }
         }
         if (showAttach) {
@@ -458,9 +467,10 @@ private fun MessageBubble(message: ChatMessage, thinking: Boolean) {
             Modifier
                 .weight(1f, fill = false)
                 .widthIn(max = 300.dp)
-                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
-                .border(1.dp, accent.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                .padding(12.dp)
+                // Capsule-shaped bubbles (Rex asked).
+                .background(MaterialTheme.colorScheme.surface, BubbleShape)
+                .border(1.dp, accent.copy(alpha = 0.4f), BubbleShape)
+                .padding(horizontal = 18.dp, vertical = 12.dp)
         ) {
             message.imagePath?.let { path ->
                 val bitmap = remember(path) { BitmapFactory.decodeFile(path)?.asImageBitmap() }
@@ -554,3 +564,10 @@ private fun startChooser(context: Context, intent: Intent) {
         android.widget.Toast.makeText(context, "No app on this phone can open it.", android.widget.Toast.LENGTH_SHORT).show()
     }
 }
+
+/** The command bar's shape and height: "+", the text box and the mic/SEND/STOP all match (Rex asked). */
+internal val InputShape = RoundedCornerShape(12.dp)
+internal val InputHeight = 56.dp
+
+/** Chat bubbles: capsules. */
+private val BubbleShape = RoundedCornerShape(28.dp)
