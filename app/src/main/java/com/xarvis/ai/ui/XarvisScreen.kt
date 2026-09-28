@@ -199,7 +199,14 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                     else askMic.launch(Manifest.permission.RECORD_AUDIO)
                 },
                 onAssistantSettings = { openAssistantSettings(context) },
-                onRecordVoice = { context.startActivity(Intent(context, com.xarvis.ai.RecordVoiceActivity::class.java)) },
+                onRecordVoice = {
+                    try {
+                        context.startActivity(Intent(context, com.xarvis.ai.RecordVoiceActivity::class.java))
+                    } catch (e: android.content.ActivityNotFoundException) {
+                        // The benco build leaves it out.
+                        android.widget.Toast.makeText(context, "Record your voice on the S22's XARVIS.", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                },
                 onLoadVoice = { pickVoice.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
                 ownVoices = viewModel::ownVoices,
                 ownVoiceOn = viewModel::ownVoiceOn,

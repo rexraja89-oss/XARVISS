@@ -255,6 +255,8 @@ fun SettingsMenu(
             VoiceButton("Hindi voice", hindi) { hindi = onNextVoice(true) }
             // Rex reads sentences aloud so XARVIS can learn to speak in his voice.
             val ownVoice = remember { com.xarvis.ai.voice.OwnVoice.status }
+            // The benco build has no voice engine, so these only show where it can work.
+            if (!ownVoice.startsWith("not in")) {
             Column(Modifier.fillMaxWidth().clickable(onClick = onRecordVoice).padding(horizontal = 20.dp, vertical = 10.dp)) {
                 Text("Record my voice ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
                 Text(
@@ -268,6 +270,7 @@ fun SettingsMenu(
                     "Pick xarvis-voice-hi.zip or xarvis-voice-en.zip from the training page (Google Drive → XARVIS voice).",
                     style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
                 )
+            }
             }
             val loaded = ownVoices()
             if (loaded != null) {

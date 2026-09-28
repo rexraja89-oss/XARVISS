@@ -56,8 +56,8 @@ android {
     }
 
     // Two builds of the same app: "full" for the S22, and "benco" without the permission to place
-    // calls, which the benco refuses to install ("package appears to be invalid"). On the benco,
-    // calls open the dialer instead.
+    // calls, the microphone permission, "Hey Jarvis" and the own-voice engine, which the benco
+    // refuses to install ("package appears to be invalid"). On the benco, calls open the dialer.
     flavorDimensions += "phone"
     productFlavors {
         create("full") { dimension = "phone" }
@@ -96,9 +96,10 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("androidx.exifinterface:exifinterface:1.4.1")
     // Runs the three small offline "Hey Jarvis" models (openWakeWord).
-    implementation("org.tensorflow:tensorflow-lite:2.17.0")
+    // "Hey Jarvis" and the own-voice engine are only in the S22's build; the benco refuses them.
+    "fullImplementation"("org.tensorflow:tensorflow-lite:2.17.0")
     // Offline speech engine for Rex's own voice; CI downloads the AAR into app/libs (see build.yml).
-    implementation(files("libs/sherpa-onnx-1.13.8.aar"))
+    "fullImplementation"(files("libs/sherpa-onnx-1.13.8.aar"))
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303") // the real org.json; Android's is a stub in unit tests
