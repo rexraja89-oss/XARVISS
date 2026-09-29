@@ -79,5 +79,13 @@ Entry points: `XarvisApp`/`XarvisCore` (process-wide core), `agent/XarvisAgent.k
 
 ## Roadmap Rex asked for
 
+**Bucket list (Rex, 29 Sep 2026: "remember this, we will do it someday"), in order:**
+1. **Cloud brain**: ☰ → BRAIN gets "Cloud". Free keys in a chain, switching when a daily limit is hit: Gemini (AI Studio, no card) → Groq → Cerebras → GitHub Models → OpenRouter free models; then his OpenAI key ($9.56 prepaid credit, key "Rex" active, check credit expiry and that auto-recharge is off) as last backup; Gemma on the phone for offline/private and when everything is busy. Keys pasted into XARVIS only (Android Keystore), never into chat or git. Also gives the benco a brain. There is no free unlimited cloud AI; he asked.
+2. **AI council**: plan → review by a second AI → improve → plain-words summary for Rex before anything changes.
+3. **XARVIS Code** (like Claude Code): reads the repo and CLAUDE.md, council plans, Rex says "go", pushes a test branch, watches CI, reads errors and retries (max 5), sends Rex a test-build notification; he installs, tests on screen and reports ("works" / what's wrong); "works" releases it. Must have: one-word **undo/reverse** (a revert commit that builds a new higher version, since Android blocks downgrades), **safe mode** (two crashes at start → a screen with UNDO LAST CHANGE), undo from the linked benco, and a GitHub Actions "Undo last XARVIS change" button usable from the GitHub app. Update the benco a day after the S22 so one phone stays healthy. Honest limit: free brains manage small/medium changes; big features come to Claude.
+4. Not decided yet (asked, no answer): pause "Hey Jarvis" during calls (Rex said XARVIS Voice disturbed him on calls), remove the XARVIS Voice launcher icon, restore or leave off his XARVIS Browser manifest entry, hide DOWNLOAD AI MODEL on the benco when linked, voice training on Colab (recordings were lost with the uninstall; re-record).
+
+Earlier:
+
 1. Reach devices away from home Wi-Fi (Tailscale; Rex must create the account himself).
 2. A Windows laptop companion that joins the linked devices.
