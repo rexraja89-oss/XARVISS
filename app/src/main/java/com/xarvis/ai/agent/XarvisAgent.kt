@@ -41,8 +41,8 @@ class XarvisAgent(
     /** The last file Rex attached, for "convert it to PDF" (also asked in a later message). */
     private var lastDocument: Document? = null
 
-    /** The optional cloud brain (Gemini); off until Rex adds a key in ☰ → BRAIN. */
-    private val cloud = com.xarvis.ai.llm.CloudLlm(appContext)
+    /** The cloud brains (Gemini + backups, in a fallback chain); off until Rex adds a key in ☰ → BRAIN. */
+    private val cloud = com.xarvis.ai.llm.BrainChain(appContext)
     private val settings = appContext.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE)
     /** The brain that answered the last message, for the "on-device / via Gemini" tag. */
     @Volatile private var lastVia: String? = null
@@ -193,15 +193,14 @@ class XarvisAgent(
                 // The cloud prompt carries NO saved memories: Rex's facts never leave the phone.
                 val sys = buildPrompt(emptyList())
                 val msg = IDENTITY_REMINDER + text
-                val council = councilEnabled()
-                val answer = if (council) {
+                val answer = if (councilEnabled()) {
                     cloud.council(sys, msg) { stage -> onPartial(stage) }
                 } else {
-                    cloud.chat(sys, msg)
+                    cloud.chat(sys, msg) { stage -> onPartial(stage) }
                 }
-                lastVia = if (council) "Gemini · council" else "Gemini"
-                onPartial(ToolCalls.visibleText(FileBlocks.preview(answer)))
-                return answer
+                lastVia = "via ${answer.via} (cloud)"
+                onPartial(ToolCalls.visibleText(FileBlocks.preview(answer.text)))
+                return answer.text
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: com.xarvis.ai.llm.QuotaReached) {
@@ -243,7 +242,7 @@ class XarvisAgent(
         settings.getBoolean("cloudEnabled", false) &&
             !settings.getBoolean("privateLock", false) &&
             !forceLocalThisTurn &&
-            cloud.hasKey() && cloud.online()
+            cloud.anyKey() && cloud.online()
 
     /** AI council on: a second AI reviews and improves the cloud answer before Rex sees it. */
     private fun councilEnabled(): Boolean = settings.getBoolean("council", false)

@@ -203,6 +203,7 @@ fun SettingsMenu(
     smartBrain: Boolean, smartDownload: ModelDownload, hasModel: Boolean, onSmartBrain: (Boolean) -> Unit,
     cloudEnabled: Boolean, hasCloudKey: () -> Boolean, onCloud: (Boolean) -> Unit, onSaveKey: (String) -> Unit, onClearKey: () -> Unit,
     councilEnabled: Boolean, onCouncil: (Boolean) -> Unit,
+    backups: () -> List<com.xarvis.ai.llm.BrainInfo>, onSaveBackup: (String, String) -> Unit, onClearBackup: (String) -> Unit,
     voiceLabel: (Boolean) -> String, onNextVoice: (Boolean) -> String,
 ) {
     ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surface) {
@@ -228,6 +229,7 @@ fun SettingsMenu(
             }
             // Cloud works on any phone with internet (including the benco), so it's always shown.
             CloudBrain(cloudEnabled, hasCloudKey, onCloud, onSaveKey, onClearKey, councilEnabled, onCouncil)
+            if (cloudEnabled) BackupBrains(backups, onSaveBackup, onClearBackup)
             HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
             Text(
                 "VOICE", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
@@ -516,6 +518,56 @@ private fun CloudBrain(
                 }
                 Switch(checked = council, onCheckedChange = { council = it; onCouncil(it) })
             }
+        }
+    }
+}
+
+/**
+ * ☰ → BRAIN → backup brains: extra free AIs XARVIS falls back to when Gemini's daily limit runs out,
+ * in order, then Rex's OpenAI credit. Each key is stored encrypted and only sent to its provider.
+ */
+@Composable
+private fun BackupBrains(
+    backups: () -> List<com.xarvis.ai.llm.BrainInfo>,
+    onSaveBackup: (String, String) -> Unit, onClearBackup: (String) -> Unit,
+) {
+    val list = remember { backups() }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
+        Text("Backup brains", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(top = 8.dp))
+        Text(
+            "Used automatically, in order, when Gemini's free limit runs out. All optional — add the ones you want. With two or more brains, the AI council asks two different ones.",
+            style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+        )
+        list.forEach { ProviderKeyRow(it, onSaveBackup, onClearBackup) }
+    }
+}
+
+/** One backup brain: its name, a paste field to add a key, or "Key saved ✓" with Remove. */
+@Composable
+private fun ProviderKeyRow(
+    brain: com.xarvis.ai.llm.BrainInfo,
+    onSave: (String, String) -> Unit, onClear: (String) -> Unit,
+) {
+    var hasKey by remember { mutableStateOf(brain.hasKey) }
+    var key by remember { mutableStateOf("") }
+    Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+        Text(brain.label, style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+        if (hasKey) {
+            Text("Key saved ✓", style = MaterialTheme.typography.labelSmall, color = XarvisCyan)
+            TextButton(onClick = { onClear(brain.id); hasKey = false }) { Text("Remove key") }
+        } else {
+            OutlinedTextField(
+                value = key, onValueChange = { key = it },
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                label = { Text("Paste ${brain.label} key (optional)") },
+                singleLine = true,
+            )
+            Row {
+                Button(onClick = { if (key.isNotBlank()) { onSave(brain.id, key.trim()); key = ""; hasKey = true } }) {
+                    Text("SAVE")
+                }
+            }
+            Text(brain.keyHint, style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
         }
     }
 }

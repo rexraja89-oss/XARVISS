@@ -24,25 +24,29 @@ class QuotaReached(message: String) : Exception(message)
  * fixed list, XARVIS asks the key which models it actually has ([discoverModels]) and uses the
  * best chat model among them; the list only ever contains models this key can call.
  */
-class CloudLlm(context: Context) {
+class CloudLlm(context: Context) : Brain {
 
     private val appContext = context.applicationContext
     private val keys = BrainKeys(appContext)
+
+    override val id: String = BrainKeys.GEMINI
+    override val label: String = "Gemini"
+    override val keyHint: String = "aistudio.google.com → Get API key. Free, no card."
 
     /** Models this key can call (newest chat model first). Discovered once, then reused. */
     @Volatile private var cachedModels: List<String>? = null
     /** The model that last answered, tried first next time. */
     @Volatile private var working: String? = null
 
-    fun hasKey(): Boolean = keys.has(BrainKeys.GEMINI)
+    override fun hasKey(): Boolean = keys.has(BrainKeys.GEMINI)
 
-    fun saveKey(key: String) {
+    override fun saveKey(key: String) {
         keys.save(BrainKeys.GEMINI, key)
         cachedModels = null // a new key may have different models
         working = null
     }
 
-    fun clearKey() {
+    override fun clearKey() {
         keys.clear(BrainKeys.GEMINI)
         cachedModels = null
         working = null
@@ -55,7 +59,7 @@ class CloudLlm(context: Context) {
     }.getOrDefault(false)
 
     /** Asks Gemini. Returns its text; throws [QuotaReached] on a 429, or another exception otherwise. */
-    suspend fun chat(systemPrompt: String, message: String): String = withContext(Dispatchers.IO) {
+    override suspend fun chat(systemPrompt: String, message: String): String = withContext(Dispatchers.IO) {
         val key = keys.get(BrainKeys.GEMINI) ?: throw IllegalStateException("no Gemini key")
         runModels(modelsToTry(key), key, systemPrompt, message, remember = true)
     }

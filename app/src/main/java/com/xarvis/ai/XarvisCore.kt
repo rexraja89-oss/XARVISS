@@ -443,11 +443,15 @@ class XarvisCore(context: Context) {
     /** The screen has opened the camera. */
     fun cameraOpened() = _state.update { it.copy(camera = null) }
 
-    // ---- Cloud brain (Gemini) and the private lock ----
-    private val cloudLlm = com.xarvis.ai.llm.CloudLlm(appContext)
-    fun cloudHasKey(): Boolean = cloudLlm.hasKey()
-    fun saveCloudKey(key: String) { cloudLlm.saveKey(key) }
-    fun clearCloudKey() { cloudLlm.clearKey() }
+    // ---- Cloud brains (Gemini + backup chain) and the private lock ----
+    private val cloudLlm = com.xarvis.ai.llm.BrainChain(appContext)
+    fun cloudHasKey(): Boolean = cloudLlm.gemini.hasKey()
+    fun saveCloudKey(key: String) { cloudLlm.gemini.saveKey(key) }
+    fun clearCloudKey() { cloudLlm.gemini.clearKey() }
+    /** Backup brains (Groq, Cerebras, OpenRouter, GitHub, OpenAI) for the BRAIN menu. */
+    fun backupBrains(): List<com.xarvis.ai.llm.BrainInfo> = cloudLlm.backups()
+    fun saveBackupKey(id: String, key: String) { cloudLlm.saveBackupKey(id, key) }
+    fun clearBackupKey(id: String) { cloudLlm.clearBackupKey(id) }
     fun setCloud(on: Boolean) {
         settings.edit().putBoolean("cloudEnabled", on).apply()
         _state.update { it.copy(cloudEnabled = on) }

@@ -255,6 +255,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 cloudEnabled = state.cloudEnabled, hasCloudKey = viewModel::cloudHasKey,
                 onCloud = viewModel::setCloud, onSaveKey = viewModel::saveCloudKey, onClearKey = viewModel::clearCloudKey,
                 councilEnabled = state.councilEnabled, onCouncil = viewModel::setCouncil,
+                backups = viewModel::backupBrains, onSaveBackup = viewModel::saveBackupKey, onClearBackup = viewModel::clearBackupKey,
                 voiceLabel = viewModel::voiceLabel,
                 onNextVoice = viewModel::nextVoice,
             )
@@ -562,14 +563,13 @@ private fun MessageBubble(message: ChatMessage, thinking: Boolean) {
             // Where the answer came from, so Rex always sees if anything went to the cloud.
             message.via?.takeIf { !message.fromUser && message.text.isNotEmpty() }?.let { via ->
                 Text(
-                    when (via) {
-                        "on-device" -> "· on-device"
-                        "Gemini" -> "· via Gemini (cloud)"
-                        "Gemini · council" -> "· via Gemini · AI council"
-                        else -> "· via $via"
+                    when {
+                        via.startsWith("on-device") -> "· $via"     // "· on-device" [· cloud: reason]
+                        via.startsWith("via ") -> "· $via"          // "· via Gemini (cloud)", "· via Gemini + Groq (cloud)"
+                        else -> "· via $via"                        // a linked phone's name [· cloud: reason]
                     },
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (via.startsWith("Gemini")) XarvisPurple else XarvisMuted,
+                    color = if (via.contains("(cloud)")) XarvisPurple else XarvisMuted,
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
