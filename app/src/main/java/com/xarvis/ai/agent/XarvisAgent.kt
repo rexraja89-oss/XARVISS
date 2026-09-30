@@ -191,8 +191,15 @@ class XarvisAgent(
             try {
                 onPartial("Thinking…")
                 // The cloud prompt carries NO saved memories: Rex's facts never leave the phone.
-                val answer = cloud.chat(buildPrompt(emptyList()), IDENTITY_REMINDER + text)
-                lastVia = "Gemini"
+                val sys = buildPrompt(emptyList())
+                val msg = IDENTITY_REMINDER + text
+                val council = councilEnabled()
+                val answer = if (council) {
+                    cloud.council(sys, msg) { stage -> onPartial(stage) }
+                } else {
+                    cloud.chat(sys, msg)
+                }
+                lastVia = if (council) "Gemini · council" else "Gemini"
                 onPartial(ToolCalls.visibleText(FileBlocks.preview(answer)))
                 return answer
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -237,6 +244,9 @@ class XarvisAgent(
             !settings.getBoolean("privateLock", false) &&
             !forceLocalThisTurn &&
             cloud.hasKey() && cloud.online()
+
+    /** AI council on: a second AI reviews and improves the cloud answer before Rex sees it. */
+    private fun councilEnabled(): Boolean = settings.getBoolean("council", false)
 
     /** [message] is what Rex typed; [prompt] is what Gemma is sent (the message, or it with a file's text). */
     private suspend fun askGemma(message: String, onPartial: (String) -> Unit, prompt: String = message): Reply {

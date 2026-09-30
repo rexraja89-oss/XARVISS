@@ -202,6 +202,7 @@ fun SettingsMenu(
     onPermissions: () -> Unit, onActivityLog: () -> Unit, onFolders: () -> Unit,
     smartBrain: Boolean, smartDownload: ModelDownload, hasModel: Boolean, onSmartBrain: (Boolean) -> Unit,
     cloudEnabled: Boolean, hasCloudKey: () -> Boolean, onCloud: (Boolean) -> Unit, onSaveKey: (String) -> Unit, onClearKey: () -> Unit,
+    councilEnabled: Boolean, onCouncil: (Boolean) -> Unit,
     voiceLabel: (Boolean) -> String, onNextVoice: (Boolean) -> String,
 ) {
     ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surface) {
@@ -226,7 +227,7 @@ fun SettingsMenu(
                 BrainOption("Smart", detail, selected = smartBrain, enabled = enabled) { onSmartBrain(true) }
             }
             // Cloud works on any phone with internet (including the benco), so it's always shown.
-            CloudBrain(cloudEnabled, hasCloudKey, onCloud, onSaveKey, onClearKey)
+            CloudBrain(cloudEnabled, hasCloudKey, onCloud, onSaveKey, onClearKey, councilEnabled, onCouncil)
             HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
             Text(
                 "VOICE", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
@@ -451,11 +452,13 @@ fun AskCard(ask: com.xarvis.ai.PendingAsk, onAnswer: (com.xarvis.ai.policy.Answe
 private fun CloudBrain(
     cloudEnabled: Boolean, hasCloudKey: () -> Boolean,
     onCloud: (Boolean) -> Unit, onSaveKey: (String) -> Unit, onClearKey: () -> Unit,
+    councilEnabled: Boolean, onCouncil: (Boolean) -> Unit,
 ) {
     var enabled by remember { mutableStateOf(cloudEnabled) }
     var hasKey by remember { mutableStateOf(hasCloudKey()) }
     var showKey by remember { mutableStateOf(false) }
     var key by remember { mutableStateOf("") }
+    var council by remember { mutableStateOf(councilEnabled) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -494,7 +497,24 @@ private fun CloudBrain(
                 )
             } else {
                 Text("Key saved ✓", style = MaterialTheme.typography.labelSmall, color = XarvisCyan, modifier = Modifier.padding(top = 4.dp))
-                TextButton(onClick = { onClearKey(); hasKey = false; enabled = false; onCloud(false) }) { Text("Remove key") }
+                TextButton(onClick = { onClearKey(); hasKey = false; enabled = false; council = false; onCouncil(false); onCloud(false) }) { Text("Remove key") }
+            }
+        }
+        // Solo ↔ AI council (Rex asked for a switch he can flip anytime). Only useful with the cloud on.
+        if (enabled && hasKey && !showKey) {
+            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.25f))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(if (council) "AI council" else "Solo", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        if (council)
+                            "A second AI reviews and improves each cloud answer before you see it. Better answers, but uses about twice your free quota. Flip off anytime."
+                        else
+                            "XARVIS answers with one brain. Turn on AI council to have a second AI review and improve each answer (uses about twice the free quota).",
+                        style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+                    )
+                }
+                Switch(checked = council, onCheckedChange = { council = it; onCouncil(it) })
             }
         }
     }

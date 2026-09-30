@@ -81,6 +81,8 @@ data class XarvisUiState(
     /** Cloud brain (Gemini) is enabled by Rex, and whether the 🔒 private lock is on. */
     val cloudEnabled: Boolean = false,
     val privateLock: Boolean = false,
+    /** AI council: a second AI reviews and improves each cloud answer. */
+    val councilEnabled: Boolean = false,
 )
 
 data class CameraRequest(val selfie: Boolean, val id: Long = System.nanoTime())
@@ -193,6 +195,7 @@ class XarvisCore(context: Context) {
             smartBrain = settings.getBoolean("smartBrain", false),
             cloudEnabled = settings.getBoolean("cloudEnabled", false),
             privateLock = settings.getBoolean("privateLock", false),
+            councilEnabled = settings.getBoolean("council", false),
         )
     )
     val state: StateFlow<XarvisUiState> = _state.asStateFlow()
@@ -448,6 +451,11 @@ class XarvisCore(context: Context) {
     fun setCloud(on: Boolean) {
         settings.edit().putBoolean("cloudEnabled", on).apply()
         _state.update { it.copy(cloudEnabled = on) }
+    }
+    /** Solo ↔ council: turn the second-AI review on or off. Rex can flip it anytime. */
+    fun setCouncil(on: Boolean) {
+        settings.edit().putBoolean("council", on).apply()
+        _state.update { it.copy(councilEnabled = on) }
     }
     /** 🔒: force on-device only for a while, even with the cloud on. */
     fun togglePrivateLock() {

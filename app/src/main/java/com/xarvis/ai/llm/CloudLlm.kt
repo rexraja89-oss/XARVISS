@@ -57,12 +57,42 @@ class CloudLlm(context: Context) {
     /** Asks Gemini. Returns its text; throws [QuotaReached] on a 429, or another exception otherwise. */
     suspend fun chat(systemPrompt: String, message: String): String = withContext(Dispatchers.IO) {
         val key = keys.get(BrainKeys.GEMINI) ?: throw IllegalStateException("no Gemini key")
+        runModels(modelsToTry(key), key, systemPrompt, message, remember = true)
+    }
+
+    /**
+     * The AI council (Rex asked): one model drafts, then a second, independent model reviews it for
+     * mistakes/gaps and writes the best final answer. Uses two different models from the key when it
+     * has them (a real second opinion), else the same model reviews its own draft. Two cloud calls,
+     * so it spends the free quota faster — that's why it's a switch. If the review can't run (quota,
+     * error) the draft is returned, so the council never leaves Rex worse off than solo.
+     */
+    suspend fun council(systemPrompt: String, message: String, onStage: (String) -> Unit): String =
+        withContext(Dispatchers.IO) {
+            val key = keys.get(BrainKeys.GEMINI) ?: throw IllegalStateException("no Gemini key")
+            onStage("Drafting an answer…")
+            val draft = runModels(modelsToTry(key), key, systemPrompt, message, remember = true)
+            onStage("A second AI is reviewing the answer…")
+            try {
+                // Prefer a different model than the one that drafted, for a genuine second opinion.
+                val order = alternateOrder(modelsToTry(key), working)
+                runModels(order, key, systemPrompt, reviewMessage(message, draft), remember = false)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Council review failed; keeping the draft", e)
+                draft // the draft already cost a call and is a good answer on its own
+            }
+        }
+
+    /** Tries each model in order; returns the first answer. [remember] records the model that worked. */
+    private fun runModels(models: List<String>, key: String, systemPrompt: String, message: String, remember: Boolean): String {
         var lastError: Exception? = null
-        for (model in modelsToTry(key)) {
+        for (model in models) {
             try {
                 val answer = call(model, key, systemPrompt, message)
-                working = model
-                return@withContext answer
+                if (remember) working = model
+                return answer
             } catch (e: QuotaReached) {
                 throw e
             } catch (e: ModelNotFound) {
@@ -188,5 +218,21 @@ class CloudLlm(context: Context) {
         private const val BASE = "https://generativelanguage.googleapis.com/v1beta"
         // Only used if the key can't be asked for its model list (the usual path is discovery).
         private val FALLBACK_MODELS = listOf("gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest")
+
+        /** Models to try for the council review: a different one than [drafted] first, then the rest. */
+        internal fun alternateOrder(models: List<String>, drafted: String?): List<String> {
+            if (drafted == null) return models
+            return (models.filter { it != drafted } + models).distinct()
+        }
+
+        /** The prompt that turns a second model into an independent reviewer of the [draft]. */
+        internal fun reviewMessage(question: String, draft: String): String = buildString {
+            append("A user asked:\n\"").append(question).append("\"\n\n")
+            append("Another assistant drafted this answer:\n\"").append(draft).append("\"\n\n")
+            append("You are a second, independent expert giving a careful review. Check the draft for ")
+            append("mistakes, missing points, and anything unclear, then write the best possible FINAL ")
+            append("answer for the user. Keep what is good; fix what is wrong. ")
+            append("Reply with ONLY the final answer — do not mention the draft, the review, or yourself.")
+        }
     }
 }

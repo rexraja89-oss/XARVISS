@@ -254,6 +254,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 onSmartBrain = viewModel::setSmartBrain,
                 cloudEnabled = state.cloudEnabled, hasCloudKey = viewModel::cloudHasKey,
                 onCloud = viewModel::setCloud, onSaveKey = viewModel::saveCloudKey, onClearKey = viewModel::clearCloudKey,
+                councilEnabled = state.councilEnabled, onCouncil = viewModel::setCouncil,
                 voiceLabel = viewModel::voiceLabel,
                 onNextVoice = viewModel::nextVoice,
             )
@@ -561,9 +562,14 @@ private fun MessageBubble(message: ChatMessage, thinking: Boolean) {
             // Where the answer came from, so Rex always sees if anything went to the cloud.
             message.via?.takeIf { !message.fromUser && message.text.isNotEmpty() }?.let { via ->
                 Text(
-                    if (via == "on-device") "· on-device" else if (via == "Gemini") "· via Gemini (cloud)" else "· via $via",
+                    when (via) {
+                        "on-device" -> "· on-device"
+                        "Gemini" -> "· via Gemini (cloud)"
+                        "Gemini · council" -> "· via Gemini · AI council"
+                        else -> "· via $via"
+                    },
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (via == "Gemini") XarvisPurple else XarvisMuted,
+                    color = if (via.startsWith("Gemini")) XarvisPurple else XarvisMuted,
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
