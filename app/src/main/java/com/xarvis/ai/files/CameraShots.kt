@@ -53,4 +53,19 @@ object CameraShots {
     fun discard(context: Context, uri: Uri) {
         runCatching { context.contentResolver.delete(uri, null, null) }
     }
+
+    /** Saves a photo received from a linked phone into Pictures/XARVIS, and returns a card for it. */
+    fun saveReceived(context: Context, name: String, bytes: ByteArray, fromDevice: String): SavedFile? = runCatching {
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/XARVIS/from-$fromDevice")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val resolver = context.contentResolver
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return null
+        resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: return null
+        resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+        SavedFile(name, uri.toString(), "image/jpeg")
+    }.getOrNull()
 }

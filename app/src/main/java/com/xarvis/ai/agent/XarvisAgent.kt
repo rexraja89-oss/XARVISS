@@ -3,6 +3,7 @@ package com.xarvis.ai.agent
 import com.xarvis.ai.files.Document
 import com.xarvis.ai.files.FileBlock
 import com.xarvis.ai.files.FileBlocks
+import com.xarvis.ai.files.CameraShots
 import com.xarvis.ai.files.PhoneSearch
 import com.xarvis.ai.workflow.StepResult
 import com.xarvis.ai.files.SavedFile
@@ -34,6 +35,7 @@ class XarvisAgent(
     private val llm: LocalLlm,
     private val link: DeviceLink,
     private val phoneSearch: PhoneSearch,
+    private val appContext: android.content.Context,
 ) {
 
     /** The last file Rex attached, for "convert it to PDF" (also asked in a later message). */
@@ -223,14 +225,22 @@ class XarvisAgent(
         val lookups = steps.filterIsInstance<Step.Lookup>()
         val recalls = steps.filterIsInstance<Step.Recall>()
         val searches = steps.filterIsInstance<Step.SearchPhone>()
-        if (lookups.isEmpty() && recalls.isEmpty() && searches.isEmpty()) return raw
+        val galleries = steps.filterIsInstance<Step.RemoteGallery>()
+        if (lookups.isEmpty() && recalls.isEmpty() && searches.isEmpty() && galleries.isEmpty()) return raw
         onPartial(
             when {
+                galleries.isNotEmpty() -> "Fetching the photos over the link…"
                 searches.isNotEmpty() -> "Searching your files…"
                 recalls.isNotEmpty() -> "Looking through our earlier chats…"
                 else -> "Looking it up on Wikipedia…"
             },
         )
+        for (g in galleries.take(1)) {
+            val result = engine.guarded(g) { remoteGallery(g.device, onPartial) }
+            foundFiles += result.files
+            // A gallery reply is the photos themselves, not something for Gemma to reword.
+            return result.message
+        }
         val found = mutableListOf<String>()
         for (l in lookups.take(2)) found += "Wikipedia on \"${l.query}\":\n" + WebLookup.lookup(l.query)
         for (r in recalls.take(2)) found += recall(r.query)
@@ -247,6 +257,30 @@ class XarvisAgent(
 
     /** Files found by a phone search, shown as cards under the reply. */
     private val foundFiles = mutableListOf<SavedFile>()
+
+    /** Fetches a linked phone's recent photos over the link and saves them on this phone to browse. */
+    private suspend fun remoteGallery(device: String, onPartial: (String) -> Unit): StepResult {
+        val peer = link.findPeer(device) ?: link.findBrain() ?: link.pairedPeers().firstOrNull()
+            ?: return StepResult(false, "I'm not linked to another phone yet. Type \"devices\" to check.")
+        val photos = try {
+            link.remoteGallery(peer, REMOTE_GALLERY_COUNT)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            return StepResult(false, "I couldn't reach ${peer.name}: ${e.message ?: e.javaClass.simpleName}. Make sure XARVIS is open on it with Tailscale on.")
+        }
+        if (photos.isEmpty()) return StepResult(
+            false,
+            "${peer.name} has no photos to share, sir. On ${peer.name}, open ☰ → Search folders and add its camera folder (DCIM/Camera).",
+        )
+        onPartial("Saving ${photos.size} photos from ${peer.name}…")
+        val saved = photos.mapNotNull { (name, jpg) -> CameraShots.saveReceived(appContext, name, jpg, DeviceLink.shortName(peer.name)) }
+        return StepResult(
+            saved.isNotEmpty(),
+            if (saved.isNotEmpty()) "Here are ${peer.name}'s ${saved.size} most recent photos, sir. Tap OPEN to see one, or SHARE to keep it."
+            else "I got ${peer.name}'s photos but couldn't save them here.",
+            saved,
+        )
+    }
 
     /** Searches Rex's folders; the message is what Gemma reads to answer. */
     private suspend fun searchPhone(query: String, onPartial: (String) -> Unit): StepResult {
@@ -273,7 +307,7 @@ class XarvisAgent(
         val (fileBlocks, rest) = FileBlocks.split(raw)
         val text = fixIdentity(ToolCalls.visibleText(rest))
         val known = facts()
-        val steps: List<Step> = fileBlocks.map { Step.MakeFile(it) } + onPhone(message, forUser(message, ToolCalls.parse(rest).filterNot { it is Step.Lookup || it is Step.Recall || it is Step.SearchPhone })).map { step ->
+        val steps: List<Step> = fileBlocks.map { Step.MakeFile(it) } + onPhone(message, forUser(message, ToolCalls.parse(rest).filterNot { it is Step.Lookup || it is Step.Recall || it is Step.SearchPhone || it is Step.RemoteGallery })).map { step ->
             val doc = lastDocument
             if (step is Step.ConvertFile && doc != null) {
                 return@map Step.MakeFile(FileBlock(doc.name.substringBeforeLast('.') + "." + step.format, doc.text))
@@ -303,10 +337,19 @@ class XarvisAgent(
      * Gemma only says "battery", so the battery is read on the phone he named.
      */
     private fun onPhone(message: String, steps: List<Step>): List<Step> {
-        if (steps.none { it == Step.Battery }) return steps
-        val named = DeviceLink.namedIn(message, listOf(link.deviceName) + link.pairedPeers().map { it.name })
-        if (named == null || named == link.deviceName) return steps
-        return steps.map { if (it == Step.Battery) Step.DeviceBattery(named) else it }
+        val names = listOf(link.deviceName) + link.pairedPeers().map { it.name }
+        val named = DeviceLink.namedIn(message, names)
+        val other = named?.takeIf { it != link.deviceName }
+        // "show the S22's gallery/photos" from another phone → fetch that phone's recent photos.
+        if (other != null && WANTS_GALLERY.containsMatchIn(message)) {
+            return steps.map {
+                if (it is Step.RemoteGallery) Step.RemoteGallery(other)
+                else if (it is Step.LaunchApp && it.appName.contains(Regex("(?i)gallery|photos"))) Step.RemoteGallery(other)
+                else it
+            }
+        }
+        if (steps.none { it == Step.Battery } || other == null) return steps
+        return steps.map { if (it == Step.Battery) Step.DeviceBattery(other) else it }
     }
 
     /** Just after a restart the model takes about a minute to load: wait for it rather than fail. */
@@ -376,6 +419,7 @@ class XarvisAgent(
 
         private const val MAX_FACT_CHARS = 3000
         private const val BRAIN_LOAD_WAIT_MS = 180_000L
+        private const val REMOTE_GALLERY_COUNT = 8
         /** File text sent to a linked phone's Gemma, whose context size isn't known here. */
         private const val REMOTE_DOCUMENT_CHARS = 8000
 
@@ -445,6 +489,8 @@ class XarvisAgent(
         }
 
         /** Rex asking for a photo ("open back camera and take a photo"): Gemma only opened the camera app once. */
+        private val WANTS_GALLERY = Regex("""(?i)\b(gallery|photos|pictures|pics|images)\b""")
+
         private val USER_WANTS_PHOTO = Regex("""(?i)\b(?:take|click|capture|khinch\w*|kheench\w*|le\s+lo)\b.*\b(?:photo|picture|pic|selfie|snap)\b|\bselfie\b""")
 
         private fun photosFor(message: String, steps: List<Step>): List<Step> {
@@ -500,6 +546,7 @@ class XarvisAgent(
             TOOL: files <words from the file's name>   (shows files you made before, to open or share)
             TOOL: photo   (opens the camera ready to take a photo, which comes back into the chat; "photo selfie" for the front camera)
             TOOL: search phone <words>   (searches the folders Rex gave you: file names and the text inside PDF, Word, Excel and text files; use it for any file or information on his phone)
+            TOOL: remote gallery <device>   (brings a linked phone's recent photos here to browse, e.g. "remote gallery S22")
             TOOL: convert <pdf, docx, xlsx or txt>   (turns the file Rex attached into that format)
 
             To make a file (PDF, Word, Excel, text, CSV, web page), write the whole file like this; XARVIS saves it in Downloads:
@@ -556,6 +603,7 @@ class XarvisAgent(
             END FILE
             User: send me the packing list file -> TOOL: files packing list
             User: find my passport number on my phone -> TOOL: search phone passport
+            User: show me the S22's photos -> TOOL: remote gallery S22
             User: take a photo -> TOOL: photo
             User: who made you? -> I'm XARVIS, created by Rex.
             User: what is my name? -> answer from the facts below, without a tool.

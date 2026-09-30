@@ -68,7 +68,7 @@ object PolicyRules {
         is Step.WhatsApp, is Step.Sms -> Category.MESSAGING
         is Step.LaunchApp, is Step.FindInApp, is Step.AskApp, is Step.ShowMap, is Step.Search, is Step.TakePhoto -> Category.OPEN_APP
         is Step.Jobs -> Category.JOB_SEARCH
-        is Step.MakeFile, is Step.ShowFiles, is Step.ConvertFile, is Step.SearchPhone -> Category.FILES
+        is Step.MakeFile, is Step.ShowFiles, is Step.ConvertFile, is Step.SearchPhone, is Step.RemoteGallery -> Category.FILES
         is Step.Remember, Step.ListMemories -> Category.MEMORY
         is Step.Wifi, is Step.Bluetooth, is Step.Flashlight, is Step.Alarm, is Step.Timer -> Category.DEVICE_SETTINGS
         else -> null
@@ -89,6 +89,7 @@ object PolicyRules {
         is Step.ShowFiles -> "Show saved files" + if (step.query.isNotBlank()) " matching \"${step.query}\"" else ""
         is Step.ConvertFile -> "Convert the attached file to ${step.format}"
         is Step.SearchPhone -> "Search your folders for \"${step.query}\""
+        is Step.RemoteGallery -> "Get recent photos from ${step.device}"
         is Step.TakePhoto -> if (step.selfie) "Open the front camera to take a selfie" else "Open the camera to take a photo"
         is Step.Remember -> "Remember: ${step.fact}"
         Step.ListMemories -> "List what I remember"
@@ -113,6 +114,7 @@ object PolicyRules {
         is Step.Jobs -> step.site ?: "LinkedIn"
         is Step.MakeFile, is Step.ShowFiles, is Step.ConvertFile -> "Downloads/XARVIS"
         is Step.SearchPhone -> "Your folders"
+        is Step.RemoteGallery -> step.device
         is Step.TakePhoto -> "Camera"
         is Step.Remember, Step.ListMemories -> "XARVIS memory"
         is Step.Wifi -> "Wi-Fi"

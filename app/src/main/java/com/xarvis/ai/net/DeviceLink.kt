@@ -68,6 +68,9 @@ class DeviceLink(context: Context, private val handler: Handler) {
         /** This phone's battery, for a linked phone that asks. */
         suspend fun battery(): String
 
+        /** Recent photos (name + downscaled JPEG) from this phone's shared folders, for a linked phone. */
+        suspend fun galleryPhotos(limit: Int): List<Pair<String, ByteArray>>
+
         /** Runs a linked device's free-form message through this device's LLM; null if it has none. */
         suspend fun brainChat(peerId: String, facts: List<String>, devices: List<String>, text: String, history: String): String?
 
@@ -229,6 +232,16 @@ class DeviceLink(context: Context, private val handler: Handler) {
         ).getString("text")
 
     /** [peer]'s contacts matching [name] (a contact saved only on that phone). */
+    /** Recent photos from a linked phone's shared folders (name + JPEG bytes). */
+    suspend fun remoteGallery(peer: Peer, limit: Int): List<Pair<String, ByteArray>> {
+        val arr = request(peer, "gallery", JSONObject().put("limit", limit), timeoutMs = GALLERY_READ_TIMEOUT_MS)
+            .optJSONArray("photos") ?: return emptyList()
+        return (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            o.getString("name") to unb64(o.getString("jpg"))
+        }
+    }
+
     suspend fun remoteContacts(peer: Peer, name: String): List<String> =
         request(peer, "contacts", JSONObject().put("name", name), timeoutMs = CONTACTS_READ_TIMEOUT_MS)
             .optJSONArray("lines").toStrings()
@@ -428,6 +441,13 @@ class DeviceLink(context: Context, private val handler: Handler) {
                 .apply { tailnetAddress()?.let { put("tailnet", it) } }
             "status" -> reply.put("text", handler.status())
             "battery" -> reply.put("text", handler.battery())
+            "gallery" -> {
+                val arr = JSONArray()
+                handler.galleryPhotos(req.optInt("limit", 8).coerceIn(1, 20)).forEach { (name, jpg) ->
+                    arr.put(JSONObject().put("name", name).put("jpg", b64(jpg)))
+                }
+                reply.put("photos", arr)
+            }
             "note" -> {
                 handler.onNote(peer.name, req.getString("text"))
                 reply.put("ok", true)
@@ -671,6 +691,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
         private const val PAIRING_READ_TIMEOUT_MS = 15_000
         private const val CHAT_READ_TIMEOUT_MS = 180_000
         private const val CONTACTS_READ_TIMEOUT_MS = 90_000 // may wait for a permission answer on that phone
+        private const val GALLERY_READ_TIMEOUT_MS = 60_000 // sending several downscaled photos takes a moment
         private const val PAIRING_TIMEOUT_MS = 5 * 60_000L
         private const val MAX_CLOCK_SKEW_MS = 5 * 60_000L
         private const val NETWORK_SETTLE_MS = 3_000L

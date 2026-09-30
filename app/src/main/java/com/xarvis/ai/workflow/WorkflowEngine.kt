@@ -69,6 +69,8 @@ sealed interface Step {
     data class ConvertFile(val format: String) : Step
     /** Open the camera ready to shoot ([selfie]: the front one); the photo comes back into the chat. */
     data class TakePhoto(val selfie: Boolean = false) : Step
+    /** Browse a linked phone's recent photos ("show s22's photos"); handled by the agent over the link. */
+    data class RemoteGallery(val device: String) : Step
     /** Search the folders Rex gave XARVIS (names and text inside files); handled by the agent. */
     data class SearchPhone(val query: String) : Step
     /** Show files XARVIS made earlier whose names match [query], to open or share again. */
@@ -209,6 +211,7 @@ class WorkflowEngine(
         is Step.Lookup -> StepResult(true, "") // done by the agent before the reply is shown
         is Step.Recall -> StepResult(true, "") // done by the agent before the reply is shown
         is Step.SearchPhone -> StepResult(true, "") // done by the agent before the reply is shown
+        is Step.RemoteGallery -> StepResult(true, "") // done by the agent before the reply is shown
         is Step.TakePhoto ->
             if (takePhoto(step.selfie)) StepResult(true, "Camera ready${if (step.selfie) " (front)" else ""}: tap the shutter, then ✓. The photo comes back here and into your Gallery (Pictures/XARVIS).")
             else StepResult(false, "Open XARVIS on screen first, then ask me to take the photo.")

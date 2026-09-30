@@ -116,6 +116,11 @@ class XarvisCore(context: Context) {
 
         override suspend fun battery(): String = com.xarvis.ai.tools.BatteryTool(appContext).read()
 
+        override suspend fun galleryPhotos(limit: Int): List<Pair<String, ByteArray>> =
+            phoneSearch.recentImages(limit).mapNotNull { (uri, name) ->
+                com.xarvis.ai.llm.PhotoPrep.downscaledJpeg(appContext, uri)?.let { name to it }
+            }
+
         override suspend fun brainChat(peerId: String, facts: List<String>, devices: List<String>, text: String, history: String): String? =
             agent.answerForPeer(peerId, facts, devices, text, history)
 
@@ -171,7 +176,7 @@ class XarvisCore(context: Context) {
     /** The folders Rex lets XARVIS search (☰ → Search folders). */
     val phoneSearch = com.xarvis.ai.files.PhoneSearch(context)
 
-    private val agent: XarvisAgent = XarvisAgent(engine, memory, llm, link, phoneSearch)
+    private val agent: XarvisAgent = XarvisAgent(engine, memory, llm, link, phoneSearch, appContext)
 
     private val _state: MutableStateFlow<XarvisUiState> = MutableStateFlow(
         XarvisUiState(

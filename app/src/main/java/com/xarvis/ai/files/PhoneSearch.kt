@@ -75,6 +75,18 @@ class PhoneSearch(context: Context) {
         Found(cards, snippets.take(MAX_SNIPPETS), readable.size)
     }
 
+    /** The most recent image files (uri + name) across all granted folders, newest first. */
+    suspend fun recentImages(limit: Int): List<Pair<Uri, String>> = withContext(Dispatchers.IO) {
+        folders().flatMap { list(Uri.parse(it.uri)) }
+            .filter { e ->
+                e.mime.startsWith("image/") ||
+                    e.name.substringAfterLast('.', "").lowercase() in setOf("jpg", "jpeg", "png", "heic", "webp")
+            }
+            .sortedByDescending { it.modified }
+            .take(limit)
+            .map { it.uri to it.name }
+    }
+
     /** Every file under [tree], depth-first, up to [MAX_LISTED]. */
     private fun list(tree: Uri): List<Entry> {
         val out = mutableListOf<Entry>()
