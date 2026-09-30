@@ -93,6 +93,7 @@ import com.xarvis.ai.viewmodel.XarvisViewModel
 @Composable
 fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     var input by rememberSaveable { mutableStateOf("") }
     var photo by rememberSaveable { mutableStateOf<Uri?>(null) }
     var document by rememberSaveable { mutableStateOf<Uri?>(null) }
@@ -142,7 +143,6 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
             photo = null
         }
     }
-    val context = LocalContext.current
     // The mic: Android's speech recognizer listens, and XARVIS answers aloud.
     var listening by remember { mutableStateOf(false) }
     // The "Hey Jarvis" switch needs the microphone permission first.
