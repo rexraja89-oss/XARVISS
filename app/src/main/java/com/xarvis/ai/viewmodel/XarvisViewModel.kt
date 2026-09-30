@@ -32,6 +32,12 @@ class XarvisViewModel(application: Application) : AndroidViewModel(application) 
 
     fun turnOnTailscale() = core.turnOnTailscale()
 
+    fun cloudHasKey() = core.cloudHasKey()
+    fun saveCloudKey(key: String) = core.saveCloudKey(key)
+    fun clearCloudKey() = core.clearCloudKey()
+    fun setCloud(on: Boolean) = core.setCloud(on)
+    fun togglePrivateLock() = core.togglePrivateLock()
+
     fun cameraOpened() = core.cameraOpened()
 
     fun answerAsk(answer: com.xarvis.ai.policy.Answer) = core.answerAsk(answer)

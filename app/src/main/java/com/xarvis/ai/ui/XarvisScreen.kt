@@ -252,6 +252,8 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 smartBrain = state.smartBrain, smartDownload = state.smartDownload,
                 hasModel = state.llmStatus != LlmStatus.NotInstalled,
                 onSmartBrain = viewModel::setSmartBrain,
+                cloudEnabled = state.cloudEnabled, hasCloudKey = viewModel::cloudHasKey,
+                onCloud = viewModel::setCloud, onSaveKey = viewModel::saveCloudKey, onClearKey = viewModel::clearCloudKey,
                 voiceLabel = viewModel::voiceLabel,
                 onNextVoice = viewModel::nextVoice,
             )
@@ -268,6 +270,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
         Header(
             state.isProcessing, state.memoryCount, state.linkedCount, state.llmStatus,
             speaker = state.speakReplies, onSpeaker = viewModel::toggleSpeaker,
+            cloudOn = state.cloudEnabled, privateLock = state.privateLock, onLock = viewModel::togglePrivateLock,
             onChats = { drawerScope.launch { chatsDrawer.open() } },
         ) {
             drawerScope.launch { drawer.open() }
@@ -394,7 +397,9 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
 @Composable
 private fun Header(
     isProcessing: Boolean, memoryCount: Int, linkedCount: Int, llmStatus: LlmStatus,
-    speaker: Boolean, onSpeaker: () -> Unit, onChats: () -> Unit, onMenu: () -> Unit,
+    speaker: Boolean, onSpeaker: () -> Unit,
+    cloudOn: Boolean, privateLock: Boolean, onLock: () -> Unit,
+    onChats: () -> Unit, onMenu: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -432,6 +437,13 @@ private fun Header(
                 "v${com.xarvis.ai.BuildConfig.VERSION_NAME} · $label", style = MaterialTheme.typography.labelSmall, color = color,
                 modifier = Modifier.weight(1f), maxLines = 1,
             )
+            // 🔒 keeps everything on the phone (no cloud), shown only when the cloud brain is on.
+            if (cloudOn) {
+                Text(
+                    if (privateLock) "🔒" else "🔓", fontSize = 20.sp,
+                    modifier = Modifier.clip(CircleShape).clickable(onClick = onLock).padding(start = 8.dp),
+                )
+            }
             // 🔊 reads every reply aloud; 🔇 only replies to the mic.
             Text(
                 if (speaker) "🔊" else "🔇", fontSize = 20.sp,
@@ -546,6 +558,15 @@ private fun MessageBubble(message: ChatMessage, thinking: Boolean) {
                 color = if (message.text.isEmpty()) XarvisMuted else MaterialTheme.colorScheme.onSurface,
             )
             message.files.forEach { FileCard(it) }
+            // Where the answer came from, so Rex always sees if anything went to the cloud.
+            message.via?.takeIf { !message.fromUser && message.text.isNotEmpty() }?.let { via ->
+                Text(
+                    if (via == "on-device") "· on-device" else if (via == "Gemini") "· via Gemini (cloud)" else "· via $via",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (via == "Gemini") XarvisPurple else XarvisMuted,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
         }
         if (message.fromUser) {
             Spacer(Modifier.size(8.dp))

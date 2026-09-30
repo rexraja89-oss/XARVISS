@@ -58,7 +58,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.runtime.mutableStateOf
 import com.xarvis.ai.llm.ModelDownload
@@ -199,6 +201,7 @@ fun SettingsMenu(
     onLoadVoice: () -> Unit, ownVoices: () -> String?, ownVoiceOn: () -> Boolean, onOwnVoice: (Boolean) -> Unit,
     onPermissions: () -> Unit, onActivityLog: () -> Unit, onFolders: () -> Unit,
     smartBrain: Boolean, smartDownload: ModelDownload, hasModel: Boolean, onSmartBrain: (Boolean) -> Unit,
+    cloudEnabled: Boolean, hasCloudKey: () -> Boolean, onCloud: (Boolean) -> Unit, onSaveKey: (String) -> Unit, onClearKey: () -> Unit,
     voiceLabel: (Boolean) -> String, onNextVoice: (Boolean) -> String,
 ) {
     ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surface) {
@@ -221,6 +224,7 @@ fun SettingsMenu(
                     else -> "Gemma 4 E4B: about twice as smart, replies about half as fast. First time: a ~4 GB download."
                 }
                 BrainOption("Smart", detail, selected = smartBrain, enabled = enabled) { onSmartBrain(true) }
+                CloudBrain(cloudEnabled, hasCloudKey, onCloud, onSaveKey, onClearKey)
                 HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
             }
             Text(
@@ -437,6 +441,60 @@ fun AskCard(ask: com.xarvis.ai.PendingAsk, onAnswer: (com.xarvis.ai.policy.Answe
             Button(onClick = { onAnswer(com.xarvis.ai.policy.Answer.ONCE) }, modifier = Modifier.weight(1f)) { Text("ALLOW") }
             OutlinedButton(onClick = { onAnswer(com.xarvis.ai.policy.Answer.ALWAYS) }, modifier = Modifier.weight(1f)) { Text("ALWAYS") }
             OutlinedButton(onClick = { onAnswer(com.xarvis.ai.policy.Answer.NO) }, modifier = Modifier.weight(1f)) { Text("NO") }
+        }
+    }
+}
+
+/** ☰ → BRAIN: turn on the Gemini cloud brain and store the key. Private things still stay on the phone. */
+@Composable
+private fun CloudBrain(
+    cloudEnabled: Boolean, hasCloudKey: () -> Boolean,
+    onCloud: (Boolean) -> Unit, onSaveKey: (String) -> Unit, onClearKey: () -> Unit,
+) {
+    var enabled by remember { mutableStateOf(cloudEnabled) }
+    var hasKey by remember { mutableStateOf(hasCloudKey()) }
+    var showKey by remember { mutableStateOf(false) }
+    var key by remember { mutableStateOf("") }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Cloud brain (Gemini)", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Much smarter for general questions. Needs internet and a free Google key. Private things and your files still stay on the phone; use the 🔒 in the header to force a private chat.",
+                    style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+                )
+            }
+            Switch(
+                checked = enabled,
+                onCheckedChange = {
+                    if (it && !hasKey) { showKey = true } else { enabled = it; onCloud(it) }
+                },
+            )
+        }
+        if (enabled || showKey) {
+            if (!hasKey || showKey) {
+                OutlinedTextField(
+                    value = key, onValueChange = { key = it },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    label = { Text("Paste your Gemini key (AIza…)") },
+                    singleLine = true,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        if (key.isNotBlank()) {
+                            onSaveKey(key.trim()); hasKey = true; key = ""; showKey = false; enabled = true; onCloud(true)
+                        }
+                    }) { Text("SAVE KEY") }
+                    TextButton(onClick = { showKey = false; if (!hasKey) enabled = false }) { Text("Cancel") }
+                }
+                Text(
+                    "Get a free key at aistudio.google.com → Get API key. No card needed.",
+                    style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+                )
+            } else {
+                Text("Key saved ✓", style = MaterialTheme.typography.labelSmall, color = XarvisCyan, modifier = Modifier.padding(top = 4.dp))
+                TextButton(onClick = { onClearKey(); hasKey = false; enabled = false; onCloud(false) }) { Text("Remove key") }
+            }
         }
     }
 }

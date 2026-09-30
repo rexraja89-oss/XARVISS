@@ -21,7 +21,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
 /** What XARVIS says, and the files it made or found (shown with OPEN and SHARE). */
-data class Reply(val text: String, val files: List<SavedFile> = emptyList())
+data class Reply(val text: String, val files: List<SavedFile> = emptyList(), val via: String? = null)
 
 /**
  * Sends every message to Gemma, which either answers or picks one of XARVIS's tools
@@ -40,6 +40,16 @@ class XarvisAgent(
 
     /** The last file Rex attached, for "convert it to PDF" (also asked in a later message). */
     private var lastDocument: Document? = null
+
+    /** The optional cloud brain (Gemini); off until Rex adds a key in ☰ → BRAIN. */
+    private val cloud = com.xarvis.ai.llm.CloudLlm(appContext)
+    private val settings = appContext.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE)
+    /** The brain that answered the last message, for the "on-device / via Gemini" tag. */
+    @Volatile private var lastVia: String? = null
+    /** This message's own words, for the cloud-privacy decision. */
+    @Volatile private var pendingUserMessage: String = ""
+    /** Documents and photos are Rex's own data: they never go to the cloud. */
+    @Volatile private var forceLocalThisTurn: Boolean = false
 
     /** The chat Rex is in (each opening of XARVIS starts a new one; the ☰ menu reopens old ones). */
     var chatId: String = newChatId()
@@ -91,6 +101,8 @@ class XarvisAgent(
 
     /** Handles one message; [onPartial] receives the reply so far while Gemma is writing it. */
     suspend fun handle(message: String, onPartial: (String) -> Unit = {}): Reply {
+        pendingUserMessage = message
+        forceLocalThisTurn = false
         val response = LinkCommands.parse(message, link.pairingInProgress)?.let { run(listOf(it)) } ?: askGemma(message, onPartial)
         memory.logInteraction(message, response.text, chatId)
         return response
@@ -101,6 +113,7 @@ class XarvisAgent(
      * the text as fits goes to Gemma, which can also answer with a new file made from it.
      */
     suspend fun handleDocument(doc: Document, message: String, onPartial: (String) -> Unit = {}): Reply {
+        forceLocalThisTurn = true // a file is Rex's own data: keep it on the phone
         lastDocument = doc
         val question = message.ifBlank { "Summarise this file: what is it, and what are the main points?" }
         brainReady(onPartial)
@@ -121,6 +134,7 @@ class XarvisAgent(
      * this phone; its reply can use tools as usual, e.g. a web search about what's in the photo.
      */
     suspend fun handlePhoto(imagePath: String, message: String, onPartial: (String) -> Unit = {}): Reply {
+        forceLocalThisTurn = true // a photo is Rex's own data: keep it on the phone
         val question = message.ifBlank { "Describe this photo in detail and explain everything in it." }
         brainReady(onPartial)
         val response = if (llm.isReady) photoHere(imagePath, message, question, onPartial)
@@ -172,6 +186,25 @@ class XarvisAgent(
 
     /** [text] through this phone's Gemma, streaming what it writes to [onPartial]. */
     private suspend fun chatHere(text: String, onPartial: (String) -> Unit): String {
+        // Cloud brain for general chat (Rex's choice, mode B), but only when it's safe to.
+        if (useCloud()) {
+            try {
+                onPartial("Thinking…")
+                // The cloud prompt carries NO saved memories: Rex's facts never leave the phone.
+                val answer = cloud.chat(buildPrompt(emptyList()), IDENTITY_REMINDER + text)
+                lastVia = "Gemini"
+                onPartial(ToolCalls.visibleText(FileBlocks.preview(answer)))
+                return answer
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: com.xarvis.ai.llm.QuotaReached) {
+                onPartial("Cloud limit reached, sir — switching to the phone brain…")
+            } catch (e: Exception) {
+                android.util.Log.w("XarvisAgent", "Cloud failed; using Gemma", e)
+                onPartial("Cloud unavailable — using the phone brain…")
+            }
+        }
+        lastVia = "on-device"
         val out = StringBuilder()
         // Rebuilt before every call, so identity and every saved memory are always current.
         llm.chat(systemPrompt(), IDENTITY_REMINDER + text, onRestart = { out.clear() }) { chunk ->
@@ -181,13 +214,26 @@ class XarvisAgent(
         return out.toString()
     }
 
+    /**
+     * Whether this message may go to the cloud brain (Gemini). Mode B: general chats do, but
+     * not with the 🔒 lock on, not documents/photos, and not anything that looks private.
+     */
+    private fun useCloud(): Boolean =
+        settings.getBoolean("cloudEnabled", false) &&
+            !settings.getBoolean("privateLock", false) &&
+            !forceLocalThisTurn &&
+            cloud.hasKey() && cloud.online() &&
+            !isSensitive(pendingUserMessage)
+
     /** [message] is what Rex typed; [prompt] is what Gemma is sent (the message, or it with a file's text). */
     private suspend fun askGemma(message: String, onPartial: (String) -> Unit, prompt: String = message): Reply {
         brainReady(onPartial)
         val brain = if (llm.isReady) null else link.findBrain() ?: return Reply(noBrain())
+        lastVia = null
         suspend fun ask(text: String): String? = if (brain == null) {
             chatHere(text, onPartial)
         } else {
+            lastVia = brain.name
             onPartial("Asking ${brain.name}…")
             remoteChat(brain, text)
         }
@@ -321,10 +367,10 @@ class XarvisAgent(
             }
         }
         val searched = foundFiles.toList().also { foundFiles.clear() }
-        if (steps.isEmpty()) return Reply(text.ifEmpty { "…" }, searched)
+        if (steps.isEmpty()) return Reply(text.ifEmpty { "…" }, searched, via = lastVia)
         val results = run(steps)
         val reply = if (text.isEmpty()) results else results.copy(text = "$text\n${results.text}")
-        return reply.copy(files = searched + reply.files)
+        return reply.copy(files = searched + reply.files, via = lastVia)
     }
 
     private suspend fun run(steps: List<Step>): Reply {
@@ -489,6 +535,15 @@ class XarvisAgent(
         }
 
         /** Rex asking for a photo ("open back camera and take a photo"): Gemma only opened the camera app once. */
+        private val SENSITIVE = Regex(
+            """(?i)\b(password|passcode|pass code|otp|one.?time|pin|cvv|2fa|bank|account number|card number|debit|credit card|iban|aadhaar|aadhar|passport|salary|income|medical|diagnosis|prescription|address|home address|girlfriend|wife|divorce|affair|loan|debt|secret)\b""",
+        )
+        private val LONG_CODE = Regex("""\d{5,}""")
+
+        /** Whether a message looks private enough to keep on the phone even with the cloud on. */
+        internal fun isSensitive(message: String): Boolean =
+            SENSITIVE.containsMatchIn(message) || LONG_CODE.containsMatchIn(message)
+
         private val WANTS_GALLERY = Regex("""(?i)\b(gallery|photos|pictures|pics|images)\b""")
 
         private val USER_WANTS_PHOTO = Regex("""(?i)\b(?:take|click|capture|khinch\w*|kheench\w*|le\s+lo)\b.*\b(?:photo|picture|pic|selfie|snap)\b|\bselfie\b""")

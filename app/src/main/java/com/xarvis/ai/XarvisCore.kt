@@ -45,6 +45,8 @@ data class ChatMessage(
     val imagePath: String? = null,
     val attachment: String? = null,
     val files: List<SavedFile> = emptyList(),
+    /** Which brain answered: "on-device", "Gemini", or a linked phone's name. */
+    val via: String? = null,
     val id: Long = nextMessageId.incrementAndGet(),
 )
 
@@ -76,6 +78,9 @@ data class XarvisUiState(
     val camera: CameraRequest? = null,
     /** Tailscale is installed but not connected: the screen shows TURN ON TAILSCALE. */
     val tailscaleOff: Boolean = false,
+    /** Cloud brain (Gemini) is enabled by Rex, and whether the 🔒 private lock is on. */
+    val cloudEnabled: Boolean = false,
+    val privateLock: Boolean = false,
 )
 
 data class CameraRequest(val selfie: Boolean, val id: Long = System.nanoTime())
@@ -186,6 +191,8 @@ class XarvisCore(context: Context) {
             speakReplies = settings.getBoolean("speakReplies", false),
             wakeWord = settings.getBoolean("wakeWord", false),
             smartBrain = settings.getBoolean("smartBrain", false),
+            cloudEnabled = settings.getBoolean("cloudEnabled", false),
+            privateLock = settings.getBoolean("privateLock", false),
         )
     )
     val state: StateFlow<XarvisUiState> = _state.asStateFlow()
@@ -271,7 +278,7 @@ class XarvisCore(context: Context) {
             } catch (e: Exception) {
                 Reply("Something went wrong: ${e.message}")
             }
-            updateMessage(answer.id) { it.copy(text = reply.text, files = reply.files) }
+            updateMessage(answer.id) { it.copy(text = reply.text, files = reply.files, via = reply.via) }
             if ((spoken || _state.value.speakReplies) && !reply.text.endsWith("(stopped)")) voice.speak(reply.text)
             // Also after STOP, which has cancelled this coroutine.
             withContext(NonCancellable) {
@@ -432,6 +439,22 @@ class XarvisCore(context: Context) {
 
     /** The screen has opened the camera. */
     fun cameraOpened() = _state.update { it.copy(camera = null) }
+
+    // ---- Cloud brain (Gemini) and the private lock ----
+    private val cloudLlm = com.xarvis.ai.llm.CloudLlm(appContext)
+    fun cloudHasKey(): Boolean = cloudLlm.hasKey()
+    fun saveCloudKey(key: String) { cloudLlm.saveKey(key) }
+    fun clearCloudKey() { cloudLlm.clearKey() }
+    fun setCloud(on: Boolean) {
+        settings.edit().putBoolean("cloudEnabled", on).apply()
+        _state.update { it.copy(cloudEnabled = on) }
+    }
+    /** 🔒: force on-device only for a while, even with the cloud on. */
+    fun togglePrivateLock() {
+        val on = !_state.value.privateLock
+        settings.edit().putBoolean("privateLock", on).apply()
+        _state.update { it.copy(privateLock = on) }
+    }
 
     /** The TURN ON TAILSCALE button. */
     fun turnOnTailscale() {

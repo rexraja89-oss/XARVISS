@@ -81,6 +81,13 @@ Personal on-device AI assistant for Android, owned by Rex (developer credit: Saj
 
 Entry points: `XarvisApp`/`XarvisCore` (process-wide core), `agent/XarvisAgent.kt`, `llm/LocalLlm.kt`, `net/DeviceLink.kt` (mDNS + ECDH pairing + AES-GCM; reconnects when Wi-Fi returns), `memory/MemorySync.kt`, `service/XarvisService.kt` (always-on foreground service; opening the app turns it back on). Runtime permissions go through `tools/PermissionGate`, which MainActivity attaches to.
 
+## Cloud brain (Checkpoint 1 of Roadmap V2; Rex chose privacy mode "B")
+
+- Optional Gemini cloud brain, off until Rex adds a free AI Studio key in ☰ → BRAIN → "Cloud brain (Gemini)". Key stored encrypted in the Android Keystore (`llm/BrainKeys.kt`, AES/GCM, prefs "brainkeys"); never logged, never committed, only sent to Google's endpoint. `llm/CloudLlm.kt` calls `generativelanguage.googleapis.com/v1beta/models/<model>:generateContent` (model fallback list; 429 → `QuotaReached`), with `online()` check. Not testable from the sandbox.
+- Router in `XarvisAgent.chatHere`: `useCloud()` = cloudEnabled && !privateLock && !forceLocalThisTurn && hasKey && online && !`isSensitive(message)`. Cloud gets `buildPrompt(emptyList())` — **no saved memories** leave the phone. Documents and photos set `forceLocalThisTurn` (always on-device). On quota/error it falls back to Gemma. Only fires on a phone whose own Gemma is ready (S22); the benco still uses the S22's Gemma over the link. Every reply carries `via` ("on-device" / "Gemini" / a peer's name), shown under the bubble (`ChatMessage.via`).
+- Privacy controls: the BRAIN switch + key field (`ui/ChatParts.CloudBrain`); the header **🔒 private lock** (`XarvisCore.togglePrivateLock`, shown only when cloud is on) forces on-device; `isSensitive` auto-guard (passwords/OTP/bank/passport/salary/address/… and 5+ digit codes) keeps private messages local even with cloud on. Prefs: cloudEnabled, privateLock.
+- Known-good rollback branch before this work: `known-good-v1.0.91` (commit e7987db). ROADMAP.md holds the full plan and the three safeguards.
+
 ## Roadmap Rex asked for
 
 **Bucket list (Rex, 29 Sep 2026: "remember this, we will do it someday"), in order:**
