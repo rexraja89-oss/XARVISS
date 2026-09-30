@@ -67,6 +67,8 @@ sealed interface Step {
     data object ListMemories : Step
     /** Turn the file Rex attached into [format] (pdf, docx, xlsx, txt...); the agent fills it in. */
     data class ConvertFile(val format: String) : Step
+    /** Open the camera ready to shoot ([selfie]: the front one); the photo comes back into the chat. */
+    data class TakePhoto(val selfie: Boolean = false) : Step
     /** Search the folders Rex gave XARVIS (names and text inside files); handled by the agent. */
     data class SearchPhone(val query: String) : Step
     /** Show files XARVIS made earlier whose names match [query], to open or share again. */
@@ -96,6 +98,9 @@ class WorkflowEngine(
      * Without a screen to ask on, the answer is no.
      */
     var confirm: suspend (Category, String) -> Answer = { _, _ -> Answer.NO_ANSWER }
+
+    /** Opens the camera from the screen (set by XarvisCore; only the screen can get the photo back). */
+    var takePhoto: (Boolean) -> Boolean = { false }
 
     private val appContext = context.applicationContext
     private val phone = PhoneActions(appContext)
@@ -204,6 +209,9 @@ class WorkflowEngine(
         is Step.Lookup -> StepResult(true, "") // done by the agent before the reply is shown
         is Step.Recall -> StepResult(true, "") // done by the agent before the reply is shown
         is Step.SearchPhone -> StepResult(true, "") // done by the agent before the reply is shown
+        is Step.TakePhoto ->
+            if (takePhoto(step.selfie)) StepResult(true, "Camera ready${if (step.selfie) " (front)" else ""}: tap the shutter, then ✓. The photo comes back here and into your Gallery (Pictures/XARVIS).")
+            else StepResult(false, "Open XARVIS on screen first, then ask me to take the photo.")
         is Step.Jobs -> {
             val site = JobSites.pick(step.site)
             val app = device.findApp(site.appName)

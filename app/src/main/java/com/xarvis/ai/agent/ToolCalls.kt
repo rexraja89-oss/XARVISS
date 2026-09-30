@@ -45,6 +45,9 @@ object ToolCalls {
             if (app.isNotBlank() && text != null) return Step.AskApp(app, text.trim('"', '\'').trim())
         }
         arg(t, "jobs|job search|find jobs|job")?.takeIf { it.isNotBlank() }?.let { return jobs(it) }
+        arg(t, "take photo|take a photo|take picture|take a picture|photo|picture|capture|selfie")?.let { a ->
+            return Step.TakePhoto(selfie = t.contains("selfie", true) || Regex("""(?i)\bfront\b""").containsMatchIn(a))
+        }
         arg(t, "search phone|phone search|search my phone|search my files|search files|find on phone|search device|phonesearch")
             ?.removePrefix("for ")?.trim('"', '\'', ' ')?.takeIf { it.isNotBlank() }?.let { return Step.SearchPhone(it) }
         arg(t, "convert to|convert|save as|export as|export")?.let { a -> format(a)?.let { return Step.ConvertFile(it) } }

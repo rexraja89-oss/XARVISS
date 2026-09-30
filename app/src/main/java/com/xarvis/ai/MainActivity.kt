@@ -63,8 +63,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onPause() {
+        (application as XarvisApp).core.screenVisible = false
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
+        (application as XarvisApp).core.screenVisible = true
         (application as XarvisApp).core.refresh() // battery, and whether a newer XARVIS is out
         // "Hey Jarvis" can only get the mic from here (the app on screen), e.g. after a restart.
         if (WakeWord.isEnabled(this) && PermissionGate.has(this, Manifest.permission.RECORD_AUDIO)) {

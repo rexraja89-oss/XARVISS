@@ -72,9 +72,13 @@ data class XarvisUiState(
     val update: String? = null,
     /** An action waiting for Rex's OK (its category is set to "Ask me"). */
     val ask: PendingAsk? = null,
+    /** The camera should open (TOOL: photo); the screen opens it and clears this. */
+    val camera: CameraRequest? = null,
     /** Tailscale is installed but not connected: the screen shows TURN ON TAILSCALE. */
     val tailscaleOff: Boolean = false,
 )
+
+data class CameraRequest(val selfie: Boolean, val id: Long = System.nanoTime())
 
 data class PendingAsk(val category: com.xarvis.ai.policy.Category, val action: String)
 
@@ -156,7 +160,13 @@ class XarvisCore(context: Context) {
 
     private val engine = WorkflowEngine(context, device, link, memorySync, contacts, FileStore(context), policy).also {
         it.confirm = ::askRex
+        it.takePhoto = { selfie ->
+            screenVisible.also { visible -> if (visible) _state.update { s -> s.copy(camera = CameraRequest(selfie)) } }
+        }
     }
+
+    /** Whether XARVIS's main screen is showing (only it can open the camera and get the photo back). */
+    @Volatile var screenVisible = false
 
     /** The folders Rex lets XARVIS search (☰ → Search folders). */
     val phoneSearch = com.xarvis.ai.files.PhoneSearch(context)
@@ -414,6 +424,9 @@ class XarvisCore(context: Context) {
         val off = !t.connected(appContext)
         _state.update { it.copy(tailscaleOff = off) }
     }
+
+    /** The screen has opened the camera. */
+    fun cameraOpened() = _state.update { it.copy(camera = null) }
 
     /** The TURN ON TAILSCALE button. */
     fun turnOnTailscale() {

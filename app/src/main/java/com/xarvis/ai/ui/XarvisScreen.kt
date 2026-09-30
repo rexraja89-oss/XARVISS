@@ -97,6 +97,38 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
     var photo by rememberSaveable { mutableStateOf<Uri?>(null) }
     var document by rememberSaveable { mutableStateOf<Uri?>(null) }
     // Android's photo picker: no storage permission needed, Rex picks one photo.
+    // "Take a photo": the phone's camera app shoots straight into Pictures/XARVIS, and the photo
+    // comes back as an attachment to ask about (no camera permission needed).
+    var shot by rememberSaveable { mutableStateOf<Uri?>(null) }
+    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val uri = shot
+        shot = null
+        if (uri == null) return@rememberLauncherForActivityResult
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            com.xarvis.ai.files.CameraShots.finish(context, uri)
+            photo = uri
+            android.widget.Toast.makeText(context, "Photo saved in Gallery (Pictures/XARVIS). Ask me about it, or tap SEND.", android.widget.Toast.LENGTH_LONG).show()
+        } else {
+            com.xarvis.ai.files.CameraShots.discard(context, uri)
+        }
+    }
+    fun openCamera(selfie: Boolean) {
+        val uri = com.xarvis.ai.files.CameraShots.create(context) ?: return
+        shot = uri
+        try {
+            takePhoto.launch(com.xarvis.ai.files.CameraShots.intent(uri, selfie))
+        } catch (e: Exception) {
+            shot = null
+            com.xarvis.ai.files.CameraShots.discard(context, uri)
+            android.widget.Toast.makeText(context, "No camera app answered.", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+    LaunchedEffect(state.camera) {
+        state.camera?.let { request ->
+            viewModel.cameraOpened()
+            openCamera(request.selfie)
+        }
+    }
     val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
             photo = uri
@@ -344,6 +376,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                     AttachOption(R.drawable.ic_photo_lens, "Photo", "Ask about a picture from your gallery") {
                         pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     },
+                    AttachOption(R.drawable.ic_photo_lens, "Camera", "Take a photo now and ask about it") { openCamera(false) },
                     AttachOption(R.drawable.ic_file, "File", "Read a PDF, Word, Excel or text file, or convert it") {
                         pickDocument.launch(arrayOf("*/*"))
                     },

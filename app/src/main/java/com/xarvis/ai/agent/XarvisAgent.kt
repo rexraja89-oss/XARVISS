@@ -441,7 +441,16 @@ class XarvisAgent(
                     else -> it
                 }
             }
-            return callsFor(message, adjusted)
+            return callsFor(message, photosFor(message, adjusted))
+        }
+
+        /** Rex asking for a photo ("open back camera and take a photo"): Gemma only opened the camera app once. */
+        private val USER_WANTS_PHOTO = Regex("""(?i)\b(?:take|click|capture|khinch\w*|kheench\w*|le\s+lo)\b.*\b(?:photo|picture|pic|selfie|snap)\b|\bselfie\b""")
+
+        private fun photosFor(message: String, steps: List<Step>): List<Step> {
+            if (!USER_WANTS_PHOTO.containsMatchIn(message)) return steps
+            val selfie = Regex("""(?i)\b(?:selfie|front)\b""").containsMatchIn(message)
+            return steps.map { if (it is Step.LaunchApp && it.appName.contains("camera", true)) Step.TakePhoto(selfie) else it }
         }
 
         private fun callsFor(message: String, steps: List<Step>): List<Step> {
@@ -489,6 +498,7 @@ class XarvisAgent(
             TOOL: jobs <job titles> [in <place>] [on <site>]   (opens real job listings Rex can apply to: LinkedIn and the whole world unless he names a site or place)
             TOOL: ask <app>: <text to type into that app, e.g. a question for ChatGPT>
             TOOL: files <words from the file's name>   (shows files you made before, to open or share)
+            TOOL: photo   (opens the camera ready to take a photo, which comes back into the chat; "photo selfie" for the front camera)
             TOOL: search phone <words>   (searches the folders Rex gave you: file names and the text inside PDF, Word, Excel and text files; use it for any file or information on his phone)
             TOOL: convert <pdf, docx, xlsx or txt>   (turns the file Rex attached into that format)
 
@@ -546,6 +556,7 @@ class XarvisAgent(
             END FILE
             User: send me the packing list file -> TOOL: files packing list
             User: find my passport number on my phone -> TOOL: search phone passport
+            User: take a photo -> TOOL: photo
             User: who made you? -> I'm XARVIS, created by Rex.
             User: what is my name? -> answer from the facts below, without a tool.
             User: tell me a joke -> answer yourself, without a tool.

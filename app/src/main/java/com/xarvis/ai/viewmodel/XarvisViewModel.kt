@@ -32,6 +32,8 @@ class XarvisViewModel(application: Application) : AndroidViewModel(application) 
 
     fun turnOnTailscale() = core.turnOnTailscale()
 
+    fun cameraOpened() = core.cameraOpened()
+
     fun answerAsk(answer: com.xarvis.ai.policy.Answer) = core.answerAsk(answer)
 
     fun loadOwnVoice(uri: android.net.Uri, done: (String) -> Unit) = core.loadOwnVoice(uri, done)
