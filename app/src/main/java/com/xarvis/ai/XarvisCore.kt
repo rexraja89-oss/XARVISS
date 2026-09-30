@@ -156,7 +156,10 @@ class XarvisCore(context: Context) {
         it.confirm = ::askRex
     }
 
-    private val agent: XarvisAgent = XarvisAgent(engine, memory, llm, link)
+    /** The folders Rex lets XARVIS search (☰ → Search folders). */
+    val phoneSearch = com.xarvis.ai.files.PhoneSearch(context)
+
+    private val agent: XarvisAgent = XarvisAgent(engine, memory, llm, link, phoneSearch)
 
     private val _state: MutableStateFlow<XarvisUiState> = MutableStateFlow(
         XarvisUiState(

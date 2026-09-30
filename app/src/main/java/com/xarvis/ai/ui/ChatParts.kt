@@ -197,7 +197,7 @@ fun SettingsMenu(
     enabled: Boolean,
     wakeWord: Boolean, onWakeWord: (Boolean) -> Unit, onAssistantSettings: () -> Unit, onRecordVoice: () -> Unit,
     onLoadVoice: () -> Unit, ownVoices: () -> String?, ownVoiceOn: () -> Boolean, onOwnVoice: (Boolean) -> Unit,
-    onPermissions: () -> Unit, onActivityLog: () -> Unit,
+    onPermissions: () -> Unit, onActivityLog: () -> Unit, onFolders: () -> Unit,
     smartBrain: Boolean, smartDownload: ModelDownload, hasModel: Boolean, onSmartBrain: (Boolean) -> Unit,
     voiceLabel: (Boolean) -> String, onNextVoice: (Boolean) -> String,
 ) {
@@ -292,6 +292,10 @@ fun SettingsMenu(
                 "CONTROL", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
             )
+            Column(Modifier.fillMaxWidth().clickable(onClick = onFolders).padding(horizontal = 20.dp, vertical = 10.dp)) {
+                Text("Search folders ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+                Text("Folders XARVIS may search when you ask \"search my phone for …\".", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+            }
             Column(Modifier.fillMaxWidth().clickable(onClick = onPermissions).padding(horizontal = 20.dp, vertical = 10.dp)) {
                 Text("Permissions ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
                 Text("Choose what XARVIS may do by itself, what it asks first, and what's off.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)

@@ -3,6 +3,8 @@ package com.xarvis.ai.agent
 import com.xarvis.ai.files.Document
 import com.xarvis.ai.files.FileBlock
 import com.xarvis.ai.files.FileBlocks
+import com.xarvis.ai.files.PhoneSearch
+import com.xarvis.ai.workflow.StepResult
 import com.xarvis.ai.files.SavedFile
 import com.xarvis.ai.llm.LlmStatus
 import com.xarvis.ai.llm.LocalLlm
@@ -31,6 +33,7 @@ class XarvisAgent(
     private val memory: MemorySystem,
     private val llm: LocalLlm,
     private val link: DeviceLink,
+    private val phoneSearch: PhoneSearch,
 ) {
 
     /** The last file Rex attached, for "convert it to PDF" (also asked in a later message). */
@@ -219,14 +222,49 @@ class XarvisAgent(
         val steps = ToolCalls.parse(raw)
         val lookups = steps.filterIsInstance<Step.Lookup>()
         val recalls = steps.filterIsInstance<Step.Recall>()
-        if (lookups.isEmpty() && recalls.isEmpty()) return raw
-        onPartial(if (recalls.isNotEmpty()) "Looking through our earlier chats…" else "Looking it up on Wikipedia…")
+        val searches = steps.filterIsInstance<Step.SearchPhone>()
+        if (lookups.isEmpty() && recalls.isEmpty() && searches.isEmpty()) return raw
+        onPartial(
+            when {
+                searches.isNotEmpty() -> "Searching your files…"
+                recalls.isNotEmpty() -> "Looking through our earlier chats…"
+                else -> "Looking it up on Wikipedia…"
+            },
+        )
         val found = mutableListOf<String>()
         for (l in lookups.take(2)) found += "Wikipedia on \"${l.query}\":\n" + WebLookup.lookup(l.query)
         for (r in recalls.take(2)) found += recall(r.query)
+        for (q in searches.take(1)) {
+            val result = engine.guarded(q) { searchPhone(q.query, onPartial) }
+            if (!result.success) return result.message // no folders yet, or not allowed: say so plainly
+            foundFiles += result.files
+            found += result.message
+        }
         val facts = found.joinToString("\n\n")
         val answer = runCatching { ask(FOUND_PREFIX + facts) }.getOrNull()
         return answer?.takeIf { ToolCalls.visibleText(it).isNotBlank() } ?: facts
+    }
+
+    /** Files found by a phone search, shown as cards under the reply. */
+    private val foundFiles = mutableListOf<SavedFile>()
+
+    /** Searches Rex's folders; the message is what Gemma reads to answer. */
+    private suspend fun searchPhone(query: String, onPartial: (String) -> Unit): StepResult {
+        if (phoneSearch.folders().isEmpty()) return StepResult(
+            false,
+            "I can only search folders you've given me, sir, and there aren't any yet. " +
+                "Open ☰ → Search folders → ADD FOLDER and pick a folder (for example your Rex folder or Documents).",
+        )
+        val found = phoneSearch.search(query, onPartial)
+        if (found.files.isEmpty() && found.snippets.isEmpty()) return StepResult(
+            false, "I searched ${found.scanned} files in your folders and found nothing about \"$query\".",
+        )
+        val text = buildString {
+            append("Search of Rex's folders for \"$query\":\n")
+            if (found.files.isNotEmpty()) append("Files: ").append(found.files.joinToString(", ") { it.name }).append("\n")
+            found.snippets.forEach { append("- ").append(it).append("\n") }
+        }
+        return StepResult(true, text, found.files)
     }
 
     /** Gemma's text plus the results of the tools it asked for, and the files it wrote. */
@@ -235,7 +273,7 @@ class XarvisAgent(
         val (fileBlocks, rest) = FileBlocks.split(raw)
         val text = fixIdentity(ToolCalls.visibleText(rest))
         val known = facts()
-        val steps: List<Step> = fileBlocks.map { Step.MakeFile(it) } + onPhone(message, forUser(message, ToolCalls.parse(rest).filterNot { it is Step.Lookup || it is Step.Recall })).map { step ->
+        val steps: List<Step> = fileBlocks.map { Step.MakeFile(it) } + onPhone(message, forUser(message, ToolCalls.parse(rest).filterNot { it is Step.Lookup || it is Step.Recall || it is Step.SearchPhone })).map { step ->
             val doc = lastDocument
             if (step is Step.ConvertFile && doc != null) {
                 return@map Step.MakeFile(FileBlock(doc.name.substringBeforeLast('.') + "." + step.format, doc.text))
@@ -248,9 +286,11 @@ class XarvisAgent(
                 step
             }
         }
-        if (steps.isEmpty()) return Reply(text.ifEmpty { "…" })
+        val searched = foundFiles.toList().also { foundFiles.clear() }
+        if (steps.isEmpty()) return Reply(text.ifEmpty { "…" }, searched)
         val results = run(steps)
-        return if (text.isEmpty()) results else results.copy(text = "$text\n${results.text}")
+        val reply = if (text.isEmpty()) results else results.copy(text = "$text\n${results.text}")
+        return reply.copy(files = searched + reply.files)
     }
 
     private suspend fun run(steps: List<Step>): Reply {
@@ -449,6 +489,7 @@ class XarvisAgent(
             TOOL: jobs <job titles> [in <place>] [on <site>]   (opens real job listings Rex can apply to: LinkedIn and the whole world unless he names a site or place)
             TOOL: ask <app>: <text to type into that app, e.g. a question for ChatGPT>
             TOOL: files <words from the file's name>   (shows files you made before, to open or share)
+            TOOL: search phone <words>   (searches the folders Rex gave you: file names and the text inside PDF, Word, Excel and text files; use it for any file or information on his phone)
             TOOL: convert <pdf, docx, xlsx or txt>   (turns the file Rex attached into that format)
 
             To make a file (PDF, Word, Excel, text, CSV, web page), write the whole file like this; XARVIS saves it in Downloads:
@@ -504,6 +545,7 @@ class XarvisAgent(
             Food, 1200
             END FILE
             User: send me the packing list file -> TOOL: files packing list
+            User: find my passport number on my phone -> TOOL: search phone passport
             User: who made you? -> I'm XARVIS, created by Rex.
             User: what is my name? -> answer from the facts below, without a tool.
             User: tell me a joke -> answer yourself, without a tool.

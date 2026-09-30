@@ -45,6 +45,8 @@ object ToolCalls {
             if (app.isNotBlank() && text != null) return Step.AskApp(app, text.trim('"', '\'').trim())
         }
         arg(t, "jobs|job search|find jobs|job")?.takeIf { it.isNotBlank() }?.let { return jobs(it) }
+        arg(t, "search phone|phone search|search my phone|search my files|search files|find on phone|search device|phonesearch")
+            ?.removePrefix("for ")?.trim('"', '\'', ' ')?.takeIf { it.isNotBlank() }?.let { return Step.SearchPhone(it) }
         arg(t, "convert to|convert|save as|export as|export")?.let { a -> format(a)?.let { return Step.ConvertFile(it) } }
         arg(t, "files|file|my files|show files|find file|find files|send file|share file")?.let { return Step.ShowFiles(it.trim('"', '\'')) }
         arg(t, "find in|find|search in")?.let { a ->

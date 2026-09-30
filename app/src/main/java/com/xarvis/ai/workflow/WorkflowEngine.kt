@@ -67,6 +67,8 @@ sealed interface Step {
     data object ListMemories : Step
     /** Turn the file Rex attached into [format] (pdf, docx, xlsx, txt...); the agent fills it in. */
     data class ConvertFile(val format: String) : Step
+    /** Search the folders Rex gave XARVIS (names and text inside files); handled by the agent. */
+    data class SearchPhone(val query: String) : Step
     /** Show files XARVIS made earlier whose names match [query], to open or share again. */
     data class ShowFiles(val query: String) : Step
 
@@ -115,8 +117,14 @@ class WorkflowEngine(
      * Every action goes through Rex's permissions (PolicyLayer) and into the activity log.
      * Steps with no category (answers, readouts, pairing) run as before, unlogged.
      */
-    private suspend fun guarded(step: Step): StepResult {
-        val category = PolicyRules.categoryOf(step) ?: return run(step)
+    private suspend fun guarded(step: Step): StepResult = guarded(step) { run(step) }
+
+    /**
+     * For work the agent does itself (searching Rex's folders): the same permission check and
+     * activity log as any other step, around [work].
+     */
+    suspend fun guarded(step: Step, work: suspend () -> StepResult): StepResult {
+        val category = PolicyRules.categoryOf(step) ?: return work()
         val action = PolicyRules.describe(step)
         val target = PolicyRules.targetOf(step)
         val level = policy.level(category)
@@ -147,7 +155,7 @@ class WorkflowEngine(
             }
         }
         val result = try {
-            run(step)
+            work()
         } catch (e: kotlinx.coroutines.CancellationException) {
             policy.log(target, action, category, used, "stopped")
             throw e
@@ -195,6 +203,7 @@ class WorkflowEngine(
         is Step.AskApp -> askApp(step.app, step.text)
         is Step.Lookup -> StepResult(true, "") // done by the agent before the reply is shown
         is Step.Recall -> StepResult(true, "") // done by the agent before the reply is shown
+        is Step.SearchPhone -> StepResult(true, "") // done by the agent before the reply is shown
         is Step.Jobs -> {
             val site = JobSites.pick(step.site)
             val app = device.findApp(site.appName)
@@ -228,8 +237,8 @@ class WorkflowEngine(
                 step.query.isBlank() -> StepResult(false, "I haven't made any files yet. Ask me, e.g. \"make a PDF of my shopping list\".")
                 else -> StepResult(
                     false,
-                    "I can only find files I made myself, and none matches \"${step.query}\". For any other file, " +
-                        "tap + and choose File, then search for it there (e.g. \"CV\").",
+                    "None of the files I made matches \"${step.query}\". For other files on your phone, say " +
+                        "\"search my phone for ${step.query}\" (after giving me folders in ☰ → Search folders).",
                 )
             }
         }

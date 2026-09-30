@@ -107,6 +107,11 @@
             </intent-filter>
         </activity-alias>
 
+        <!-- ☰ → Search folders: the folders XARVIS may search. -->
+        <activity
+            android:name=".FoldersActivity"
+            android:exported="false" />
+
         <!-- Permissions and the activity log (☰ → CONTROL). -->
         <activity
             android:name=".PolicyActivity"
