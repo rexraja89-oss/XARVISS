@@ -88,8 +88,8 @@ class ToolCallsTest {
     }
 
     @Test fun takesAPhoto() {
-        assertEquals(Step.TakePhoto(), one("TOOL: photo"))
-        assertEquals(Step.TakePhoto(selfie = true), one("TOOL: photo selfie"))
+        assertEquals(listOf(Step.TakePhoto()), ToolCalls.parse("TOOL: photo"))
+        assertEquals(listOf(Step.TakePhoto(selfie = true)), ToolCalls.parse("TOOL: photo selfie"))
         // "open back camera and take a photo": Gemma opened the camera app; the photo tool opens it ready to shoot.
         assertEquals(listOf(Step.TakePhoto()), com.xarvis.ai.agent.XarvisAgent.forUser("open back camera and take a photo", listOf(Step.LaunchApp("camera"))))
         assertEquals(listOf(Step.LaunchApp("camera")), com.xarvis.ai.agent.XarvisAgent.forUser("open camera", listOf(Step.LaunchApp("camera"))))
