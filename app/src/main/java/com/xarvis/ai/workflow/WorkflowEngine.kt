@@ -53,6 +53,8 @@ sealed interface Step {
     data class ShowMap(val place: String?) : Step
     /** Read Wikipedia about [query] and give the facts back to Gemma (handled by the agent). */
     data class Lookup(val query: String) : Step
+    /** Fetch a web page ([url]) and give its readable text back to the brain (handled by the agent). */
+    data class WebRead(val url: String) : Step
     /** Search for [query] inside [app] ("find in Gmail: Adarsh"), rather than on the web. */
     data class FindInApp(val app: String, val query: String) : Step
     /** Give [text] to [app] as shared text, e.g. a question typed into ChatGPT, ready to send. */
@@ -209,6 +211,7 @@ class WorkflowEngine(
         is Step.FindInApp -> findInApp(step.app, step.query)
         is Step.AskApp -> askApp(step.app, step.text)
         is Step.Lookup -> StepResult(true, "") // done by the agent before the reply is shown
+        is Step.WebRead -> StepResult(true, "") // done by the agent before the reply is shown
         is Step.Recall -> StepResult(true, "") // done by the agent before the reply is shown
         is Step.SearchPhone -> StepResult(true, "") // done by the agent before the reply is shown
         is Step.RemoteGallery -> StepResult(true, "") // done by the agent before the reply is shown

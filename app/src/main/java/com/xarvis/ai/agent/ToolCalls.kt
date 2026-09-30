@@ -58,6 +58,8 @@ object ToolCalls {
             val (app, query) = splitMessage(a)
             if (app.isNotBlank() && query != null) return Step.FindInApp(app, query)
         }
+        arg(t, "webread|web read|read website|read the website|read page|read the page|read article|read the article|read link|read url|open url|fetch|read")
+            ?.let { a -> urlIn(a)?.let { return Step.WebRead(it) } }
         arg(t, "lookup|look up|wikipedia|wiki")?.takeIf { it.isNotBlank() }?.let { return Step.Lookup(it) }
         arg(t, "search|google|web search")?.takeIf { it.isNotBlank() }?.let { return Step.Search(it) }
         arg(t, "recall|history|chat history|past chats|earlier chats|search chats")?.let { return Step.Recall(it.trim('"', '\'')) }
@@ -125,6 +127,12 @@ object ToolCalls {
         Regex("""^(?:on|enable|start)\b""", RegexOption.IGNORE_CASE).containsMatchIn(arg) -> true
         Regex("""^(?:off|disable|stop)\b""", RegexOption.IGNORE_CASE).containsMatchIn(arg) -> false
         else -> null
+    }
+
+    /** A web address inside [text] (full URL or bare domain), normalised, or null. */
+    private fun urlIn(text: String): String? {
+        val m = Regex("""https?://\S+|(?:[a-z0-9-]+\.)+[a-z]{2,}(?:/\S*)?""", RegexOption.IGNORE_CASE).find(text) ?: return null
+        return com.xarvis.ai.tools.WebRead.normalize(m.value)
     }
 
     /** The argument after tool name [names] ("contact: Atiq" -> "Atiq"; "time" -> ""), or null. */

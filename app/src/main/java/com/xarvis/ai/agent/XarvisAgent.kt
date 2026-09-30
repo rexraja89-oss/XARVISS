@@ -273,6 +273,10 @@ class XarvisAgent(
             runCatching { ask(NOT_TIME_NUDGE) }.getOrNull()?.takeIf { !mistakenTime(message, ToolCalls.parse(it)) }?.let { raw = it }
                 ?: return finishReply(message, ToolCalls.visibleText(raw)) // its words, without the wrong tool
         }
+        // Rex gave a link to read: make sure the page is read even if the model didn't ask for it.
+        wantsWebRead(message)?.let { url ->
+            if (ToolCalls.parse(raw).none { it is Step.WebRead }) raw += "\nTOOL: webread $url"
+        }
         raw = withLookups(raw, onPartial) { ask(it) }
         return finishReply(message, raw)
     }
@@ -287,14 +291,16 @@ class XarvisAgent(
     private suspend fun withLookups(raw: String, onPartial: (String) -> Unit, ask: suspend (String) -> String?): String {
         val steps = ToolCalls.parse(raw)
         val lookups = steps.filterIsInstance<Step.Lookup>()
+        val webreads = steps.filterIsInstance<Step.WebRead>()
         val recalls = steps.filterIsInstance<Step.Recall>()
         val searches = steps.filterIsInstance<Step.SearchPhone>()
         val galleries = steps.filterIsInstance<Step.RemoteGallery>()
-        if (lookups.isEmpty() && recalls.isEmpty() && searches.isEmpty() && galleries.isEmpty()) return raw
+        if (lookups.isEmpty() && webreads.isEmpty() && recalls.isEmpty() && searches.isEmpty() && galleries.isEmpty()) return raw
         onPartial(
             when {
                 galleries.isNotEmpty() -> "Fetching the photos over the link…"
                 searches.isNotEmpty() -> "Searching your files…"
+                webreads.isNotEmpty() -> "Reading the page…"
                 recalls.isNotEmpty() -> "Looking through our earlier chats…"
                 else -> "Looking it up on Wikipedia…"
             },
@@ -307,6 +313,7 @@ class XarvisAgent(
         }
         val found = mutableListOf<String>()
         for (l in lookups.take(2)) found += "Wikipedia on \"${l.query}\":\n" + WebLookup.lookup(l.query)
+        for (w in webreads.take(1)) found += com.xarvis.ai.tools.WebRead.read(w.url)
         for (r in recalls.take(2)) found += recall(r.query)
         for (q in searches.take(1)) {
             val result = engine.guarded(q) { searchPhone(q.query, onPartial) }
@@ -371,7 +378,7 @@ class XarvisAgent(
         val (fileBlocks, rest) = FileBlocks.split(raw)
         val text = fixIdentity(ToolCalls.visibleText(rest))
         val known = facts()
-        val steps: List<Step> = fileBlocks.map { Step.MakeFile(it) } + onPhone(message, forUser(message, ToolCalls.parse(rest).filterNot { it is Step.Lookup || it is Step.Recall || it is Step.SearchPhone || it is Step.RemoteGallery })).map { step ->
+        val steps: List<Step> = fileBlocks.map { Step.MakeFile(it) } + onPhone(message, forUser(message, ToolCalls.parse(rest).filterNot { it is Step.Lookup || it is Step.WebRead || it is Step.Recall || it is Step.SearchPhone || it is Step.RemoteGallery })).map { step ->
             val doc = lastDocument
             if (step is Step.ConvertFile && doc != null) {
                 return@map Step.MakeFile(FileBlock(doc.name.substringBeforeLast('.') + "." + step.format, doc.text))
@@ -552,6 +559,17 @@ class XarvisAgent(
             return callsFor(message, photosFor(message, adjusted))
         }
 
+        // Rex asked XARVIS to read a web page: a read/summarise word plus a link in his message.
+        private val READ_INTENT = Regex("""(?i)\b(read|summari[sz]e?|summary|go through|walk me through|what does|whats on|what's on)\b""")
+        private val URL_IN = Regex("""https?://\S+|(?:[a-z0-9-]+\.)+[a-z]{2,}(?:/\S*)?""", RegexOption.IGNORE_CASE)
+
+        /** The web address Rex wants read, if his message asks to read/summarise a link; else null. */
+        internal fun wantsWebRead(message: String): String? {
+            if (!READ_INTENT.containsMatchIn(message)) return null
+            val url = URL_IN.find(message)?.value ?: return null
+            return com.xarvis.ai.tools.WebRead.normalize(url)
+        }
+
         private val WANTS_GALLERY = Regex("""(?i)\b(gallery|photos|pictures|pics|images)\b""")
 
         private val USER_WANTS_PHOTO = Regex("""(?i)\b(?:take|click|capture|khinch\w*|kheench\w*|le\s+lo)\b.*\b(?:photo|picture|pic|selfie|snap)\b|\bselfie\b""")
@@ -602,6 +620,7 @@ class XarvisAgent(
             TOOL: alarm <time>
             TOOL: timer <duration>
             TOOL: lookup <words>   (XARVIS reads Wikipedia and gives you the facts, then you answer)
+            TOOL: webread <url>   (XARVIS fetches that web page and gives you its text, then you answer or summarise it)
             TOOL: search <web search words>   (only opens Google on the phone for Rex; you never see the results)
             TOOL: find <app>: <words to search inside that app>
             TOOL: jobs <job titles> [in <place>] [on <site>]   (opens real job listings Rex can apply to: LinkedIn and the whole world unless he names a site or place)
@@ -642,6 +661,7 @@ class XarvisAgent(
             User: set a timer for 10 minutes -> TOOL: timer 10 minutes
             User: what's the weather in Lahore? -> TOOL: search weather in Lahore
             User: who is the president of Brazil? -> TOOL: lookup president of Brazil
+            User: read https://example.com/news and summarise it -> TOOL: webread https://example.com/news
             User: which movie is this ring from? (photo of the glowing gold ring with script) -> It's the One Ring from The Lord of the Rings.
             User: open gmail and search for ali@example.com -> TOOL: find gmail: ali@example.com
             User: search LinkedIn for painting supervisor or superintendent jobs I can apply to -> TOOL: jobs painting supervisor OR painting superintendent
@@ -676,7 +696,7 @@ class XarvisAgent(
             User: are you smart? -> Smart enough to know you'll ask me that again tomorrow, sir.
             User: aur Jarvis, kya haal hai? -> Sab badhiya, sir. Aapka AI hazir hai, hukum kijiye. Aaj kya dhamaka karna hai?
 
-            Answer from what you know when you're sure. Use "lookup" for facts you're unsure of, and "search" when Rex wants to browse live results (news, weather, prices). Never say what a search found: you can't see it. To search inside an app, use "find".
+            Answer from what you know when you're sure. Use "lookup" for facts you're unsure of, "webread" when Rex gives a link or asks you to read/summarise a specific web page, and "search" when Rex wants to browse live results (news, weather, prices). Never say what a search found: you can't see it. To search inside an app, use "find".
             When Rex asks for a file, write all of it; never say you can't make files. If a task needs more than your tools can do, use the tools that help, then say plainly what you did and what Rex must do himself. Never pretend you did something.
             Use "remember" only when Rex tells you something new to keep. Never say you did something on the phone without a tool line.
             The facts below were told to you by Rex: "you" and "your" in them mean Rex, except that you, XARVIS, were created by Rex.
