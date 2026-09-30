@@ -16,6 +16,8 @@ class VoiceTest {
         val prompt = XarvisAgent.buildPrompt(emptyList())
         assertTrue(prompt.contains("like JARVIS from Iron Man"))
         assertTrue(prompt.contains("never robotic"))
+        // Humour never bends the facts (it once called 85% battery "running on fumes").
+        assertTrue(prompt.contains("never exaggerate or change facts"))
     }
 
     @Test fun hearsWhenAReplyIsHindi() {

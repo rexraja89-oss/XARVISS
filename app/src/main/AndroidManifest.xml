@@ -45,6 +45,8 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!-- Tailscale, which XARVIS keeps on for linking away from home. -->
+        <package android:name="com.tailscale.ipn" />
         <!-- Google's voice engine, which has British male voices. -->
         <package android:name="com.google.android.tts" />
     </queries>

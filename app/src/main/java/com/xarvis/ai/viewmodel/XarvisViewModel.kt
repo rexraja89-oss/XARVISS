@@ -30,6 +30,8 @@ class XarvisViewModel(application: Application) : AndroidViewModel(application) 
 
     fun voiceLabel(hindi: Boolean) = core.voiceLabel(hindi)
 
+    fun turnOnTailscale() = core.turnOnTailscale()
+
     fun answerAsk(answer: com.xarvis.ai.policy.Answer) = core.answerAsk(answer)
 
     fun loadOwnVoice(uri: android.net.Uri, done: (String) -> Unit) = core.loadOwnVoice(uri, done)

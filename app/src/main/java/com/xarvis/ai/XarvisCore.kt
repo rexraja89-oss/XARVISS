@@ -72,6 +72,8 @@ data class XarvisUiState(
     val update: String? = null,
     /** An action waiting for Rex's OK (its category is set to "Ask me"). */
     val ask: PendingAsk? = null,
+    /** Tailscale is installed but not connected: the screen shows TURN ON TAILSCALE. */
+    val tailscaleOff: Boolean = false,
 )
 
 data class PendingAsk(val category: com.xarvis.ai.policy.Category, val action: String)
@@ -191,6 +193,13 @@ class XarvisCore(context: Context) {
             while (true) {
                 checkForUpdate()
                 delay(UPDATE_CHECK_INTERVAL_MS)
+            }
+        }
+        // Keep Tailscale on (Rex asked), so the linked phones reach each other anywhere.
+        scope.launch {
+            while (true) {
+                keepTailscaleOn()
+                delay(TAILSCALE_CHECK_INTERVAL_MS)
             }
         }
         scope.launch {
@@ -389,9 +398,29 @@ class XarvisCore(context: Context) {
         // Also each time XARVIS is opened: the always-on service keeps this process alive, so
         // "closing" the app doesn't restart it.
         if (System.currentTimeMillis() - lastUpdateCheck > MIN_UPDATE_CHECK_GAP_MS) scope.launch { checkForUpdate() }
+        scope.launch { keepTailscaleOn() }
     }
 
     @Volatile private var lastUpdateCheck = 0L
+
+    /** Asks Tailscale to reconnect when it's off, and shows the TURN ON button until it is. */
+    private suspend fun keepTailscaleOn() {
+        val t = com.xarvis.ai.net.Tailscale
+        if (!t.installed(appContext)) return _state.update { it.copy(tailscaleOff = false) }
+        if (!t.connected(appContext)) {
+            t.requestConnect(appContext)
+            delay(8_000)
+        }
+        val off = !t.connected(appContext)
+        _state.update { it.copy(tailscaleOff = off) }
+    }
+
+    /** The TURN ON TAILSCALE button. */
+    fun turnOnTailscale() {
+        com.xarvis.ai.net.Tailscale.requestConnect(appContext)
+        com.xarvis.ai.net.Tailscale.open(appContext)
+        scope.launch { delay(15_000); keepTailscaleOn() }
+    }
 
     private suspend fun checkForUpdate() {
         lastUpdateCheck = System.currentTimeMillis()
@@ -418,6 +447,7 @@ class XarvisCore(context: Context) {
         const val MIN_UPDATE_CHECK_GAP_MS = 60_000L
         /** How long an "Ask me" card waits for Rex before the answer counts as no. */
         const val ASK_WAIT_MS = 60_000L
+        const val TAILSCALE_CHECK_INTERVAL_MS = 2 * 60_000L
 
     }
 }
