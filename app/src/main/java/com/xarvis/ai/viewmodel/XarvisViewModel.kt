@@ -36,6 +36,7 @@ class XarvisViewModel(application: Application) : AndroidViewModel(application) 
     fun saveCloudKey(key: String) = core.saveCloudKey(key)
     fun clearCloudKey() = core.clearCloudKey()
     fun setCloud(on: Boolean) = core.setCloud(on)
+    fun setCouncil(on: Boolean) = core.setCouncil(on)
     fun togglePrivateLock() = core.togglePrivateLock()
 
     fun cameraOpened() = core.cameraOpened()
