@@ -186,6 +186,9 @@ class XarvisAgent(
 
     /** [text] through this phone's Gemma, streaming what it writes to [onPartial]. */
     private suspend fun chatHere(text: String, onPartial: (String) -> Unit): String {
+        // If the cloud was meant to answer but couldn't, why: carried into the via tag so Rex
+        // can see the reason under the bubble (he can't read the device log).
+        var cloudNote: String? = null
         // Cloud brain for general chat (Rex's choice, mode B), but only when it's safe to.
         if (useCloud()) {
             try {
@@ -198,15 +201,17 @@ class XarvisAgent(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: com.xarvis.ai.llm.QuotaReached) {
+                cloudNote = "cloud limit reached"
                 onPartial("Cloud limit reached, sir — switching to the phone brain…")
             } catch (e: Exception) {
+                cloudNote = "cloud: ${e.message ?: e.javaClass.simpleName}"
                 android.util.Log.w("XarvisAgent", "Cloud failed; using Gemma", e)
                 onPartial("Cloud unavailable — using the phone brain…")
             }
         }
         // This phone's Gemma, when it has one (the S22).
         if (llm.isReady) {
-            lastVia = "on-device"
+            lastVia = withNote("on-device", cloudNote)
             val out = StringBuilder()
             // Rebuilt before every call, so identity and every saved memory are always current.
             llm.chat(systemPrompt(), IDENTITY_REMINDER + text, onRestart = { out.clear() }) { chunk ->
@@ -217,10 +222,13 @@ class XarvisAgent(
         }
         // No Gemma here (the benco) and the cloud didn't answer: ask the linked phone's Gemma.
         val peer = link.findBrain() ?: return noBrain()
-        lastVia = peer.name
+        lastVia = withNote(peer.name, cloudNote)
         onPartial("Asking ${peer.name}…")
         return remoteChat(peer, text) ?: noBrain()
     }
+
+    /** "on-device" plus the reason the cloud was skipped, if any: "on-device · cloud: Gemini 400". */
+    private fun withNote(via: String, note: String?): String = if (note == null) via else "$via · $note"
 
     /**
      * Whether this message may go to the cloud brain (Gemini). Mode B: general chats do, but

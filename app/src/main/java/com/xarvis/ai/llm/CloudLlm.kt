@@ -33,8 +33,8 @@ class CloudLlm(context: Context) {
 
     fun online(): Boolean = runCatching {
         val cm = appContext.getSystemService(ConnectivityManager::class.java) ?: return false
-        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
-        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        cm.activeNetwork?.let { cm.getNetworkCapabilities(it) }?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true ||
+            cm.allNetworks.any { cm.getNetworkCapabilities(it)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true }
     }.getOrDefault(false)
 
     /** Asks Gemini. Returns its text; throws [QuotaReached] on a 429, or another exception otherwise. */
@@ -60,7 +60,7 @@ class CloudLlm(context: Context) {
     private fun call(model: String, key: String, systemPrompt: String, message: String): String {
         val url = URL("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$key")
         val body = JSONObject()
-            .put("system_instruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt))))
+            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt))))
             .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", message)))))
             .put("generationConfig", JSONObject().put("maxOutputTokens", 1536).put("temperature", 0.7))
         val conn = (url.openConnection() as HttpURLConnection).apply {
@@ -78,7 +78,8 @@ class CloudLlm(context: Context) {
             if (code >= 400) {
                 val err = conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
                 Log.w(TAG, "Gemini $code: ${err.take(300)}")
-                throw IllegalStateException("Gemini error $code")
+                val why = Regex(""""message"\s*:\s*"([^"]{0,120})""").find(err)?.groupValues?.get(1)
+                throw IllegalStateException("Gemini $code" + (why?.let { ": $it" } ?: ""))
             }
             val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
             val parts = json.optJSONArray("candidates")?.optJSONObject(0)
