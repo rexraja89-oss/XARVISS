@@ -71,6 +71,13 @@ class AppNamesTest {
         assertEquals("YouTube", open("the youtube app"))
     }
 
+    @Test fun galleryPrefersSamsungOverGooglePhotos() {
+        // On the S22 both are installed; "gallery" must open Samsung Gallery, not Google Photos.
+        val withPhotos = phone + InstalledApp("Photos", "com.google.android.apps.photos")
+        assertEquals("Gallery", AppNames.best("gallery", withPhotos)?.label)
+        assertEquals("Gallery", AppNames.best("gallery", withPhotos.reversed())?.label)
+    }
+
     @Test fun unknownAppsAndWebApps() {
         assertNull(open("spotify"))
         assertEquals("https://altrad.olivehrms.com", AppNames.webApp("payslip"))

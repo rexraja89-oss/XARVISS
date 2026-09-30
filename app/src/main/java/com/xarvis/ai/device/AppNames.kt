@@ -59,12 +59,25 @@ object AppNames {
         val candidates = listOf(q) + ALIASES[q].orEmpty().map { if (it.contains('.')) it else normalize(it) }
         var bestApp: InstalledApp? = null
         var bestScore = 0
+        var bestRank = Int.MAX_VALUE
         for (app in apps) {
             val label = normalize(app.label)
-            val score = candidates.maxOf { c -> score(c, label, app.packageName) }
-            if (score > bestScore || (score == bestScore && score > 0 && label.length < normalize(bestApp!!.label).length)) {
+            // The best-scoring candidate for this app, and which candidate it was (its position).
+            var appScore = 0
+            var appRank = Int.MAX_VALUE
+            candidates.forEachIndexed { i, c ->
+                val s = score(c, label, app.packageName)
+                if (s > appScore) { appScore = s; appRank = i }
+            }
+            // Prefer a higher score; on a tie prefer the earlier-listed candidate (so "gallery" picks
+            // Samsung Gallery before Google Photos); only then the shorter app name.
+            val better = appScore > bestScore ||
+                (appScore == bestScore && appScore > 0 && appRank < bestRank) ||
+                (appScore == bestScore && appScore > 0 && appRank == bestRank && label.length < normalize(bestApp!!.label).length)
+            if (better) {
                 bestApp = app
-                bestScore = score
+                bestScore = appScore
+                bestRank = appRank
             }
         }
         return bestApp
