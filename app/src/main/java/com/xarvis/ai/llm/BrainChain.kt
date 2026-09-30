@@ -27,13 +27,23 @@ class BrainChain(context: Context) {
             "console.groq.com → API Keys. Free, no card.",
         ),
         OpenAiCompat(
-            appContext, "cerebras", "Cerebras", "https://api.cerebras.ai/v1",
-            listOf("llama-3.3-70b", "llama3.1-8b"),
-            "cloud.cerebras.ai → API Keys. Free, no card.",
+            appContext, "deepseek", "DeepSeek", "https://api.deepseek.com",
+            listOf("deepseek-chat", "deepseek-reasoner"),
+            "platform.deepseek.com → API keys. Small paid credit; excellent at coding.",
+        ),
+        OpenAiCompat(
+            appContext, "mistral", "Mistral", "https://api.mistral.ai/v1",
+            listOf("codestral-latest", "mistral-large-latest"),
+            "console.mistral.ai → API Keys. Free tier; Codestral is built for code.",
+        ),
+        OpenAiCompat(
+            appContext, "together", "Together", "https://api.together.xyz/v1",
+            listOf("Qwen/Qwen2.5-Coder-32B-Instruct", "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free"),
+            "api.together.ai → Settings → API Keys. Free credit; strong coding models.",
         ),
         OpenAiCompat(
             appContext, "openrouter", "OpenRouter", "https://openrouter.ai/api/v1",
-            listOf("meta-llama/llama-3.3-70b-instruct:free", "google/gemini-2.0-flash-exp:free"),
+            listOf("qwen/qwen-2.5-coder-32b-instruct:free", "meta-llama/llama-3.3-70b-instruct:free"),
             "openrouter.ai → Keys. Free models, no card.",
             mapOf("X-Title" to "XARVIS"),
         ),
