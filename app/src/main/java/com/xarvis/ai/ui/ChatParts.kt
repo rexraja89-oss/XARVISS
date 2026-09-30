@@ -201,6 +201,7 @@ fun SettingsMenu(
     onLoadVoice: () -> Unit, ownVoices: () -> String?, ownVoiceOn: () -> Boolean, onOwnVoice: (Boolean) -> Unit,
     onPermissions: () -> Unit, onActivityLog: () -> Unit, onFolders: () -> Unit,
     smartBrain: Boolean, smartDownload: ModelDownload, hasModel: Boolean, onSmartBrain: (Boolean) -> Unit,
+    modelDownload: ModelDownload, onDownloadModel: () -> Unit,
     cloudEnabled: Boolean, hasCloudKey: () -> Boolean, onCloud: (Boolean) -> Unit, onSaveKey: (String) -> Unit, onClearKey: () -> Unit,
     councilEnabled: Boolean, onCouncil: (Boolean) -> Unit,
     backups: () -> List<com.xarvis.ai.llm.BrainInfo>, onSaveBackup: (String, String) -> Unit, onClearBackup: (String) -> Unit,
@@ -226,6 +227,23 @@ fun SettingsMenu(
                     else -> "Gemma 4 E4B: about twice as smart, replies about half as fast. First time: a ~4 GB download."
                 }
                 BrainOption("Smart", detail, selected = smartBrain, enabled = enabled) { onSmartBrain(true) }
+            }
+            // No on-device model here (e.g. the benco): the download lives in the menu so it doesn't
+            // cover the chat. It's optional — the cloud brains and the linked phone already answer.
+            if (!hasModel) {
+                Text(
+                    "On-device AI (Gemma) — optional",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp),
+                )
+                Text(
+                    "For offline and fully-private answers on this phone. You already have the cloud brains and your linked phone, so this isn't required.",
+                    style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
+                )
+                Box(Modifier.padding(horizontal = 20.dp)) {
+                    com.xarvis.ai.ui.ModelSetup(modelDownload, onDownloadModel)
+                }
             }
             // Cloud works on any phone with internet (including the benco), so it's always shown.
             CloudBrain(cloudEnabled, hasCloudKey, onCloud, onSaveKey, onClearKey, councilEnabled, onCouncil)

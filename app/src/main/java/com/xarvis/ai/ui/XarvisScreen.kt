@@ -252,6 +252,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 smartBrain = state.smartBrain, smartDownload = state.smartDownload,
                 hasModel = state.llmStatus != LlmStatus.NotInstalled,
                 onSmartBrain = viewModel::setSmartBrain,
+                modelDownload = state.modelDownload, onDownloadModel = viewModel::downloadModel,
                 cloudEnabled = state.cloudEnabled, hasCloudKey = viewModel::cloudHasKey,
                 onCloud = viewModel::setCloud, onSaveKey = viewModel::saveCloudKey, onClearKey = viewModel::clearCloudKey,
                 councilEnabled = state.councilEnabled, onCouncil = viewModel::setCouncil,
@@ -300,7 +301,10 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
             ) { Text("UPDATE TO v$version") }
         }
         CapabilityRow(state.capabilities)
-        if (state.llmStatus == LlmStatus.NotInstalled) ModelSetup(state.modelDownload, viewModel::downloadModel)
+        // Only take space on the main panel while a download is actually running; otherwise the
+        // "download the model" prompt lives in ☰ → BRAIN so it doesn't cover the chat (Rex asked).
+        val downloading = state.modelDownload is ModelDownload.Running || state.modelDownload is ModelDownload.Waiting
+        if (state.llmStatus == LlmStatus.NotInstalled && downloading) ModelSetup(state.modelDownload, viewModel::downloadModel)
 
         // The code rain welcomes a new chat, then fades away with Rex's first command.
         val newChat = state.messages.none { it.fromUser }
@@ -457,7 +461,7 @@ private fun Header(
 
 /** Shown while this phone has no AI model: a button to download it, then its progress. */
 @Composable
-private fun ModelSetup(download: ModelDownload, onDownload: () -> Unit) {
+internal fun ModelSetup(download: ModelDownload, onDownload: () -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
