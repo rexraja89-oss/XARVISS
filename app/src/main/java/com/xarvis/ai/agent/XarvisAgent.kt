@@ -46,8 +46,6 @@ class XarvisAgent(
     private val settings = appContext.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE)
     /** The brain that answered the last message, for the "on-device / via Gemini" tag. */
     @Volatile private var lastVia: String? = null
-    /** This message's own words, for the cloud-privacy decision. */
-    @Volatile private var pendingUserMessage: String = ""
     /** Documents and photos are Rex's own data: they never go to the cloud. */
     @Volatile private var forceLocalThisTurn: Boolean = false
 
@@ -101,7 +99,6 @@ class XarvisAgent(
 
     /** Handles one message; [onPartial] receives the reply so far while Gemma is writing it. */
     suspend fun handle(message: String, onPartial: (String) -> Unit = {}): Reply {
-        pendingUserMessage = message
         forceLocalThisTurn = false
         val response = LinkCommands.parse(message, link.pairingInProgress)?.let { run(listOf(it)) } ?: askGemma(message, onPartial)
         memory.logInteraction(message, response.text, chatId)
@@ -231,15 +228,15 @@ class XarvisAgent(
     private fun withNote(via: String, note: String?): String = if (note == null) via else "$via · $note"
 
     /**
-     * Whether this message may go to the cloud brain (Gemini). Mode B: general chats do, but
-     * not with the 🔒 lock on, not documents/photos, and not anything that looks private.
+     * Whether this message may go to the cloud brain (Gemini). Rex controls privacy himself with
+     * the 🔒 lock; the cloud is used whenever it's on and not locked. Documents and photos still
+     * stay on-device (forceLocalThisTurn), and saved memories never leave the phone.
      */
     private fun useCloud(): Boolean =
         settings.getBoolean("cloudEnabled", false) &&
             !settings.getBoolean("privateLock", false) &&
             !forceLocalThisTurn &&
-            cloud.hasKey() && cloud.online() &&
-            !isSensitive(pendingUserMessage)
+            cloud.hasKey() && cloud.online()
 
     /** [message] is what Rex typed; [prompt] is what Gemma is sent (the message, or it with a file's text). */
     private suspend fun askGemma(message: String, onPartial: (String) -> Unit, prompt: String = message): Reply {
@@ -545,16 +542,6 @@ class XarvisAgent(
             }
             return callsFor(message, photosFor(message, adjusted))
         }
-
-        /** Rex asking for a photo ("open back camera and take a photo"): Gemma only opened the camera app once. */
-        private val SENSITIVE = Regex(
-            """(?i)\b(password|passcode|pass code|otp|one.?time|pin|cvv|2fa|bank|account number|card number|debit|credit card|iban|aadhaar|aadhar|passport|salary|income|medical|diagnosis|prescription|address|home address|girlfriend|wife|divorce|affair|loan|debt|secret)\b""",
-        )
-        private val LONG_CODE = Regex("""\d{5,}""")
-
-        /** Whether a message looks private enough to keep on the phone even with the cloud on. */
-        internal fun isSensitive(message: String): Boolean =
-            SENSITIVE.containsMatchIn(message) || LONG_CODE.containsMatchIn(message)
 
         private val WANTS_GALLERY = Regex("""(?i)\b(gallery|photos|pictures|pics|images)\b""")
 
