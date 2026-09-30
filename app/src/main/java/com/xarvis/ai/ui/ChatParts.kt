@@ -207,12 +207,12 @@ fun SettingsMenu(
     ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surface) {
         // It no longer shares the drawer with the chat list, so it scrolls.
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
-            // The brain only matters on a phone that runs one itself (not the benco).
+            Text(
+                "BRAIN", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp),
+            )
+            // Fast/Smart only matter on a phone that runs Gemma itself (the S22, not the benco).
             if (hasModel || smartBrain) {
-                Text(
-                    "BRAIN", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
-                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp),
-                )
                 BrainOption("Fast", "Gemma 4 E2B: quick answers.", selected = !smartBrain, enabled = enabled) { onSmartBrain(false) }
                 val detail = when (smartDownload) {
                     is ModelDownload.Running -> {
@@ -224,9 +224,10 @@ fun SettingsMenu(
                     else -> "Gemma 4 E4B: about twice as smart, replies about half as fast. First time: a ~4 GB download."
                 }
                 BrainOption("Smart", detail, selected = smartBrain, enabled = enabled) { onSmartBrain(true) }
-                CloudBrain(cloudEnabled, hasCloudKey, onCloud, onSaveKey, onClearKey)
-                HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
             }
+            // Cloud works on any phone with internet (including the benco), so it's always shown.
+            CloudBrain(cloudEnabled, hasCloudKey, onCloud, onSaveKey, onClearKey)
+            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
             Text(
                 "VOICE", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
                 modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp),

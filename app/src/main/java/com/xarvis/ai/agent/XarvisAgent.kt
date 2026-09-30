@@ -204,14 +204,22 @@ class XarvisAgent(
                 onPartial("Cloud unavailable — using the phone brain…")
             }
         }
-        lastVia = "on-device"
-        val out = StringBuilder()
-        // Rebuilt before every call, so identity and every saved memory are always current.
-        llm.chat(systemPrompt(), IDENTITY_REMINDER + text, onRestart = { out.clear() }) { chunk ->
-            out.append(chunk)
-            onPartial(ToolCalls.visibleText(FileBlocks.preview(out.toString())))
+        // This phone's Gemma, when it has one (the S22).
+        if (llm.isReady) {
+            lastVia = "on-device"
+            val out = StringBuilder()
+            // Rebuilt before every call, so identity and every saved memory are always current.
+            llm.chat(systemPrompt(), IDENTITY_REMINDER + text, onRestart = { out.clear() }) { chunk ->
+                out.append(chunk)
+                onPartial(ToolCalls.visibleText(FileBlocks.preview(out.toString())))
+            }
+            return out.toString()
         }
-        return out.toString()
+        // No Gemma here (the benco) and the cloud didn't answer: ask the linked phone's Gemma.
+        val peer = link.findBrain() ?: return noBrain()
+        lastVia = peer.name
+        onPartial("Asking ${peer.name}…")
+        return remoteChat(peer, text) ?: noBrain()
     }
 
     /**
@@ -228,15 +236,11 @@ class XarvisAgent(
     /** [message] is what Rex typed; [prompt] is what Gemma is sent (the message, or it with a file's text). */
     private suspend fun askGemma(message: String, onPartial: (String) -> Unit, prompt: String = message): Reply {
         brainReady(onPartial)
-        val brain = if (llm.isReady) null else link.findBrain() ?: return Reply(noBrain())
+        // chatHere routes: cloud (if allowed) → this phone's Gemma → a linked phone's Gemma.
+        // Only bail out early when none of those can answer at all.
+        if (!llm.isReady && !useCloud() && link.findBrain() == null) return Reply(noBrain())
         lastVia = null
-        suspend fun ask(text: String): String? = if (brain == null) {
-            chatHere(text, onPartial)
-        } else {
-            lastVia = brain.name
-            onPartial("Asking ${brain.name}…")
-            remoteChat(brain, text)
-        }
+        suspend fun ask(text: String): String? = chatHere(text, onPartial)
 
         val first = try {
             ask(prompt)
@@ -244,7 +248,7 @@ class XarvisAgent(
             if (t is CancellationException) throw t
             return Reply("My language model hit an error: ${t.message ?: t.javaClass.simpleName}")
         }
-        var raw = first ?: return Reply("I couldn't reach ${brain?.name}'s AI model. Check both phones have XARVIS and Tailscale on.")
+        var raw = first ?: return Reply(noBrain())
         // Gemma sometimes says it could use a tool ("I can use the location tool if you ask")
         // instead of using it. Nudge it once, the way "yes use it" worked for Rex.
         if (!usesTools(raw) && skippedTool(ToolCalls.visibleText(raw))) {
