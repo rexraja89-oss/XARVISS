@@ -61,7 +61,8 @@ object ToolCalls {
         arg(t, "webread|web read|read website|read the website|read page|read the page|read article|read the article|read link|read url|open url|fetch|read")
             ?.let { a -> urlIn(a)?.let { return Step.WebRead(it) } }
         arg(t, "lookup|look up|wikipedia|wiki")?.takeIf { it.isNotBlank() }?.let { return Step.Lookup(it) }
-        arg(t, "search|google|web search")?.takeIf { it.isNotBlank() }?.let { return Step.Search(it) }
+        arg(t, "websearch|web search|search web|search the web|search online|find online")?.takeIf { it.isNotBlank() }?.let { return Step.WebSearch(it) }
+        arg(t, "search|google")?.takeIf { it.isNotBlank() }?.let { return Step.Search(it) }
         arg(t, "recall|history|chat history|past chats|earlier chats|search chats")?.let { return Step.Recall(it.trim('"', '\'')) }
         arg(t, "memories|memory|my memories|list memories|what you remember")?.let { if (it.isBlank()) return Step.ListMemories }
         arg(t, "remember|save|note")?.takeIf { it.isNotBlank() }?.let { return Step.Remember(XarvisAgent.toSecondPerson(it)) }
