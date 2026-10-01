@@ -22,8 +22,8 @@ class JobsTest {
         val msg = "don't break anything just search in LinkedIn for any Painting Supervisor or Painting Superintendent requirements. where i can apply"
         val steps = XarvisAgent.forUser(msg, listOf(Step.Search("LinkedIn Painting Supervisor or Painting Superintendent requirements")))
         assertEquals(listOf(Step.Jobs("Painting Supervisor or Painting Superintendent")), steps)
-        // Not about jobs: the web search stays.
-        assertEquals(listOf(Step.Search("weather Dubai")), XarvisAgent.forUser("weather in Dubai", listOf(Step.Search("weather Dubai"))))
+        // Not about jobs: a plain search now answers in-app (Rex asked to see results here), not Google.
+        assertEquals(listOf(Step.WebSearch("weather Dubai")), XarvisAgent.forUser("weather in Dubai", listOf(Step.Search("weather Dubai"))))
     }
 
     @Test fun linkedInSearchesTheWholeWorld() {
