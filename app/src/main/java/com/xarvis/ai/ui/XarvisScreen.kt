@@ -278,21 +278,6 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
         ) {
             drawerScope.launch { drawer.open() }
         }
-        if (state.tailscaleOff) {
-            // Tailscale is how the phones reach each other away from home Wi-Fi.
-            OutlinedButton(
-                onClick = viewModel::turnOnTailscale,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("TAILSCALE IS OFF · TAP TO TURN ON", color = XarvisCyan)
-                    Text(
-                        "To keep it on for good: Settings → Connections → More connection settings → VPN → ⚙ next to Tailscale → Always-on VPN.",
-                        style = MaterialTheme.typography.labelSmall, color = XarvisMuted, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    )
-                }
-            }
-        }
         state.update?.let { version ->
             // One tap: Chrome downloads the new APK once; then Open, then Update.
             Button(

@@ -30,7 +30,6 @@ class XarvisViewModel(application: Application) : AndroidViewModel(application) 
 
     fun voiceLabel(hindi: Boolean) = core.voiceLabel(hindi)
 
-    fun turnOnTailscale() = core.turnOnTailscale()
 
     fun cloudHasKey() = core.cloudHasKey()
     fun saveCloudKey(key: String) = core.saveCloudKey(key)
