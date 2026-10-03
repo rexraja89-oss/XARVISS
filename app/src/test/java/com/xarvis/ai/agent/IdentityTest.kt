@@ -23,7 +23,8 @@ class IdentityTest {
         val prompt = XarvisAgent.buildPrompt(listOf("your name is Rex", "your car is red"))
         assertTrue(prompt.startsWith("You are XARVIS, a personal AI assistant created by Rex. " +
             "You run on-device on Rex's Samsung S22 Ultra. Never say you were made by Google."))
-        assertTrue(prompt.contains("Facts you know:\n- your name is Rex\n- your car is red\n"))
+        assertTrue(prompt.contains("Facts you know about Rex"))
+        assertTrue(prompt.contains("- your name is Rex\n- your car is red\n"))
         listOf("TOOL: time", "TOOL: remember", "TOOL: open", "TOOL: contact").forEach { assertTrue(it, prompt.contains(it)) }
     }
 }
