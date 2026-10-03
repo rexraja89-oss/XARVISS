@@ -39,12 +39,12 @@ class MemorySync(
 
     /** Every remembered fact, oldest first. */
     suspend fun facts(): List<String> = memory.allFacts().sortedBy { it.timestamp }.map { it.content }
+        .filterNot { Regex("""\d{6}""").matches(it.trim()) } // pairing codes once saved by mistake
 
     // Health record (kept local for now; not yet synced across devices).
     suspend fun addHealth(text: String) = memory.addHealth(text)
     suspend fun healthEntries() = memory.healthEntries()
     suspend fun clearHealth() = memory.clearHealth()
-        .filterNot { Regex("""\d{6}""").matches(it.trim()) } // pairing codes once saved by mistake
 
     suspend fun forgetEverything() {
         val now = System.currentTimeMillis()
