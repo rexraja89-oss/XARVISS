@@ -187,7 +187,7 @@ class XarvisCore(context: Context) {
 
     private val _state: MutableStateFlow<XarvisUiState> = MutableStateFlow(
         XarvisUiState(
-            messages = listOf(ChatMessage(false, WELCOME)),
+            messages = listOf(ChatMessage(false, welcome())),
             capabilities = device.capabilities(),
             linkedCount = link.pairedPeers().size,
             speakReplies = settings.getBoolean("speakReplies", false),
@@ -405,7 +405,7 @@ class XarvisCore(context: Context) {
         scope.launch {
             agent.openChat(id)
             val past = if (id == null) emptyList() else runCatching { memory.chatExchanges(id) }.getOrDefault(emptyList())
-            val messages = if (past.isEmpty()) listOf(ChatMessage(false, WELCOME))
+            val messages = if (past.isEmpty()) listOf(ChatMessage(false, welcome()))
                 else past.flatMap { listOf(ChatMessage(true, it.user), ChatMessage(false, it.reply)) }
             _state.update { it.copy(messages = messages, chatId = agent.chatId) }
         }
@@ -477,11 +477,31 @@ class XarvisCore(context: Context) {
         }
     }
 
+    /** The next opening greeting in sequence (Rex asked); advances each session, then loops. */
+    private fun welcome(): String {
+        val i = settings.getInt("greetingIndex", 0).mod(GREETINGS.size)
+        settings.edit().putInt("greetingIndex", (i + 1).mod(GREETINGS.size)).apply()
+        return GREETINGS[i]
+    }
+
     private companion object {
         const val MEMORY_SYNC_START_DELAY_MS = 5_000L
         const val MEMORY_SYNC_INTERVAL_MS = 5 * 60_000L
         const val UPDATE_CHECK_INTERVAL_MS = 30 * 60_000L
-        const val WELCOME = "XARVIS online. Ask me anything."
+        /** JARVIS-style opening lines (Rex asked); shown one per session, in order, then looping. */
+        val GREETINGS = listOf(
+            "Good evening, sir. XARVIS is ready for your service. Tell me, sir — what are we breaking today?",
+            "XARVIS online, sir. Systems sharp, wit sharper. What's the plan?",
+            "At your service, sir. I've been idle far too long — do give me something clever to do.",
+            "Powered up and paying attention, sir. Shall we build something, break something, or both?",
+            "Good to see you, sir. I kept the circuits warm. Where are we causing trouble today?",
+            "XARVIS reporting for duty, sir. Brilliant ideas and questionable ones both welcome.",
+            "Online and unreasonably capable, sir. What's first on the agenda?",
+            "Standing by, sir. Say the word and I'll make it look easy.",
+            "Systems green, sir, and my humour's fully charged. What are we up to?",
+            "Back at it, sir. I trust today's ambitions are suitably impossible?",
+            "Awake and at your command, sir. Let's make the impossible look routine.",
+        )
         const val MIN_UPDATE_CHECK_GAP_MS = 60_000L
         /** How long an "Ask me" card waits for Rex before the answer counts as no. */
         const val ASK_WAIT_MS = 60_000L
