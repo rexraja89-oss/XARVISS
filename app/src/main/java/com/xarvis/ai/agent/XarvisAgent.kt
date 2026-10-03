@@ -198,8 +198,9 @@ class XarvisAgent(
         if (useCloud()) {
             try {
                 onPartial("Thinking…")
-                // The cloud prompt carries NO saved memories: Rex's facts never leave the phone.
-                val sys = buildPrompt(emptyList())
+                // Rex chose "only what I mark remember": the cloud brain gets his saved FACTS (so it
+                // can recall them like ChatGPT), but never his raw chat history. Off → no memory sent.
+                val sys = if (cloudMemory()) buildPrompt(facts()) else buildPrompt(emptyList())
                 val msg = IDENTITY_REMINDER + text
                 val answer = if (councilEnabled()) {
                     cloud.council(sys, msg) { stage -> onPartial(stage) }
@@ -254,6 +255,9 @@ class XarvisAgent(
 
     /** AI council on: a second AI reviews and improves the cloud answer before Rex sees it. */
     private fun councilEnabled(): Boolean = settings.getBoolean("council", false)
+
+    /** Send Rex's saved "remember" facts to the cloud brain so it recalls them (his choice; default on). */
+    private fun cloudMemory(): Boolean = settings.getBoolean("cloudMemory", true)
 
     /** [message] is what Rex typed; [prompt] is what Gemma is sent (the message, or it with a file's text). */
     private suspend fun askGemma(message: String, onPartial: (String) -> Unit, prompt: String = message): Reply {
@@ -532,7 +536,7 @@ class XarvisAgent(
         internal fun buildPrompt(facts: List<String>, history: String = ""): String = buildString {
             append(SYSTEM_PROMPT)
             if (facts.isNotEmpty()) {
-                append("\n\nFacts you know:\n")
+                append("\n\nFacts you know about Rex (use them to personalise your answers when relevant — his health, work, family, preferences — and bring them up naturally when they matter):\n")
                 facts.forEach { append("- $it\n") }
             }
             if (history.isNotBlank()) append("\n\n").append(history)

@@ -42,6 +42,7 @@ class XarvisViewModel(application: Application) : AndroidViewModel(application) 
     fun clearBraveKey() = core.clearBraveKey()
     fun setCloud(on: Boolean) = core.setCloud(on)
     fun setCouncil(on: Boolean) = core.setCouncil(on)
+    fun setCloudMemory(on: Boolean) = core.setCloudMemory(on)
     fun togglePrivateLock() = core.togglePrivateLock()
 
     fun cameraOpened() = core.cameraOpened()

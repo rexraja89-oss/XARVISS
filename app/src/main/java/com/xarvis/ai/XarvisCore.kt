@@ -81,6 +81,8 @@ data class XarvisUiState(
     val privateLock: Boolean = false,
     /** AI council: a second AI reviews and improves each cloud answer. */
     val councilEnabled: Boolean = false,
+    /** The cloud brain may use Rex's saved "remember" facts (his choice; default on). */
+    val cloudMemory: Boolean = true,
 )
 
 data class CameraRequest(val selfie: Boolean, val id: Long = System.nanoTime())
@@ -194,6 +196,7 @@ class XarvisCore(context: Context) {
             cloudEnabled = settings.getBoolean("cloudEnabled", false),
             privateLock = settings.getBoolean("privateLock", false),
             councilEnabled = settings.getBoolean("council", false),
+            cloudMemory = settings.getBoolean("cloudMemory", true),
         )
     )
     val state: StateFlow<XarvisUiState> = _state.asStateFlow()
@@ -443,6 +446,11 @@ class XarvisCore(context: Context) {
     fun setCouncil(on: Boolean) {
         settings.edit().putBoolean("council", on).apply()
         _state.update { it.copy(councilEnabled = on) }
+    }
+    /** Let the cloud brain use Rex's saved "remember" facts (so it recalls them like ChatGPT). */
+    fun setCloudMemory(on: Boolean) {
+        settings.edit().putBoolean("cloudMemory", on).apply()
+        _state.update { it.copy(cloudMemory = on) }
     }
     /** 🔒: force on-device only for a while, even with the cloud on. */
     fun togglePrivateLock() {

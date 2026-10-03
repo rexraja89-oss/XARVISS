@@ -204,6 +204,7 @@ fun SettingsMenu(
     modelDownload: ModelDownload, onDownloadModel: () -> Unit,
     cloudEnabled: Boolean, hasCloudKey: () -> Boolean, onCloud: (Boolean) -> Unit, onSaveKey: (String) -> Unit, onClearKey: () -> Unit,
     councilEnabled: Boolean, onCouncil: (Boolean) -> Unit,
+    cloudMemory: Boolean, onCloudMemory: (Boolean) -> Unit,
     backups: () -> List<com.xarvis.ai.llm.BrainInfo>, onSaveBackup: (String, String) -> Unit, onClearBackup: (String) -> Unit,
     braveHasKey: () -> Boolean, onSaveBrave: (String) -> Unit, onClearBrave: () -> Unit,
     voiceLabel: (Boolean) -> String, onNextVoice: (Boolean) -> String,
@@ -247,7 +248,7 @@ fun SettingsMenu(
                 }
             }
             // Cloud works on any phone with internet (including the benco), so it's always shown.
-            CloudBrain(cloudEnabled, hasCloudKey, onCloud, onSaveKey, onClearKey, councilEnabled, onCouncil)
+            CloudBrain(cloudEnabled, hasCloudKey, onCloud, onSaveKey, onClearKey, councilEnabled, onCouncil, cloudMemory, onCloudMemory)
             if (cloudEnabled) BackupBrains(backups, onSaveBackup, onClearBackup)
             WebSearchKey(braveHasKey, onSaveBrave, onClearBrave)
             HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
@@ -475,12 +476,14 @@ private fun CloudBrain(
     cloudEnabled: Boolean, hasCloudKey: () -> Boolean,
     onCloud: (Boolean) -> Unit, onSaveKey: (String) -> Unit, onClearKey: () -> Unit,
     councilEnabled: Boolean, onCouncil: (Boolean) -> Unit,
+    cloudMemory: Boolean, onCloudMemory: (Boolean) -> Unit,
 ) {
     var enabled by remember { mutableStateOf(cloudEnabled) }
     var hasKey by remember { mutableStateOf(hasCloudKey()) }
     var showKey by remember { mutableStateOf(false) }
     var key by remember { mutableStateOf("") }
     var council by remember { mutableStateOf(councilEnabled) }
+    var memory by remember { mutableStateOf(cloudMemory) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -537,6 +540,16 @@ private fun CloudBrain(
                     )
                 }
                 Switch(checked = council, onCheckedChange = { council = it; onCouncil(it) })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text("Remember me on the cloud", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "The cloud brain uses the facts you saved with \"remember\" so it recalls them (like ChatGPT). Only those saved facts are shared — not your whole chat history. The 🔒 lock stops it anytime.",
+                        style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+                    )
+                }
+                Switch(checked = memory, onCheckedChange = { memory = it; onCloudMemory(it) })
             }
         }
     }
