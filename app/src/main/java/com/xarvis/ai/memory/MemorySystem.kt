@@ -138,6 +138,20 @@ class MemorySystem(context: Context) {
     suspend fun chatExchanges(id: String): List<Exchange> =
         dao.allByCategory(CATEGORY_INTERACTION).mapNotNull(::exchange).filter { it.chat == id }.sortedBy { it.time }
 
+    // ---- Health record: a persistent, growing medical history, kept apart from ordinary facts. ----
+    /** Adds one dated entry to the health record. */
+    suspend fun addHealth(text: String, timestamp: Long = System.currentTimeMillis()) {
+        dao.insert(MemoryEntry(category = CATEGORY_HEALTH, content = text, timestamp = timestamp))
+    }
+
+    /** Every health entry, oldest first. */
+    suspend fun healthEntries(): List<MemoryEntry> = dao.allByCategory(CATEGORY_HEALTH).sortedBy { it.timestamp }
+
+    suspend fun healthCount(): Int = dao.countOf(CATEGORY_HEALTH)
+
+    /** Deletes the whole health record. */
+    suspend fun clearHealth() = dao.deleteOlder(CATEGORY_HEALTH, System.currentTimeMillis() + 1)
+
     /** Remembered facts (not chat history). */
     suspend fun factCount(): Int = dao.countOf(CATEGORY_FACT)
 
@@ -149,5 +163,6 @@ class MemorySystem(context: Context) {
         const val DATABASE_NAME = "xarvis_memory.db"
         const val CATEGORY_FACT = "fact"
         const val CATEGORY_INTERACTION = "interaction"
+        const val CATEGORY_HEALTH = "health"
     }
 }

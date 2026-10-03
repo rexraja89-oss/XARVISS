@@ -53,6 +53,8 @@ class XarvisAgent(
     @Volatile private var forceLocalThisTurn: Boolean = false
     /** This message is a product/shopping query: answer with live web specs, prices and pictures. */
     @Volatile private var productThisTurn: Boolean = false
+    /** Rex's health record, included in the prompt for this turn only when he asks a health question. */
+    @Volatile private var healthContextThisTurn: String = ""
 
     /** The chat Rex is in (each opening of XARVIS starts a new one; the ☰ menu reopens old ones). */
     var chatId: String = newChatId()
@@ -106,7 +108,12 @@ class XarvisAgent(
     suspend fun handle(message: String, onPartial: (String) -> Unit = {}): Reply {
         forceLocalThisTurn = false
         productThisTurn = false
-        val response = LinkCommands.parse(message, link.pairingInProgress)?.let { run(listOf(it)) } ?: askGemma(message, onPartial)
+        // For a health question, give the brain Rex's health record as context (health commands handle themselves).
+        healthContextThisTurn = if (HEALTH_Q.containsMatchIn(message)) runCatching { healthRecord() }.getOrDefault("") else ""
+        val response =
+            HealthCommands.parse(message)?.let { run(listOf(it)) }
+                ?: LinkCommands.parse(message, link.pairingInProgress)?.let { run(listOf(it)) }
+                ?: askGemma(message, onPartial)
         memory.logInteraction(message, response.text, chatId)
         return response
     }
@@ -118,6 +125,7 @@ class XarvisAgent(
     suspend fun handleDocument(doc: Document, message: String, onPartial: (String) -> Unit = {}): Reply {
         forceLocalThisTurn = true // a file is Rex's own data: keep it on the phone
         productThisTurn = false
+        healthContextThisTurn = ""
         lastDocument = doc
         val question = message.ifBlank { "Summarise this file: what is it, and what are the main points?" }
         brainReady(onPartial)
@@ -140,6 +148,7 @@ class XarvisAgent(
     suspend fun handlePhoto(imagePath: String, message: String, onPartial: (String) -> Unit = {}): Reply {
         forceLocalThisTurn = true // a photo is Rex's own data: keep it on the phone
         productThisTurn = false
+        healthContextThisTurn = ""
         val question = message.ifBlank { "Describe this photo in detail and explain everything in it." }
         brainReady(onPartial)
         val response = if (llm.isReady) photoHere(imagePath, message, question, onPartial)
@@ -199,8 +208,8 @@ class XarvisAgent(
             try {
                 onPartial("Thinking…")
                 // Rex chose "only what I mark remember": the cloud brain gets his saved FACTS (so it
-                // can recall them like ChatGPT), but never his raw chat history. Off → no memory sent.
-                val sys = if (cloudMemory()) buildPrompt(facts()) else buildPrompt(emptyList())
+                // can recall them like ChatGPT), plus his health record for health questions. Off → none.
+                val sys = if (cloudMemory()) buildPrompt(facts(), health = healthContextThisTurn) else buildPrompt(emptyList())
                 val msg = IDENTITY_REMINDER + text
                 val answer = if (councilEnabled()) {
                     cloud.council(sys, msg) { stage -> onPartial(stage) }
@@ -518,7 +527,15 @@ class XarvisAgent(
         return newestFirst.takeWhile { used += it.length + 3; used <= MAX_FACT_CHARS }.reversed()
     }
 
-    private suspend fun systemPrompt(): String = buildPrompt(facts(), history)
+    private suspend fun systemPrompt(): String = buildPrompt(facts(), history, healthContextThisTurn)
+
+    /** Rex's health record as text for the prompt, newest kept if it's very long; "" if empty. */
+    private suspend fun healthRecord(): String {
+        val entries = runCatching { memory.healthEntries() }.getOrDefault(emptyList())
+        if (entries.isEmpty()) return ""
+        val full = entries.joinToString("\n\n") { it.content.trim() }
+        return if (full.length <= HEALTH_MAX_CHARS) full else "…(older entries omitted)…\n\n" + full.takeLast(HEALTH_MAX_CHARS)
+    }
 
     /** Earlier chats matching [query] (the latest ones if it's blank), as text for Gemma. */
     private suspend fun recall(query: String): String {
@@ -533,14 +550,24 @@ class XarvisAgent(
     }
 
     companion object {
-        internal fun buildPrompt(facts: List<String>, history: String = ""): String = buildString {
+        internal fun buildPrompt(facts: List<String>, history: String = "", health: String = ""): String = buildString {
             append(SYSTEM_PROMPT)
             if (facts.isNotEmpty()) {
                 append("\n\nFacts you know about Rex (use them to personalise your answers when relevant — his health, work, family, preferences — and bring them up naturally when they matter):\n")
                 facts.forEach { append("- $it\n") }
             }
+            if (health.isNotBlank()) {
+                append("\n\nRex's health record (use it when giving health, diet, fitness or lifestyle advice — tailor advice to it and flag anything that could affect his conditions; never invent medical facts, and this is not a substitute for a doctor):\n")
+                append(health).append("\n")
+            }
             if (history.isNotBlank()) append("\n\n").append(history)
         }
+
+        /** A health/medical/diet question: Rex's health record is added to the prompt for it. */
+        private val HEALTH_Q = Regex(
+            """(?i)\b(health|healthy|medical|medicine|doctor|symptom|diet|nutrition|calorie|eat|eating|food|meal|drink|sugar|glucose|diabet|insulin|liver|fatty|kidney|weight|lose weight|obese|bmi|sleep|insomnia|pain|ache|reflux|acid|stomach|bowel|stool|constipat|fissure|itch|rash|bite|infection|uti|urine|blood pressure|cholesterol|fast(?:ing)?|exercise|workout|fit(?:ness)?|protein|carb|fat\b|egg|supplement|vitamin)\b""",
+        )
+        private const val HEALTH_MAX_CHARS = 6000
 
         private const val HISTORY_EXCHANGES = 8
         private const val RECENT_CHAT_TOPICS = 5
@@ -723,6 +750,9 @@ class XarvisAgent(
             TOOL: time
             TOOL: remember <fact>
             TOOL: memories   (lists everything you remember)
+            TOOL: health add <medical info with its date>   (adds to Rex's persistent health record — use it when he shares a new symptom, measurement, test result or diagnosis)
+            TOOL: health   (shows Rex's health record)
+            TOOL: health export   (saves the health record as a file he can share with a doctor)
             TOOL: recall <words>   (searches all your earlier chats with Rex, also from before a restart; with no words, the latest ones)
             TOOL: open <app name>
             TOOL: contact <person's name>
@@ -762,6 +792,8 @@ class XarvisAgent(
             User: kitne baje hain -> TOOL: time
             User: what do you remember about me? -> TOOL: memories
             User: do you remember everything I told you since I made you? -> TOOL: memories
+            User: my fasting sugar today was 128 -> TOOL: health add Fasting blood glucose 128 mg/dL (self-reported measurement)
+            User: show my health record -> TOOL: health
             User: what did I ask you about Gandhi yesterday? -> TOOL: recall Gandhi
             User: what was my 4th last command? -> TOOL: recall
             User: remember my sister's name is Sara -> TOOL: remember my sister's name is Sara

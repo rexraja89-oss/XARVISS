@@ -71,6 +71,16 @@ sealed interface Step {
     data class Recall(val query: String) : Step
     /** List everything XARVIS remembers. */
     data object ListMemories : Step
+
+    // Health record: a persistent, growing medical history (Rex asked for ChatGPT-like health memory).
+    /** Add [text] as a dated entry in Rex's health record. */
+    data class HealthAdd(val text: String) : Step
+    /** Show the whole health record. */
+    data object HealthShow : Step
+    /** Save the health record as a file to share (e.g. with a doctor). */
+    data object HealthExport : Step
+    /** Delete the whole health record. */
+    data object HealthClear : Step
     /** Turn the file Rex attached into [format] (pdf, docx, xlsx, txt...); the agent fills it in. */
     data class ConvertFile(val format: String) : Step
     /** Open the camera ready to shoot ([selfie]: the front one); the photo comes back into the chat. */
@@ -243,6 +253,29 @@ class WorkflowEngine(
                     "\n\nI also remember our conversations, even after XARVIS restarts: ask me about anything we talked about.",
             )
         }
+        is Step.HealthAdd -> {
+            memorySync.addHealth(step.text.trim())
+            StepResult(true, "✓ Added to your health record (saved on your phone).")
+        }
+        Step.HealthShow -> {
+            val record = healthText(memorySync.healthEntries())
+            if (record.isBlank()) StepResult(true, "Your health record is empty. Add to it with \"add to my health record: …\".")
+            else StepResult(true, "Your health record:\n\n$record")
+        }
+        Step.HealthExport -> {
+            val record = healthText(memorySync.healthEntries())
+            if (record.isBlank()) StepResult(false, "Your health record is empty, so there's nothing to export yet.")
+            else try {
+                val saved = files.save(com.xarvis.ai.files.FileBlock("My Health Record.pdf", "My Health Record\n\n$record"))
+                StepResult(true, "I saved your health record as ${saved.name} (Downloads › XARVIS). Tap OPEN or SHARE.", listOf(saved))
+            } catch (e: Exception) {
+                StepResult(false, "I couldn't export it: ${e.message ?: e.javaClass.simpleName}")
+            }
+        }
+        Step.HealthClear -> {
+            memorySync.clearHealth()
+            StepResult(true, "Your health record has been deleted.")
+        }
         is Step.ConvertFile -> StepResult(false, "Attach the file first: tap + and choose File, then ask me to convert it.")
         is Step.MakeFile -> try {
             val saved = files.save(step.block)
@@ -307,6 +340,10 @@ class WorkflowEngine(
      * search web page (which Android opens in the app); otherwise opens the app with the words
      * copied, ready to paste into its search box.
      */
+    /** The health record as readable text, oldest entry first. */
+    private fun healthText(entries: List<com.xarvis.ai.memory.MemoryEntry>): String =
+        entries.joinToString("\n\n") { it.content.trim() }
+
     private fun findInApp(appName: String, query: String): StepResult {
         val app = device.findApp(appName)
         val q = Uri.encode(query)

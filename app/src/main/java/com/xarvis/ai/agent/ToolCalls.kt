@@ -66,6 +66,10 @@ object ToolCalls {
         arg(t, "search|google")?.takeIf { it.isNotBlank() }?.let { return Step.Search(it) }
         arg(t, "recall|history|chat history|past chats|earlier chats|search chats")?.let { return Step.Recall(it.trim('"', '\'')) }
         arg(t, "memories|memory|my memories|list memories|what you remember")?.let { if (it.isBlank()) return Step.ListMemories }
+        arg(t, "health add|add health|health note|note health")?.takeIf { it.isNotBlank() }?.let { return Step.HealthAdd(it) }
+        arg(t, "health export|export health")?.let { return Step.HealthExport }
+        arg(t, "health clear|clear health|health delete|delete health")?.let { return Step.HealthClear }
+        arg(t, "health|health record|show health|health history|my health")?.let { if (it.isBlank()) return Step.HealthShow else return Step.HealthAdd(it) }
         arg(t, "remember|save|note")?.takeIf { it.isNotBlank() }?.let { return Step.Remember(XarvisAgent.toSecondPerson(it)) }
         arg(t, "open|launch|open app")?.takeIf { it.isNotBlank() }?.let { return Step.LaunchApp(it.removeSuffix(" app").trim()) }
         arg(t, "contact|find contact|find_contact|number|phone")?.let { name ->
@@ -160,4 +164,20 @@ object LinkCommands {
 
     private fun find(text: String, pattern: String): String? =
         Regex(pattern, RegexOption.IGNORE_CASE).find(text)?.groupValues?.get(1)?.trim()
+}
+
+/**
+ * Rex's health-record commands, parsed deterministically (not left to the brain) so adding,
+ * showing, exporting and deleting his medical history always works exactly as said.
+ */
+object HealthCommands {
+    fun parse(message: String): Step? {
+        val t = message.trim().trimEnd('.', '!', '?')
+        Regex("""(?i)^(?:add (?:to|in)|note (?:in|to)|update) (?:my )?health(?: record| history)?\s*[:\-]?\s*(.+)$""", RegexOption.DOT_MATCHES_ALL)
+            .find(t)?.let { return Step.HealthAdd(it.groupValues[1].trim()) }
+        if (Regex("""(?i)^(?:export|download|save|share|pdf of) (?:my )?health(?: record| history)?$""").matches(t)) return Step.HealthExport
+        if (Regex("""(?i)^(?:delete|clear|erase|reset|remove) (?:my )?health(?: record| history)$""").matches(t)) return Step.HealthClear
+        if (Regex("""(?i)^(?:show|view|open|see|what(?:'s| is) in)?\s*(?:my )?health(?: record| history)$""").matches(t)) return Step.HealthShow
+        return null
+    }
 }
