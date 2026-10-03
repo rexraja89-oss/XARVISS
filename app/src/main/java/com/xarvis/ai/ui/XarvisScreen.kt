@@ -21,6 +21,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -545,6 +546,10 @@ private fun MessageBubble(message: ChatMessage, thinking: Boolean) {
                 }
             }
             message.attachment?.let { name -> FileLine(name) }
+            // Pictures XARVIS fetched go in a neat grid at the top (like ChatGPT), not stacked cards.
+            val photos = message.files.filter { it.mime.startsWith("image/") }
+            val otherFiles = message.files.filter { !it.mime.startsWith("image/") }
+            if (photos.size >= 2) PhotoGrid(photos)
             // SelectionContainer lets Rex long-press to select and copy XARVIS's text (he asked).
             SelectionContainer {
                 Text(
@@ -553,7 +558,9 @@ private fun MessageBubble(message: ChatMessage, thinking: Boolean) {
                     color = if (message.text.isEmpty()) XarvisMuted else MaterialTheme.colorScheme.onSurface,
                 )
             }
-            message.files.forEach { FileCard(it) }
+            // A single picture still shows as a card; 2+ are in the grid above.
+            if (photos.size < 2) photos.forEach { FileCard(it) }
+            otherFiles.forEach { FileCard(it) }
             // Where the answer came from, so Rex always sees if anything went to the cloud.
             message.via?.takeIf { !message.fromUser && message.text.isNotEmpty() }?.let { via ->
                 Text(
@@ -581,6 +588,33 @@ private fun FileLine(name: String) {
         Image(painterResource(R.drawable.ic_file), contentDescription = null, modifier = Modifier.size(22.dp))
         Spacer(Modifier.size(6.dp))
         Text(name, style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+    }
+}
+
+/** A compact 2-up grid of fetched pictures (tap to open full-size), like ChatGPT's photo strip. */
+@Composable
+private fun PhotoGrid(photos: List<SavedFile>) {
+    val context = LocalContext.current
+    Column(Modifier.padding(top = 4.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        photos.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                row.forEach { file ->
+                    val bitmap = remember(file.uri) { loadThumbnail(context, file.uri) }
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { openFile(context, file) },
+                    ) {
+                        if (bitmap != null) {
+                            Image(bitmap, file.name, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        }
+                    }
+                }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
     }
 }
 
