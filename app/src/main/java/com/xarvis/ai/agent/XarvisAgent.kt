@@ -43,6 +43,9 @@ class XarvisAgent(
 
     /** The cloud brains (Gemini + backups, in a fallback chain); off until Rex adds a key in ☰ → BRAIN. */
     private val cloud = com.xarvis.ai.llm.BrainChain(appContext)
+    /** Reads Rex's Brave Search key (if any), the primary web-search source. */
+    private val searchKeys = com.xarvis.ai.llm.BrainKeys(appContext)
+    private fun braveKey(): String? = searchKeys.get(com.xarvis.ai.llm.BrainKeys.BRAVE)
     private val settings = appContext.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE)
     /** The brain that answered the last message, for the "on-device / via Gemini" tag. */
     @Volatile private var lastVia: String? = null
@@ -343,7 +346,12 @@ class XarvisAgent(
         val found = mutableListOf<String>()
         for (l in lookups.take(2)) found += "Wikipedia on \"${l.query}\":\n" + WebLookup.lookup(l.query)
         for (w in webreads.take(1)) found += com.xarvis.ai.tools.WebRead.read(w.url)
-        for (s in websearches.take(1)) found += "Web search for \"${s.query}\":\n" + com.xarvis.ai.tools.WebSearch.search(s.query)
+        for (s in websearches.take(1)) {
+            // Brave (keyed, reliable) first; fall back to DuckDuckGo scraping if there's no key or it's empty.
+            val brave = braveKey()?.let { com.xarvis.ai.tools.BraveSearch.web(s.query, it) }?.ifBlank { null }
+            val results = brave ?: com.xarvis.ai.tools.WebSearch.search(s.query)
+            found += "Web search for \"${s.query}\":\n" + results
+        }
         for (r in recalls.take(2)) found += recall(r.query)
         for (q in searches.take(1)) {
             val result = engine.guarded(q) { searchPhone(q.query, onPartial) }
@@ -368,9 +376,13 @@ class XarvisAgent(
             CameraShots.saveReceived(appContext, "${query.take(24).trim()}-${saved.size + 1}.jpg", bytes, "web")
                 ?.let { saved += it }
         }
-        // Wikipedia first: reliable on the phone and gives a real product photo.
-        for (url in runCatching { com.xarvis.ai.tools.WebLookup.imagesFor(query, 3) }.getOrDefault(emptyList())) add(url)
-        // Then a web image search to top up (best-effort; may be blocked/empty).
+        // Brave (keyed, reliable) first when Rex added a key.
+        braveKey()?.let { key ->
+            for (url in com.xarvis.ai.tools.BraveSearch.images(query, key)) add(url)
+        }
+        // Wikipedia next: reliable on the phone and gives a real product photo.
+        if (saved.size < 4) for (url in runCatching { com.xarvis.ai.tools.WebLookup.imagesFor(query, 3) }.getOrDefault(emptyList())) add(url)
+        // Then a DuckDuckGo image search to top up (best-effort; may be blocked/empty).
         if (saved.size < 4) for ((image, thumb) in com.xarvis.ai.tools.WebImages.search(query, 6)) {
             if (saved.size >= 4) break
             val before = saved.size

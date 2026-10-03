@@ -62,6 +62,7 @@ class BrainKeys(context: Context) {
 
     companion object {
         const val GEMINI = "gemini"
+        const val BRAVE = "brave"
         private const val ALIAS = "xarvis_brain_keys"
         private const val TRANSFORM = "AES/GCM/NoPadding"
     }

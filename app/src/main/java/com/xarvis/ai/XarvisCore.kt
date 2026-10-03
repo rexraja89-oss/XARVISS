@@ -430,6 +430,11 @@ class XarvisCore(context: Context) {
     fun backupBrains(): List<com.xarvis.ai.llm.BrainInfo> = cloudLlm.backups()
     fun saveBackupKey(id: String, key: String) { cloudLlm.saveBackupKey(id, key) }
     fun clearBackupKey(id: String) { cloudLlm.clearBackupKey(id) }
+    /** Brave Search key: the primary web-search source for live results and pictures. */
+    private val searchKeys = com.xarvis.ai.llm.BrainKeys(appContext)
+    fun braveHasKey(): Boolean = searchKeys.has(com.xarvis.ai.llm.BrainKeys.BRAVE)
+    fun saveBraveKey(key: String) { searchKeys.save(com.xarvis.ai.llm.BrainKeys.BRAVE, key) }
+    fun clearBraveKey() { searchKeys.clear(com.xarvis.ai.llm.BrainKeys.BRAVE) }
     fun setCloud(on: Boolean) {
         settings.edit().putBoolean("cloudEnabled", on).apply()
         _state.update { it.copy(cloudEnabled = on) }
