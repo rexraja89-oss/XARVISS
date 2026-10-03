@@ -297,6 +297,8 @@ class XarvisAgent(
             productThisTurn = true
             val parsed = ToolCalls.parse(raw)
             if (parsed.none { it is Step.WebSearch }) raw += "\nTOOL: websearch $query specifications price"
+            // Wikipedia too: reliable on the phone, so there are real facts even if web search is blocked.
+            if (parsed.none { it is Step.Lookup }) raw += "\nTOOL: lookup $query"
             if (parsed.none { it is Step.WebImages }) raw += "\nTOOL: images $query"
         }
         raw = withLookups(raw, onPartial) { ask(it) }
@@ -357,16 +359,23 @@ class XarvisAgent(
         return answer?.takeIf { ToolCalls.visibleText(it).isNotBlank() } ?: facts
     }
 
-    /** Searches the web for pictures of [query] and saves a few to show in the chat. */
+    /** Finds pictures of [query] and saves a few to show in the chat. */
     private suspend fun fetchImages(query: String): List<SavedFile> {
-        val urls = com.xarvis.ai.tools.WebImages.search(query, 6)
         val saved = mutableListOf<SavedFile>()
-        for ((image, thumb) in urls) {
-            if (saved.size >= 4) break
-            val bytes = com.xarvis.ai.tools.WebImages.download(image)
-                ?: com.xarvis.ai.tools.WebImages.download(thumb) ?: continue
+        suspend fun add(url: String?) {
+            if (url == null || saved.size >= 4) return
+            val bytes = com.xarvis.ai.tools.WebImages.download(url) ?: return
             CameraShots.saveReceived(appContext, "${query.take(24).trim()}-${saved.size + 1}.jpg", bytes, "web")
                 ?.let { saved += it }
+        }
+        // Wikipedia first: reliable on the phone and gives a real product photo.
+        for (url in runCatching { com.xarvis.ai.tools.WebLookup.imagesFor(query, 3) }.getOrDefault(emptyList())) add(url)
+        // Then a web image search to top up (best-effort; may be blocked/empty).
+        if (saved.size < 4) for ((image, thumb) in com.xarvis.ai.tools.WebImages.search(query, 6)) {
+            if (saved.size >= 4) break
+            val before = saved.size
+            add(image)
+            if (saved.size == before) add(thumb)
         }
         return saved
     }
@@ -555,10 +564,12 @@ class XarvisAgent(
             "• one short intro line;\n" +
             "• the key specs, each on its own line as 'Spec: value' — Processor, RAM, Storage, Display, " +
             "Refresh rate, Main camera, Battery, Charging, OS, and anything notable;\n" +
-            "• a line starting 'Price:' with the current price/range;\n" +
+            "• a line starting 'Price:' with the current price/range (if the data doesn't give it, give " +
+            "your best estimate in the right currency and mark it 'approx.');\n" +
             "• 2–4 short lines of honest assessment (what it's good at, what to watch out for).\n" +
-            "Use ONLY the facts below — do not invent numbers or prices; if something isn't in the data, say " +
-            "'not listed'. Pictures are shown separately, so don't describe them. Keep it tidy and skimmable.)\n\n"
+            "For the hard specs use the facts below and don't invent them; if a spec isn't in the data and " +
+            "you aren't sure, say 'not listed'. Prefer INR (₹) for an Indian buyer. Pictures are shown " +
+            "separately, so don't describe them. Keep it tidy and skimmable.)\n\n"
 
         // A product/shopping question: live specs, prices and pictures beat the brain's stale memory.
         private val PRODUCT_SIGNALS = Regex(

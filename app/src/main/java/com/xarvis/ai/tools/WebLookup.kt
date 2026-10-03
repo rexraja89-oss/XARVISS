@@ -45,6 +45,26 @@ object WebLookup {
         return "${o.optString("title")}: $extract"
     }
 
+    /**
+     * Real product/subject photos from Wikipedia (reliable on the phone; the `lookup` path already
+     * uses Wikipedia). Searches for [query] and returns the lead image of the top [count] matches.
+     */
+    suspend fun imagesFor(query: String, count: Int = 2): List<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val titles = searchTitles(get(SEARCH + URLEncoder.encode(query, "UTF-8")))
+            titles.take(count + 1).mapNotNull { title ->
+                runCatching { imageIn(get(SUMMARY + URLEncoder.encode(title.replace(' ', '_'), "UTF-8"))) }.getOrNull()
+            }.distinct().take(count)
+        }.getOrDefault(emptyList())
+    }
+
+    /** The lead image URL in a Wikipedia page-summary response (original preferred), or null. */
+    fun imageIn(json: String): String? {
+        val o = JSONObject(json)
+        return o.optJSONObject("originalimage")?.optString("source")?.ifBlank { null }
+            ?: o.optJSONObject("thumbnail")?.optString("source")?.ifBlank { null }
+    }
+
     private fun get(url: String): String {
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 8_000

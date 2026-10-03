@@ -41,6 +41,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Button
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -543,11 +544,14 @@ private fun MessageBubble(message: ChatMessage, thinking: Boolean) {
                 }
             }
             message.attachment?.let { name -> FileLine(name) }
-            Text(
-                message.text.ifEmpty { "thinking…" },
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (message.text.isEmpty()) XarvisMuted else MaterialTheme.colorScheme.onSurface,
-            )
+            // SelectionContainer lets Rex long-press to select and copy XARVIS's text (he asked).
+            SelectionContainer {
+                Text(
+                    message.text.ifEmpty { "thinking…" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (message.text.isEmpty()) XarvisMuted else MaterialTheme.colorScheme.onSurface,
+                )
+            }
             message.files.forEach { FileCard(it) }
             // Where the answer came from, so Rex always sees if anything went to the cloud.
             message.via?.takeIf { !message.fromUser && message.text.isNotEmpty() }?.let { via ->
