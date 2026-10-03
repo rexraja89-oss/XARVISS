@@ -293,20 +293,23 @@ class XarvisAgent(
         val lookups = steps.filterIsInstance<Step.Lookup>()
         val webreads = steps.filterIsInstance<Step.WebRead>()
         val websearches = steps.filterIsInstance<Step.WebSearch>()
+        val webimages = steps.filterIsInstance<Step.WebImages>()
         val recalls = steps.filterIsInstance<Step.Recall>()
         val searches = steps.filterIsInstance<Step.SearchPhone>()
         val galleries = steps.filterIsInstance<Step.RemoteGallery>()
-        if (lookups.isEmpty() && webreads.isEmpty() && websearches.isEmpty() && recalls.isEmpty() && searches.isEmpty() && galleries.isEmpty()) return raw
+        if (lookups.isEmpty() && webreads.isEmpty() && websearches.isEmpty() && webimages.isEmpty() && recalls.isEmpty() && searches.isEmpty() && galleries.isEmpty()) return raw
         onPartial(
             when {
                 galleries.isNotEmpty() -> "Fetching the photos over the link…"
                 searches.isNotEmpty() -> "Searching your files…"
+                webimages.isNotEmpty() -> "Finding pictures…"
                 websearches.isNotEmpty() -> "Searching the web…"
                 webreads.isNotEmpty() -> "Reading the page…"
                 recalls.isNotEmpty() -> "Looking through our earlier chats…"
                 else -> "Looking it up on Wikipedia…"
             },
         )
+        for (im in webimages.take(1)) foundFiles += fetchImages(im.query)
         for (g in galleries.take(1)) {
             val result = engine.guarded(g) { remoteGallery(g.device, onPartial) }
             foundFiles += result.files
@@ -325,8 +328,24 @@ class XarvisAgent(
             found += result.message
         }
         val facts = found.joinToString("\n\n")
+        // Only images were fetched (no new text): keep the brain's own answer; the pictures attach to it.
+        if (facts.isBlank()) return raw
         val answer = runCatching { ask(FOUND_PREFIX + facts) }.getOrNull()
         return answer?.takeIf { ToolCalls.visibleText(it).isNotBlank() } ?: facts
+    }
+
+    /** Searches the web for pictures of [query] and saves a few to show in the chat. */
+    private suspend fun fetchImages(query: String): List<SavedFile> {
+        val urls = com.xarvis.ai.tools.WebImages.search(query, 6)
+        val saved = mutableListOf<SavedFile>()
+        for ((image, thumb) in urls) {
+            if (saved.size >= 4) break
+            val bytes = com.xarvis.ai.tools.WebImages.download(image)
+                ?: com.xarvis.ai.tools.WebImages.download(thumb) ?: continue
+            CameraShots.saveReceived(appContext, "${query.take(24).trim()}-${saved.size + 1}.jpg", bytes, "web")
+                ?.let { saved += it }
+        }
+        return saved
     }
 
     /** Files found by a phone search, shown as cards under the reply. */
@@ -381,7 +400,7 @@ class XarvisAgent(
         val (fileBlocks, rest) = FileBlocks.split(raw)
         val text = fixIdentity(ToolCalls.visibleText(rest))
         val known = facts()
-        val steps: List<Step> = fileBlocks.map { Step.MakeFile(it) } + onPhone(message, forUser(message, ToolCalls.parse(rest).filterNot { it is Step.Lookup || it is Step.WebRead || it is Step.WebSearch || it is Step.Recall || it is Step.SearchPhone || it is Step.RemoteGallery })).map { step ->
+        val steps: List<Step> = fileBlocks.map { Step.MakeFile(it) } + onPhone(message, forUser(message, ToolCalls.parse(rest).filterNot { it is Step.Lookup || it is Step.WebRead || it is Step.WebSearch || it is Step.WebImages || it is Step.Recall || it is Step.SearchPhone || it is Step.RemoteGallery })).map { step ->
             val doc = lastDocument
             if (step is Step.ConvertFile && doc != null) {
                 return@map Step.MakeFile(FileBlock(doc.name.substringBeforeLast('.') + "." + step.format, doc.text))
@@ -563,8 +582,20 @@ class XarvisAgent(
                     else -> it
                 }
             }
-            return callsFor(message, photosFor(message, adjusted))
+            // Rex asked to see pictures ("with pictures", "show me photos of…") AND is searching the
+            // web: add an image search alongside, using that search's query. (A linked-phone gallery
+            // request also says "photos", but it has no web-search step, so it won't trigger this.)
+            val searchQuery = adjusted.firstNotNullOfOrNull { (it as? Step.WebSearch)?.query ?: (it as? Step.Search)?.query }
+            val withImages = if (WANTS_IMAGES.containsMatchIn(message) && searchQuery != null && adjusted.none { it is Step.WebImages }) {
+                adjusted + Step.WebImages(searchQuery)
+            } else {
+                adjusted
+            }
+            return callsFor(message, photosFor(message, withImages))
         }
+
+        // Rex wants pictures, not just text.
+        private val WANTS_IMAGES = Regex("""(?i)\b(pictures?|photos?|images?|pics?)\b""")
 
         /** Rex explicitly wants to open/browse a search engine, not get the answer in the chat. */
         private val BROWSE_INTENT = Regex("""(?i)\b(open|browse|browser|chrome|on google|google it|in google|take me to)\b""")
@@ -632,6 +663,7 @@ class XarvisAgent(
             TOOL: lookup <words>   (XARVIS reads Wikipedia and gives you the facts, then you answer)
             TOOL: webread <url>   (XARVIS fetches that web page and gives you its text, then you answer or summarise it)
             TOOL: websearch <words>   (XARVIS searches the web and gives you the top results, then you answer Rex here in the chat)
+            TOOL: images <words>   (XARVIS finds real pictures on the web and shows them in the chat; use it when Rex wants to see photos/pictures of something)
             TOOL: search <web search words>   (only OPENS Google on the phone for Rex to browse; you never see the results — use only if Rex asks to open/browse)
             TOOL: find <app>: <words to search inside that app>
             TOOL: jobs <job titles> [in <place>] [on <site>]   (opens real job listings Rex can apply to: LinkedIn and the whole world unless he names a site or place)
@@ -674,6 +706,8 @@ class XarvisAgent(
             User: who is the president of Brazil? -> TOOL: lookup president of Brazil
             User: read https://example.com/news and summarise it -> TOOL: webread https://example.com/news
             User: show me some good budget laptops -> TOOL: websearch best budget laptops 2026
+            User: show me phones under 30000 with pictures -> TOOL: websearch best phones under 30000 2026
+            TOOL: images phones under 30000
             User: what's the latest news on the UAE visa rules -> TOOL: websearch latest UAE visa rules
             User: which movie is this ring from? (photo of the glowing gold ring with script) -> It's the One Ring from The Lord of the Rings.
             User: open gmail and search for ali@example.com -> TOOL: find gmail: ali@example.com

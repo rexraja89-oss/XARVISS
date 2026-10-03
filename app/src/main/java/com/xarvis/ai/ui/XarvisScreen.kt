@@ -579,7 +579,7 @@ private fun FileLine(name: String) {
     }
 }
 
-/** A file XARVIS made: its name, then OPEN (in the phone's viewer) and SHARE (WhatsApp, Gmail...). */
+/** A file XARVIS made or fetched: a picture preview for images, its name, then OPEN and SHARE. */
 @Composable
 private fun FileCard(file: SavedFile) {
     val context = LocalContext.current
@@ -590,6 +590,16 @@ private fun FileCard(file: SavedFile) {
             .border(1.dp, XarvisCyan.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
             .padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
+        if (file.mime.startsWith("image/")) {
+            val bitmap = remember(file.uri) { loadThumbnail(context, file.uri) }
+            bitmap?.let {
+                Image(
+                    it, contentDescription = file.name,
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp).padding(top = 4.dp),
+                    contentScale = ContentScale.Fit,
+                )
+            }
+        }
         FileLine(file.name)
         Row {
             TextButton(onClick = { openFile(context, file) }) { Text("OPEN") }
@@ -597,6 +607,17 @@ private fun FileCard(file: SavedFile) {
         }
     }
 }
+
+/** Loads a small bitmap for a saved image (content:// or a file path), or null if it can't. */
+private fun loadThumbnail(context: Context, uri: String): androidx.compose.ui.graphics.ImageBitmap? = runCatching {
+    val opts = BitmapFactory.Options().apply { inSampleSize = 2 }
+    val bmp = if (uri.startsWith("content://")) {
+        context.contentResolver.openInputStream(Uri.parse(uri))?.use { BitmapFactory.decodeStream(it, null, opts) }
+    } else {
+        BitmapFactory.decodeFile(uri, opts)
+    }
+    bmp?.asImageBitmap()
+}.getOrNull()
 
 private fun openFile(context: Context, file: SavedFile) {
     val view = Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(file.uri), file.mime)

@@ -57,6 +57,8 @@ sealed interface Step {
     data class WebRead(val url: String) : Step
     /** Search the web for [query] and give the results back to the brain to answer in-app (handled by the agent). */
     data class WebSearch(val query: String) : Step
+    /** Search the web for pictures of [query] and show them in the chat (handled by the agent). */
+    data class WebImages(val query: String) : Step
     /** Search for [query] inside [app] ("find in Gmail: Adarsh"), rather than on the web. */
     data class FindInApp(val app: String, val query: String) : Step
     /** Give [text] to [app] as shared text, e.g. a question typed into ChatGPT, ready to send. */
@@ -215,6 +217,7 @@ class WorkflowEngine(
         is Step.Lookup -> StepResult(true, "") // done by the agent before the reply is shown
         is Step.WebRead -> StepResult(true, "") // done by the agent before the reply is shown
         is Step.WebSearch -> StepResult(true, "") // done by the agent before the reply is shown
+        is Step.WebImages -> StepResult(true, "") // done by the agent before the reply is shown
         is Step.Recall -> StepResult(true, "") // done by the agent before the reply is shown
         is Step.SearchPhone -> StepResult(true, "") // done by the agent before the reply is shown
         is Step.RemoteGallery -> StepResult(true, "") // done by the agent before the reply is shown

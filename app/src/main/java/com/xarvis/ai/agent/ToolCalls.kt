@@ -61,6 +61,7 @@ object ToolCalls {
         arg(t, "webread|web read|read website|read the website|read page|read the page|read article|read the article|read link|read url|open url|fetch|read")
             ?.let { a -> urlIn(a)?.let { return Step.WebRead(it) } }
         arg(t, "lookup|look up|wikipedia|wiki")?.takeIf { it.isNotBlank() }?.let { return Step.Lookup(it) }
+        arg(t, "images|image search|show images|find images|pictures of|photos of|image of|picture of")?.takeIf { it.isNotBlank() }?.let { return Step.WebImages(it) }
         arg(t, "websearch|web search|search web|search the web|search online|find online")?.takeIf { it.isNotBlank() }?.let { return Step.WebSearch(it) }
         arg(t, "search|google")?.takeIf { it.isNotBlank() }?.let { return Step.Search(it) }
         arg(t, "recall|history|chat history|past chats|earlier chats|search chats")?.let { return Step.Recall(it.trim('"', '\'')) }
