@@ -48,6 +48,8 @@ class XarvisAgent(
     @Volatile private var lastVia: String? = null
     /** Documents and photos are Rex's own data: they never go to the cloud. */
     @Volatile private var forceLocalThisTurn: Boolean = false
+    /** This message is a product/shopping query: answer with live web specs, prices and pictures. */
+    @Volatile private var productThisTurn: Boolean = false
 
     /** The chat Rex is in (each opening of XARVIS starts a new one; the ☰ menu reopens old ones). */
     var chatId: String = newChatId()
@@ -100,6 +102,7 @@ class XarvisAgent(
     /** Handles one message; [onPartial] receives the reply so far while Gemma is writing it. */
     suspend fun handle(message: String, onPartial: (String) -> Unit = {}): Reply {
         forceLocalThisTurn = false
+        productThisTurn = false
         val response = LinkCommands.parse(message, link.pairingInProgress)?.let { run(listOf(it)) } ?: askGemma(message, onPartial)
         memory.logInteraction(message, response.text, chatId)
         return response
@@ -111,6 +114,7 @@ class XarvisAgent(
      */
     suspend fun handleDocument(doc: Document, message: String, onPartial: (String) -> Unit = {}): Reply {
         forceLocalThisTurn = true // a file is Rex's own data: keep it on the phone
+        productThisTurn = false
         lastDocument = doc
         val question = message.ifBlank { "Summarise this file: what is it, and what are the main points?" }
         brainReady(onPartial)
@@ -132,6 +136,7 @@ class XarvisAgent(
      */
     suspend fun handlePhoto(imagePath: String, message: String, onPartial: (String) -> Unit = {}): Reply {
         forceLocalThisTurn = true // a photo is Rex's own data: keep it on the phone
+        productThisTurn = false
         val question = message.ifBlank { "Describe this photo in detail and explain everything in it." }
         brainReady(onPartial)
         val response = if (llm.isReady) photoHere(imagePath, message, question, onPartial)
@@ -277,6 +282,23 @@ class XarvisAgent(
         wantsWebRead(message)?.let { url ->
             if (ToolCalls.parse(raw).none { it is Step.WebRead }) raw += "\nTOOL: webread $url"
         }
+        // The brain's plain "search" only opens Google and shows Rex nothing; unless he asked to
+        // browse (or it's a job search), fetch it in-app so he gets the answer here.
+        ToolCalls.parse(raw).filterIsInstance<Step.Search>().firstOrNull()?.let { s ->
+            if (ToolCalls.parse(raw).none { it is Step.WebSearch } &&
+                !BROWSE_INTENT.containsMatchIn(message) && !ABOUT_JOBS.containsMatchIn(message)
+            ) {
+                raw += "\nTOOL: websearch ${s.query}"
+            }
+        }
+        // A product/shopping question (a phone, laptop, prices, "with pictures"…): the cloud brain
+        // tends to answer from memory (stale, no pictures), so fetch live specs/prices and photos.
+        wantsProductResearch(message)?.let { query ->
+            productThisTurn = true
+            val parsed = ToolCalls.parse(raw)
+            if (parsed.none { it is Step.WebSearch }) raw += "\nTOOL: websearch $query specifications price"
+            if (parsed.none { it is Step.WebImages }) raw += "\nTOOL: images $query"
+        }
         raw = withLookups(raw, onPartial) { ask(it) }
         return finishReply(message, raw)
     }
@@ -330,7 +352,8 @@ class XarvisAgent(
         val facts = found.joinToString("\n\n")
         // Only images were fetched (no new text): keep the brain's own answer; the pictures attach to it.
         if (facts.isBlank()) return raw
-        val answer = runCatching { ask(FOUND_PREFIX + facts) }.getOrNull()
+        val prefix = if (productThisTurn) PRODUCT_PREFIX else FOUND_PREFIX
+        val answer = runCatching { ask(prefix + facts) }.getOrNull()
         return answer?.takeIf { ToolCalls.visibleText(it).isNotBlank() } ?: facts
     }
 
@@ -525,6 +548,34 @@ class XarvisAgent(
 
         private const val FOUND_PREFIX = "(Here is what XARVIS found. Use it to answer Rex's last question " +
             "in a few sentences, in your own words. Don't use another lookup or recall.)\n\n"
+
+        /** The detailed, structured answer Rex wants for a product (like ChatGPT's spec sheet). */
+        private const val PRODUCT_PREFIX = "(Here is live web information Rex's assistant found. Give him a " +
+            "clear, detailed answer using it, like a good shopping guide:\n" +
+            "• one short intro line;\n" +
+            "• the key specs, each on its own line as 'Spec: value' — Processor, RAM, Storage, Display, " +
+            "Refresh rate, Main camera, Battery, Charging, OS, and anything notable;\n" +
+            "• a line starting 'Price:' with the current price/range;\n" +
+            "• 2–4 short lines of honest assessment (what it's good at, what to watch out for).\n" +
+            "Use ONLY the facts below — do not invent numbers or prices; if something isn't in the data, say " +
+            "'not listed'. Pictures are shown separately, so don't describe them. Keep it tidy and skimmable.)\n\n"
+
+        // A product/shopping question: live specs, prices and pictures beat the brain's stale memory.
+        private val PRODUCT_SIGNALS = Regex(
+            """(?i)\b(pictures?|photos?|images?|pics?|compare|comparison|price|prices|cost|cheap(?:est)?|budget|mid[- ]?range|flagship|specs?|specification|features?|review|phones|laptops|smartphones|tablets|smartwatches|earbuds|headphones|which (?:phone|laptop|one)|best (?:phone|laptop|mobile|tablet|tv|camera|watch|earbuds)|under\s*\d|below\s*\d)\b""",
+        )
+        private val PRODUCT_BRANDS = Regex(
+            """(?i)\b(iphone|galaxy|samsung|motorola|moto|redmi|realme|oneplus|vivo|oppo|xiaomi|poco|nothing|pixel|infinix|tecno|honor|nokia|asus|rog|macbook|ipad|dell|hp|lenovo|acer|msi|cybertruck|playstation|ps5|xbox)\b""",
+        )
+
+        /** Rex's product query if his message is a shopping/product question, else null. */
+        internal fun wantsProductResearch(message: String): String? {
+            if (!PRODUCT_SIGNALS.containsMatchIn(message) && !PRODUCT_BRANDS.containsMatchIn(message)) return null
+            val query = message
+                .replace(Regex("""(?i)\b(show|me|please|can you|could you|with|proper|some|the|a|an|good|and|its|their|for|detail|details|comparison|compare|pictures?|photos?|images?|pics?)\b"""), " ")
+                .replace(Regex("""\s+"""), " ").trim()
+            return query.ifBlank { message.trim() }
+        }
 
         private const val NOT_TIME_NUDGE = "(Rex didn't ask what time it is. Answer his last message again, " +
             "without the time tool.)"
