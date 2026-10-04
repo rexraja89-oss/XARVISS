@@ -19,7 +19,16 @@ import com.xarvis.ai.service.AlwaysOn
 import com.xarvis.ai.service.WakeWord
 import com.xarvis.ai.service.XarvisService
 import com.xarvis.ai.tools.PermissionGate
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import com.xarvis.ai.ui.XarvisScreen
+import com.xarvis.ai.ui.XarvisSplash
 import com.xarvis.ai.ui.theme.XarvisTheme
 
 class MainActivity : ComponentActivity() {
@@ -51,7 +60,15 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             XarvisTheme {
-                XarvisScreen()
+                // The living XARVIS logo greets on open (Rex asked), then fades into the chat.
+                var showSplash by remember { mutableStateOf(true) }
+                LaunchedEffect(Unit) {
+                    delay(2000)
+                    showSplash = false
+                }
+                Crossfade(targetState = showSplash, animationSpec = tween(700), label = "splash") { splash ->
+                    if (splash) XarvisSplash() else XarvisScreen()
+                }
             }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
