@@ -20,9 +20,14 @@
         <!-- The hands: an Accessibility service that can tap, type and scroll on XARVIS's behalf.
              For the install test it does nothing yet — it only needs to be declared so the S22 is
              asked to install an app that holds the Accessibility permission. -->
+        <!-- exported=true is REQUIRED for an Accessibility service: the system Settings process
+             (a different app) scans for services with this intent-filter to list them under
+             Accessibility, and it can't see a non-exported one. It stays safe because only the
+             system can bind it — that's what the BIND_ACCESSIBILITY_SERVICE permission guarantees.
+             (exported=false was why XARVIS Hands never appeared in the Accessibility list.) -->
         <service
             android:name=".HandsService"
-            android:exported="false"
+            android:exported="true"
             android:label="@string/service_label"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>

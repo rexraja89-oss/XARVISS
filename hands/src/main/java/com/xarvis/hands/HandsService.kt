@@ -7,11 +7,14 @@ import android.view.accessibility.AccessibilityEvent
 /**
  * XARVIS Hands — the Accessibility service.
  *
- * This is the INSTALL-TEST version: it is only here so the S22 is asked to install an app that holds
- * the Accessibility permission. It performs no automation yet. Once we know the S22 accepts it, this
- * is where the real work goes — finding a button by its label and tapping it (e.g. the call button in
- * imo or WhatsApp) through [dispatchGesture]/[performGlobalAction], only for things Rex asks for and
- * watches. It will never auto-submit payments, passwords, OTPs or signatures.
+ * This is the DIAGNOSTIC version: it only observes. It proves two things on the S22, with no
+ * automation whatsoever:
+ *   1. that the service starts/connects ([onServiceConnected] sets [instance]), and
+ *   2. that it actually receives accessibility events ([onAccessibilityEvent] counts them and
+ *      records the last one).
+ *
+ * It performs NO gestures, NO taps, NO navigation, and touches NO other app (imo etc.). The real
+ * tap-inside-apps automation comes in a later build, only after this chain of evidence is complete.
  */
 class HandsService : AccessibilityService() {
 
@@ -22,7 +25,12 @@ class HandsService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Nothing yet — the install test only needs the service to exist and connect.
+        // Observe only: count the event and remember what it was. Nothing is acted on.
+        if (event == null) return
+        eventCount++
+        lastEventType = AccessibilityEvent.eventTypeToString(event.eventType)
+        lastEventPackage = event.packageName?.toString() ?: "?"
+        lastEventTime = System.currentTimeMillis()
     }
 
     override fun onInterrupt() {
@@ -40,6 +48,24 @@ class HandsService : AccessibilityService() {
         /** Set while the service is turned on and connected; the app checks it to show "ready". */
         @Volatile
         var instance: HandsService? = null
+            private set
+
+        /** How many accessibility events the service has received since it connected. */
+        @Volatile
+        var eventCount: Long = 0L
+            private set
+
+        /** Details of the most recent event, for the diagnostic screen. */
+        @Volatile
+        var lastEventType: String = ""
+            private set
+
+        @Volatile
+        var lastEventPackage: String = ""
+            private set
+
+        @Volatile
+        var lastEventTime: Long = 0L
             private set
 
         fun isRunning(): Boolean = instance != null
