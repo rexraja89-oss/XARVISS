@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- So Hands can launch imo for "call <contact> in imo". Android 11+ hides other apps unless
+         listed here; these are the imo package names. -->
+    <queries>
+        <package android:name="com.imo.android.imoim" />
+        <package android:name="com.imo.android.imoimbeta" />
+        <package android:name="com.imo.android.imoimhd" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:label="@string/app_name"
