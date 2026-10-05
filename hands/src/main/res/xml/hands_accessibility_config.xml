@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  How XARVIS Hands behaves once Rex turns it on in Settings. For the install test it watches nothing
+  and does nothing automatically; it only declares that it CAN perform gestures (tap/swipe) and read
+  the screen, which is what the real automation will need later. Rex turns it on himself, and Hands
+  only acts when he asks and watches.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/service_description"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:notificationTimeout="100"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="true" />

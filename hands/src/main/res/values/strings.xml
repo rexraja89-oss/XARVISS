@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">XARVIS Hands</string>
+    <string name="service_label">XARVIS Hands</string>
+    <string name="service_description">Lets XARVIS finish the taps for things you ask it to do — like placing a call inside an app — only when you ask, and only while you watch. It never fills in payments, passwords, OTPs or signatures on its own.</string>
+</resources>
