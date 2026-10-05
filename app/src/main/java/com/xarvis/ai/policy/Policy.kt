@@ -64,7 +64,7 @@ object PolicyRules {
      * by their own security check (pairing phones).
      */
     fun categoryOf(step: Step): Category? = when (step) {
-        is Step.Call -> Category.PHONE_CALL
+        is Step.Call, is Step.AppCall -> Category.PHONE_CALL
         is Step.WhatsApp, is Step.Sms -> Category.MESSAGING
         is Step.LaunchApp, is Step.FindInApp, is Step.AskApp, is Step.ShowMap, is Step.Search, is Step.TakePhoto -> Category.OPEN_APP
         is Step.Jobs -> Category.JOB_SEARCH
@@ -77,6 +77,7 @@ object PolicyRules {
     /** A short description of the step for the Ask card and the activity log (no message bodies). */
     fun describe(step: Step): String = when (step) {
         is Step.Call -> if (step.direct) "Call ${step.target}" else "Open the dialer for ${step.target}"
+        is Step.AppCall -> "${if (step.video) "Video-call" else "Call"} ${step.contact} in ${step.app} (via XARVIS Hands)"
         is Step.WhatsApp -> "Open WhatsApp to ${step.target}" + if (step.text != null) " with a message ready" else ""
         is Step.Sms -> "Open SMS to ${step.target} with a message ready"
         is Step.LaunchApp -> "Open ${step.appName}"
@@ -104,6 +105,7 @@ object PolicyRules {
     /** The app, site or person the step acts on, for the log. */
     fun targetOf(step: Step): String = when (step) {
         is Step.Call -> step.target
+        is Step.AppCall -> "${step.app} · ${step.contact}"
         is Step.WhatsApp -> "WhatsApp · ${step.target}"
         is Step.Sms -> "SMS · ${step.target}"
         is Step.LaunchApp -> step.appName

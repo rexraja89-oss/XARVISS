@@ -31,8 +31,14 @@
     <!-- Asks once to be left out of battery saving, so linking keeps working while the screen is off. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- Lets XARVIS ask the separate XARVIS Hands helper app to tap inside other apps (e.g. place an
+         imo call). Signature-level, so it's only granted between Rex's own same-key apps. -->
+    <uses-permission android:name="com.xarvis.hands.permission.COMMAND" />
+
     <!-- Lets the agent find launchable apps for "open <app>" commands. -->
     <queries>
+        <!-- The XARVIS Hands helper app, so XARVIS can send it commands. -->
+        <package android:name="com.xarvis.hands" />
         <!-- The phone's text-to-speech engine, for XARVIS's voice. -->
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />

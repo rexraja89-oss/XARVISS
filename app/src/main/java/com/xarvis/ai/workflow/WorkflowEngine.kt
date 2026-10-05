@@ -44,6 +44,8 @@ sealed interface Step {
     data class Wifi(val on: Boolean) : Step
     /** [direct] places the call at once (Rex typed "call ..."); otherwise the dialer opens. */
     data class Call(val target: String, val direct: Boolean = false) : Step
+    /** Place a call to [contact] inside [app] (e.g. imo) using the XARVIS Hands helper app. */
+    data class AppCall(val app: String, val contact: String, val video: Boolean = false) : Step
     data class WhatsApp(val target: String, val text: String?) : Step
     data class Sms(val target: String, val text: String) : Step
     data class Flashlight(val on: Boolean) : Step
@@ -121,6 +123,9 @@ class WorkflowEngine(
     var takePhoto: (Boolean) -> Boolean = { false }
 
     private val appContext = context.applicationContext
+    // The XARVIS Hands helper app (separate app, Accessibility) that taps inside other apps for us.
+    private val HANDS_PKG = "com.xarvis.hands"
+    private val HANDS_ACTION = "com.xarvis.hands.action.CALL_IN_APP"
     private val phone = PhoneActions(appContext)
     private val location = LocationTool(appContext)
     private val battery = BatteryTool(appContext)
@@ -304,6 +309,7 @@ class WorkflowEngine(
         is Step.Bluetooth -> phone.bluetooth(step.on)
         is Step.Wifi -> phone.wifi(step.on)
         is Step.Call -> phone.call(step.target, step.direct)
+        is Step.AppCall -> appCall(step)
         is Step.ShowMap -> try {
             val uri = step.place?.let { "geo:0,0?q=${Uri.encode(it)}" } ?: "geo:0,0"
             appContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -418,6 +424,34 @@ class WorkflowEngine(
         } catch (e: ActivityNotFoundException) {
             StepResult(false, "There's no web browser on this phone.")
         }
+    }
+
+    /**
+     * Calls a contact inside an app (imo) by asking the separate XARVIS Hands helper app, which taps
+     * through the app with its Accessibility service (the main app can't ship one — the S22 refuses
+     * it). Hands opens the app, finds the contact and taps the call button; we only send the request.
+     */
+    private fun appCall(step: Step.AppCall): StepResult {
+        val installed = try {
+            appContext.packageManager.getPackageInfo(HANDS_PKG, 0); true
+        } catch (e: Exception) { false }
+        if (!installed) {
+            return StepResult(
+                false,
+                "To call inside ${step.app} I need the XARVIS Hands helper app installed and turned on. " +
+                    "For now, say \"call ${step.contact}\" for a normal phone call.",
+            )
+        }
+        appContext.sendBroadcast(
+            Intent(HANDS_ACTION).apply {
+                setPackage(HANDS_PKG)
+                putExtra("contact", step.contact)
+                putExtra("app", step.app)
+                putExtra("video", step.video)
+            },
+        )
+        val kind = if (step.video) "video call" else "call"
+        return StepResult(true, "On it, sir — placing the ${step.app} $kind to ${step.contact}.")
     }
 
     /** This phone's contacts first; if nobody matches, the linked phones' contacts. */

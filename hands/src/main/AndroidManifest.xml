@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Only another app signed with the same key (the main XARVIS app) may send Hands a command.
+         signature-level means the permission is granted automatically to same-signer apps and to
+         nobody else. -->
+    <permission
+        android:name="com.xarvis.hands.permission.COMMAND"
+        android:protectionLevel="signature" />
+
     <!-- So Hands can launch imo for "call <contact> in imo". Android 11+ hides other apps unless
          listed here; these are the imo package names. -->
     <queries>
@@ -45,5 +52,16 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/hands_accessibility_config" />
         </service>
+
+        <!-- Receives "call <contact> in imo" from the main XARVIS app. Protected by the signature
+             permission above, so only Rex's own same-key apps can trigger it. -->
+        <receiver
+            android:name=".CommandReceiver"
+            android:exported="true"
+            android:permission="com.xarvis.hands.permission.COMMAND">
+            <intent-filter>
+                <action android:name="com.xarvis.hands.action.CALL_IN_APP" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

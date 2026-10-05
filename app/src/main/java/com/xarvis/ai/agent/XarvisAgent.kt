@@ -696,7 +696,38 @@ class XarvisAgent(
             } else {
                 adjusted
             }
-            return callsFor(message, photosFor(message, withImages))
+            return inAppCallsFor(message, callsFor(message, photosFor(message, withImages)))
+        }
+
+        // Apps XARVIS can't call into with a normal link, so it uses XARVIS Hands (Accessibility)
+        // to tap through them. imo has no call deep-link, which is what started this.
+        private val HANDS_CALL_APP = Regex("""(?i)\bimo\b""")
+        private val WANTS_VIDEO_CALL = Regex("""(?i)\bvideo\b""")
+
+        /**
+         * "open imo and call baarish" / "imo pe baarish ko call karo": when Rex names imo and a
+         * contact to call, route it to XARVIS Hands ([Step.AppCall]) instead of the phone dialer, and
+         * drop the separate "open imo" step (Hands opens it itself).
+         */
+        private fun inAppCallsFor(message: String, steps: List<Step>): List<Step> {
+            val app = HANDS_CALL_APP.find(message)?.value?.lowercase() ?: return steps
+            val contact = steps.firstNotNullOfOrNull {
+                (it as? Step.Call)?.target ?: (it as? Step.FindContact)?.name
+            } ?: return steps
+            val video = WANTS_VIDEO_CALL.containsMatchIn(message)
+            var added = false
+            val out = ArrayList<Step>()
+            for (s in steps) {
+                when {
+                    (s is Step.Call || s is Step.FindContact) && !added -> {
+                        out.add(Step.AppCall(app, contact, video)); added = true
+                    }
+                    s is Step.Call || s is Step.FindContact -> {} // drop duplicates
+                    s is Step.LaunchApp && s.appName.contains("imo", true) -> {} // Hands opens imo
+                    else -> out.add(s)
+                }
+            }
+            return out
         }
 
         // Rex wants pictures, not just text.

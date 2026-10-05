@@ -36,6 +36,12 @@ class HandsService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         log("Service connected.")
+        // A call that arrived from XARVIS before Hands was turned on: run it now.
+        pendingCall?.let { (contact, video) ->
+            pendingCall = null
+            log("Running the call XARVIS asked for earlier: '$contact'.")
+            handler.postDelayed({ startCallInApp(contact, video) }, 500)
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -246,6 +252,8 @@ class HandsService : AccessibilityService() {
         )
 
         @Volatile var instance: HandsService? = null; private set
+        /** A call requested before the service was connected; run on connect. */
+        @Volatile var pendingCall: Pair<String, Boolean>? = null
         @Volatile var eventCount: Long = 0L; private set
         @Volatile var lastEventType: String = ""; private set
         @Volatile var lastEventPackage: String = ""; private set

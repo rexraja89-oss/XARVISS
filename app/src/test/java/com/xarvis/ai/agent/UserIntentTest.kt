@@ -20,6 +20,29 @@ class UserIntentTest {
         assertEquals(listOf(Step.FindContact("Atiq")), XarvisAgent.forUser("what is Atiq's number", listOf(Step.FindContact("Atiq"))))
     }
 
+    @Test fun imoCallsGoThroughXarvisHands() {
+        // "open imo & call baarish": route to XARVIS Hands, and drop the separate "open imo" step.
+        assertEquals(
+            listOf(Step.AppCall("imo", "baarish")),
+            XarvisAgent.forUser("open imo & call baarish", listOf(Step.LaunchApp("imo"), Step.Call("baarish"))),
+        )
+        // Hinglish, contact only.
+        assertEquals(
+            listOf(Step.AppCall("imo", "baarish")),
+            XarvisAgent.forUser("imo pe baarish ko call karo", listOf(Step.Call("baarish"))),
+        )
+        // A video call in imo.
+        assertEquals(
+            listOf(Step.AppCall("imo", "mom", video = true)),
+            XarvisAgent.forUser("video call mom on imo", listOf(Step.Call("mom"))),
+        )
+        // Without imo, a normal call stays a normal (direct) phone call, not routed to Hands.
+        assertEquals(
+            listOf(Step.Call("baarish", direct = true)),
+            XarvisAgent.forUser("call baarish", listOf(Step.Call("baarish"))),
+        )
+    }
+
     @Test fun repliesThatSkipATool() {
         // Gemma's real reply to "where am I" in Rex's screenshot.
         assertTrue(XarvisAgent.skippedTool("I do not have access to your current location. I can use the location tool if you ask me to."))
