@@ -26,6 +26,20 @@ class UserIntentTest {
             listOf(Step.AppCall("imo", "baarish")),
             XarvisAgent.forUser("open imo & call baarish", listOf(Step.LaunchApp("imo"), Step.Call("baarish"))),
         )
+        // The real failure: the cloud brain read it as a find-in-imo search, not a call.
+        assertEquals(
+            listOf(Step.AppCall("imo", "baarish")),
+            XarvisAgent.forUser("open imo & call baarish", listOf(Step.FindInApp("imo", "baarish"))),
+        )
+        assertEquals(
+            listOf(Step.AppCall("imo", "baarish")),
+            XarvisAgent.forUser("open imo & call baarish", listOf(Step.LaunchApp("imo"), Step.FindInApp("imo", "baarish"))),
+        )
+        // Nothing usable from the brain — pull the name from the message.
+        assertEquals(
+            listOf(Step.AppCall("imo", "baarish")),
+            XarvisAgent.forUser("open imo and call baarish", emptyList()),
+        )
         // Hinglish, contact only.
         assertEquals(
             listOf(Step.AppCall("imo", "baarish")),

@@ -703,31 +703,58 @@ class XarvisAgent(
         // to tap through them. imo has no call deep-link, which is what started this.
         private val HANDS_CALL_APP = Regex("""(?i)\bimo\b""")
         private val WANTS_VIDEO_CALL = Regex("""(?i)\bvideo\b""")
+        // A call anywhere in the message (not just at the start), English or Hinglish.
+        private val WANTS_CALL = Regex("""(?i)\b(?:call|phone|ring|dial)\b|\bko\s+(?:call|phone|fone)\b""")
+        // The name after "call ..." (English) or before "... ko call" (Hinglish), as a fallback.
+        private val CALL_NAME_EN = Regex("""(?i)\b(?:call|phone|ring|dial)\s+(?:to\s+)?([\p{L}][\p{L}\d .'_-]{0,30})""")
+        private val CALL_NAME_HI = Regex("""(?i)([\p{L}][\p{L}\d'_-]{0,30})\s+(?:ko|ku)\s+(?:call|phone|fone)\b""")
 
         /**
-         * "open imo and call baarish" / "imo pe baarish ko call karo": when Rex names imo and a
-         * contact to call, route it to XARVIS Hands ([Step.AppCall]) instead of the phone dialer, and
-         * drop the separate "open imo" step (Hands opens it itself).
+         * "open imo and call baarish" / "imo pe baarish ko call karo": when Rex names imo and wants a
+         * call, route it to XARVIS Hands ([Step.AppCall]) instead of the dialer, whatever step the
+         * brain produced (a call, a contact lookup, or a find-in-imo search), and drop any "open imo"
+         * / "find in imo" steps (Hands opens imo itself).
          */
         private fun inAppCallsFor(message: String, steps: List<Step>): List<Step> {
             val app = HANDS_CALL_APP.find(message)?.value?.lowercase() ?: return steps
-            val contact = steps.firstNotNullOfOrNull {
-                (it as? Step.Call)?.target ?: (it as? Step.FindContact)?.name
-            } ?: return steps
+            if (!WANTS_CALL.containsMatchIn(message)) return steps
+            val contact = contactToCall(message, steps) ?: return steps
             val video = WANTS_VIDEO_CALL.containsMatchIn(message)
             var added = false
             val out = ArrayList<Step>()
             for (s in steps) {
-                when {
-                    (s is Step.Call || s is Step.FindContact) && !added -> {
-                        out.add(Step.AppCall(app, contact, video)); added = true
-                    }
-                    s is Step.Call || s is Step.FindContact -> {} // drop duplicates
-                    s is Step.LaunchApp && s.appName.contains("imo", true) -> {} // Hands opens imo
-                    else -> out.add(s)
-                }
+                val imoStep = (s is Step.LaunchApp && s.appName.contains("imo", true)) ||
+                    (s is Step.FindInApp && s.app.contains("imo", true)) ||
+                    s is Step.Call || s is Step.FindContact
+                if (imoStep) {
+                    if (!added) { out.add(Step.AppCall(app, contact, video)); added = true }
+                } else out.add(s)
             }
+            if (!added) out.add(0, Step.AppCall(app, contact, video))
             return out
+        }
+
+        /** The contact to call: from the brain's step if it has one, else parsed from the message. */
+        private fun contactToCall(message: String, steps: List<Step>): String? {
+            steps.firstNotNullOfOrNull {
+                when (it) {
+                    is Step.Call -> it.target
+                    is Step.FindContact -> it.name
+                    is Step.FindInApp -> if (it.app.contains("imo", true)) it.query else null
+                    else -> null
+                }
+            }?.let { return cleanContact(it) }
+            return (CALL_NAME_HI.find(message)?.groupValues?.getOrNull(1)
+                ?: CALL_NAME_EN.find(message)?.groupValues?.getOrNull(1))
+                ?.let { cleanContact(it) }
+        }
+
+        private fun cleanContact(raw: String): String? {
+            val s = raw.trim()
+                .replace(Regex("""(?i)\s+(?:in|on|via|from|through|using)\s+imo.*$"""), "")
+                .replace(Regex("""(?i)\bimo\b"""), "")
+                .trim().trim('"', '\'', ',', '.', '&').trim()
+            return s.ifBlank { null }
         }
 
         // Rex wants pictures, not just text.
