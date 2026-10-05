@@ -10,8 +10,6 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove" />
     <application>
         <service android:name=".service.WakeWordService" tools:node="remove" />
-        <!-- The benco is install-sensitive, so keep the Accessibility service off it for now. -->
-        <service android:name=".service.XarvisA11y" tools:node="remove" />
         <activity android:name=".RecordVoiceActivity" tools:node="remove" />
     </application>
 </manifest>

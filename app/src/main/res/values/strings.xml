@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">XARVIS</string>
-    <string name="a11y_desc">Lets XARVIS tap and type inside other apps for you — only for actions you ask for, like opening imo and calling a contact. You can turn this off anytime.</string>
 </resources>
