@@ -438,6 +438,13 @@ class XarvisCore(context: Context) {
     fun braveHasKey(): Boolean = searchKeys.has(com.xarvis.ai.llm.BrainKeys.BRAVE)
     fun saveBraveKey(key: String) { searchKeys.save(com.xarvis.ai.llm.BrainKeys.BRAVE, key) }
     fun clearBraveKey() { searchKeys.clear(com.xarvis.ai.llm.BrainKeys.BRAVE) }
+
+    // XARVIS Code: a GitHub token (stored encrypted, like the other keys) so XARVIS can create and
+    // build separate projects on GitHub without ever touching its own app.
+    fun githubHasKey(): Boolean = searchKeys.has(com.xarvis.ai.llm.BrainKeys.GITHUB)
+    fun saveGithubKey(key: String) { searchKeys.save(com.xarvis.ai.llm.BrainKeys.GITHUB, key) }
+    fun clearGithubKey() { searchKeys.clear(com.xarvis.ai.llm.BrainKeys.GITHUB) }
+    fun githubKey(): String? = searchKeys.get(com.xarvis.ai.llm.BrainKeys.GITHUB)
     fun setCloud(on: Boolean) {
         settings.edit().putBoolean("cloudEnabled", on).apply()
         _state.update { it.copy(cloudEnabled = on) }

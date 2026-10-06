@@ -125,6 +125,11 @@
             android:name=".PolicyActivity"
             android:exported="false" />
 
+        <!-- ☰ → XARVIS Code: build separate projects on GitHub. -->
+        <activity
+            android:name=".XarvisCodeActivity"
+            android:exported="false" />
+
         <!-- Record my voice: Rex reads sentences to train XARVIS's voice on his own. -->
         <activity
             android:name=".RecordVoiceActivity"

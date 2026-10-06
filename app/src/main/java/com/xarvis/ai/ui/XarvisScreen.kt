@@ -248,6 +248,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 onOwnVoice = viewModel::setOwnVoice,
                 onPermissions = { context.startActivity(Intent(context, com.xarvis.ai.PolicyActivity::class.java)) },
                 onFolders = { context.startActivity(Intent(context, com.xarvis.ai.FoldersActivity::class.java)) },
+                onXarvisCode = { context.startActivity(Intent(context, com.xarvis.ai.XarvisCodeActivity::class.java)) },
                 onActivityLog = {
                     context.startActivity(Intent(context, com.xarvis.ai.PolicyActivity::class.java).putExtra(com.xarvis.ai.PolicyActivity.EXTRA_LOG, true))
                 },

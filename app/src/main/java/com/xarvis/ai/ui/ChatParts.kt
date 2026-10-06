@@ -199,7 +199,7 @@ fun SettingsMenu(
     enabled: Boolean,
     wakeWord: Boolean, onWakeWord: (Boolean) -> Unit, onAssistantSettings: () -> Unit, onRecordVoice: () -> Unit,
     onLoadVoice: () -> Unit, ownVoices: () -> String?, ownVoiceOn: () -> Boolean, onOwnVoice: (Boolean) -> Unit,
-    onPermissions: () -> Unit, onActivityLog: () -> Unit, onFolders: () -> Unit,
+    onPermissions: () -> Unit, onActivityLog: () -> Unit, onFolders: () -> Unit, onXarvisCode: () -> Unit,
     smartBrain: Boolean, smartDownload: ModelDownload, hasModel: Boolean, onSmartBrain: (Boolean) -> Unit,
     modelDownload: ModelDownload, onDownloadModel: () -> Unit,
     cloudEnabled: Boolean, hasCloudKey: () -> Boolean, onCloud: (Boolean) -> Unit, onSaveKey: (String) -> Unit, onClearKey: () -> Unit,
@@ -321,6 +321,11 @@ fun SettingsMenu(
                 "CONTROL", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
             )
+            // XARVIS Code: switch into a workspace that builds SEPARATE projects on GitHub (never this app).
+            Column(Modifier.fillMaxWidth().clickable(onClick = onXarvisCode).padding(horizontal = 20.dp, vertical = 10.dp)) {
+                Text("XARVIS Code ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+                Text("Build separate projects with AI — your XARVIS is never changed.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+            }
             Column(Modifier.fillMaxWidth().clickable(onClick = onFolders).padding(horizontal = 20.dp, vertical = 10.dp)) {
                 Text("Search folders ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
                 Text("Folders XARVIS may search when you ask \"search my phone for …\".", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)

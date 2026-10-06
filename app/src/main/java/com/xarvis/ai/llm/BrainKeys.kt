@@ -63,6 +63,7 @@ class BrainKeys(context: Context) {
     companion object {
         const val GEMINI = "gemini"
         const val BRAVE = "brave"
+        const val GITHUB = "github" // XARVIS Code: a GitHub token to create/build separate projects
         private const val ALIAS = "xarvis_brain_keys"
         private const val TRANSFORM = "AES/GCM/NoPadding"
     }
