@@ -20,13 +20,17 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.core.net.toUri
+import android.content.Intent
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -47,8 +51,11 @@ fun XarvisCodeScreen(
     saveToken: (String) -> Unit,
     clearToken: () -> Unit,
     token: () -> String?,
+    cloudReady: () -> Boolean,
+    generate: suspend (String, String) -> String,
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var tokenInput by remember { mutableStateOf("") }
     var saved by remember { mutableStateOf(hasToken()) }
@@ -56,9 +63,21 @@ fun XarvisCodeScreen(
     var busy by remember { mutableStateOf(false) }
     var logText by remember { mutableStateOf("") }
     var projectName by remember { mutableStateOf("") }
-    var projectDesc by remember { mutableStateOf("") }
+    var projectDesc by remember { mutableStateOf("a small fun mobile game, like snake") }
+    var playUrl by remember { mutableStateOf<String?>(null) }
 
     fun log(line: String) { logText = (logText + "\n" + line).trim() }
+
+    // If a token is already saved, confirm the connection on open so the build section appears
+    // without Rex having to tap "Verify" every time.
+    LaunchedEffect(Unit) {
+        if (saved && login == null) {
+            busy = true; log("Verifying the saved token…")
+            val r = withContext(Dispatchers.IO) { XarvisCode.verify(token() ?: "") }
+            if (r.ok) { login = r.data; log("Connected as ${r.data}.") } else log("Couldn't connect: ${r.message}")
+            busy = false
+        }
+    }
 
     Column(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
@@ -128,38 +147,50 @@ fun XarvisCodeScreen(
             }
         }
 
-        // ---- 2 · New project (only once connected) ----
+        // ---- 2 · Build a project (only once connected) ----
         if (login != null) {
-            Section("2 · New project")
+            Section("2 · Build a project")
             OutlinedTextField(
                 value = projectName,
                 onValueChange = { projectName = it.replace(" ", "-") },
-                label = { Text("Project name (e.g. mini-xarvis)") },
+                label = { Text("Project name (e.g. snake-game)") },
                 singleLine = true, modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
             )
             OutlinedTextField(
                 value = projectDesc, onValueChange = { projectDesc = it },
-                label = { Text("What is it? (one line)") },
+                label = { Text("What should XARVIS build?") },
                 modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
             )
             Button(
                 enabled = !busy && projectName.isNotBlank(),
                 onClick = {
+                    playUrl = null
                     scope.launch {
-                        busy = true; log("Creating the repository \"$projectName\"…")
-                        val r = withContext(Dispatchers.IO) { XarvisCode.createRepo(token() ?: "", projectName, projectDesc) }
-                        log(if (r.ok) "Created: ${r.data}" else "Couldn't create it: ${r.message}")
-                        busy = false
+                        busy = true
+                        try {
+                            buildProject(projectName.trim(), projectDesc, login!!, token() ?: "", cloudReady, generate, ::log) { playUrl = it }
+                        } catch (e: Exception) {
+                            log("Something went wrong: ${e.message}")
+                        } finally {
+                            busy = false
+                        }
                     }
                 },
                 modifier = Modifier.padding(top = 8.dp),
-            ) { Text("Create project on GitHub") }
+            ) { Text("Build it with XARVIS  ▶") }
             Text(
-                "Next stage: XARVIS writes the project's code into this repo, builds it, and gives you an install link.",
+                "XARVIS writes the game, pushes it to a new public repo, and publishes it. It may take about a minute to go live.",
                 style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
                 modifier = Modifier.padding(top = 6.dp),
             )
+            playUrl?.let { url ->
+                Button(
+                    onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) } },
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                ) { Text("▶  Play the game") }
+                Text(url, style = MaterialTheme.typography.labelSmall, color = XarvisMuted, modifier = Modifier.padding(top = 4.dp))
+            }
         }
 
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp))
@@ -180,3 +211,57 @@ private fun Section(title: String) {
     HorizontalDivider(Modifier.padding(top = 16.dp, bottom = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
     Text(title, style = MaterialTheme.typography.titleMedium, color = XarvisCyan)
 }
+
+/**
+ * The whole build: make a public repo, have the brain write the game, push index.html, publish via
+ * GitHub Pages. Progress goes to [log]; on success [onPlayUrl] gets the playable URL.
+ */
+private suspend fun buildProject(
+    repo: String, description: String, owner: String, token: String,
+    cloudReady: () -> Boolean, generate: suspend (String, String) -> String,
+    log: (String) -> Unit, onPlayUrl: (String) -> Unit,
+) {
+    if (token.isBlank()) { log("No GitHub token saved."); return }
+    if (!cloudReady()) {
+        log("XARVIS needs a cloud brain to write code. Turn one on in ☰ → BRAIN (e.g. your Gemini key), then try again.")
+        return
+    }
+
+    log("Creating public repo \"$repo\"…")
+    val cr = withContext(Dispatchers.IO) { XarvisCode.createRepo(token, repo, description.take(200), private = false) }
+    when {
+        cr.ok -> log("Repo created.")
+        cr.message.contains("already exists", ignoreCase = true) -> log("Repo already exists — reusing it.")
+        else -> { log("Couldn't create the repo: ${cr.message}"); return }
+    }
+
+    log("XARVIS is writing the game… (this can take up to a minute)")
+    val reply = try {
+        withContext(Dispatchers.IO) { generate(GAME_SYSTEM, "Build: ${description.ifBlank { "a small fun arcade game such as Snake" }}") }
+    } catch (e: Exception) {
+        log("The AI brain couldn't write it: ${e.message}"); return
+    }
+    val html = XarvisCode.extractHtml(reply)
+    if (html == null) { log("The AI didn't return a proper game page. Tap Build again to retry."); return }
+    log("Game written (${html.length} characters). Pushing to GitHub…")
+
+    val push = withContext(Dispatchers.IO) { XarvisCode.putFile(token, owner, repo, "index.html", html, "XARVIS Code: the game") }
+    if (!push.ok) { log("Couldn't push the file: ${push.message}"); return }
+    log("Pushed. Publishing the game…")
+
+    val pages = withContext(Dispatchers.IO) { XarvisCode.enablePages(token, owner, repo) }
+    if (pages.ok && pages.data != null) {
+        onPlayUrl(pages.data)
+        log("Published! It can take ~1 minute to go live — then tap \"Play the game\".\n${pages.data}")
+    } else {
+        log("Couldn't publish the page: ${pages.message}. Give it a moment and tap Build again.")
+    }
+}
+
+private const val GAME_SYSTEM =
+    "You are an expert game developer. Create a COMPLETE, self-contained, single-file HTML5 game. " +
+        "Output ONLY the raw contents of index.html and nothing else — no explanation, no markdown fences. " +
+        "Rules: put all HTML, CSS and JavaScript inline in the one file; use <canvas> and vanilla JavaScript; " +
+        "NO external files, libraries, CDNs, images or fonts of any kind. Make it mobile-friendly: it must work " +
+        "with touch (large on-screen buttons or swipes) AND with the keyboard. Include a title, a visible score, " +
+        "and a Restart button. Make it polished and genuinely fun. Keep it under about 500 lines."

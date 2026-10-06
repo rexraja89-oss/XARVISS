@@ -1,8 +1,10 @@
 package com.xarvis.ai.code
 
+import android.util.Base64
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 
 /**
  * XARVIS Code — the GitHub side of building SEPARATE projects (never XARVIS's own app).
@@ -25,18 +27,54 @@ object XarvisCode {
         else Result(false, errorMessage(code, text))
     }.getOrElse { Result(false, it.message ?: "Couldn't reach GitHub.") }
 
-    /** Creates a new private repository [name] (with a README), returning its web URL in [Result.data]. */
-    fun createRepo(token: String, name: String, description: String): Result = runCatching {
+    /** Creates a new repository [name] (with a README), returning its web URL in [Result.data]. */
+    fun createRepo(token: String, name: String, description: String, private: Boolean = true): Result = runCatching {
         val body = JSONObject()
             .put("name", name)
             .put("description", description)
-            .put("private", true)
+            .put("private", private)
             .put("auto_init", true)
             .toString()
         val (code, text) = http("POST", "$API/user/repos", token, body)
         if (code in 200..299) Result(true, "Repository created.", JSONObject(text).optString("html_url"))
         else Result(false, errorMessage(code, text))
     }.getOrElse { Result(false, it.message ?: "Couldn't reach GitHub.") }
+
+    /** Creates or updates file [path] in [owner]/[repo] with [content]. */
+    fun putFile(token: String, owner: String, repo: String, path: String, content: String, message: String): Result = runCatching {
+        val p = path.split("/").joinToString("/") { URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
+        // An update needs the existing file's sha; a first create doesn't.
+        val existing = http("GET", "$API/repos/$owner/$repo/contents/$p", token, null)
+        val sha = if (existing.first in 200..299) runCatching { JSONObject(existing.second).optString("sha") }.getOrNull() else null
+        val body = JSONObject()
+            .put("message", message)
+            .put("content", Base64.encodeToString(content.toByteArray(Charsets.UTF_8), Base64.NO_WRAP))
+        if (!sha.isNullOrBlank()) body.put("sha", sha)
+        val (code, text) = http("PUT", "$API/repos/$owner/$repo/contents/$p", token, body.toString())
+        if (code in 200..299) Result(true, "Pushed $path.") else Result(false, errorMessage(code, text))
+    }.getOrElse { Result(false, it.message ?: "Couldn't reach GitHub.") }
+
+    /** Turns on GitHub Pages for [owner]/[repo] (main branch, root). Returns the site URL in [Result.data]. */
+    fun enablePages(token: String, owner: String, repo: String): Result = runCatching {
+        val body = JSONObject().put("source", JSONObject().put("branch", "main").put("path", "/")).toString()
+        val (code, text) = http("POST", "$API/repos/$owner/$repo/pages", token, body)
+        val url = "https://$owner.github.io/$repo/"
+        when {
+            code in 200..299 -> Result(true, "Publishing.", url)
+            code == 409 || code == 422 -> Result(true, "Already published.", url) // Pages was already on
+            else -> Result(false, errorMessage(code, text))
+        }
+    }.getOrElse { Result(false, it.message ?: "Couldn't reach GitHub.") }
+
+    /** Pulls the HTML out of a brain's reply (strips ``` fences / leading prose), or null if it isn't a page. */
+    fun extractHtml(raw: String): String? {
+        var s = raw.trim()
+        Regex("```(?:html)?\\s*([\\s\\S]*?)```").find(s)?.let { s = it.groupValues[1].trim() }
+        val start = s.indexOf("<!doctype", ignoreCase = true).let { if (it >= 0) it else s.indexOf("<html", ignoreCase = true) }
+        if (start > 0) s = s.substring(start)
+        val looksLikePage = listOf("<html", "<canvas", "<body", "<script").any { s.contains(it, ignoreCase = true) }
+        return if (looksLikePage && s.contains("<")) s else null
+    }
 
     // ---- plumbing ----
 

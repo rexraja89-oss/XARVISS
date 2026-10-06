@@ -18,6 +18,8 @@ class XarvisCodeActivity : ComponentActivity() {
                     saveToken = core::saveGithubKey,
                     clearToken = core::clearGithubKey,
                     token = core::githubKey,
+                    cloudReady = core::cloudReady,
+                    generate = core::generateCode,
                     onBack = ::finish,
                 )
             }

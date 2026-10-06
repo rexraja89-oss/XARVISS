@@ -445,6 +445,11 @@ class XarvisCore(context: Context) {
     fun saveGithubKey(key: String) { searchKeys.save(com.xarvis.ai.llm.BrainKeys.GITHUB, key) }
     fun clearGithubKey() { searchKeys.clear(com.xarvis.ai.llm.BrainKeys.GITHUB) }
     fun githubKey(): String? = searchKeys.get(com.xarvis.ai.llm.BrainKeys.GITHUB)
+
+    /** XARVIS Code needs a cloud brain to write code (Gemma on-device is too small for this). */
+    fun cloudReady(): Boolean = cloudLlm.anyKey() && cloudLlm.online()
+    /** Ask the cloud brain chain to write code/text for a project (used by XARVIS Code). */
+    suspend fun generateCode(system: String, user: String): String = cloudLlm.chat(system, user) {}.text
     fun setCloud(on: Boolean) {
         settings.edit().putBoolean("cloudEnabled", on).apply()
         _state.update { it.copy(cloudEnabled = on) }
