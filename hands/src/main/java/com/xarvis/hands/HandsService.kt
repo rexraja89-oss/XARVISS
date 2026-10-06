@@ -204,11 +204,16 @@ class HandsService : AccessibilityService() {
 
     private fun findCallButton(root: AccessibilityNodeInfo?, video: Boolean): AccessibilityNodeInfo? {
         val want = if (video) listOf("video call", "video") else listOf("audio call", "voice call", "call")
+        // Only the real button, whose label is short ("Call", "Voice call"). WhatsApp's
+        // "Messages and calls are end-to-end encrypted…" banner also contains "call" but is a long
+        // sentence that opens the encryption screen — skip long text and these giveaway words.
+        val bad = listOf("encrypt", "end-to-end", "learn more", "verify", "tap to", "missed", "call log", "block", "search", "message")
         val match = findFirst(root) { n ->
-            val s = text(n).lowercase()
-            if (s.isEmpty() || isDangerous(s)) return@findFirst false
+            val s = text(n).lowercase().trim()
+            if (s.isEmpty() || s.length > 16 || isDangerous(s)) return@findFirst false
+            if (bad.any { s.contains(it) }) return@findFirst false
             if (video) want.any { s.contains(it) }
-            else want.any { s.contains(it) } && !s.contains("video") && !s.contains("missed") && !s.contains("call log")
+            else want.any { s.contains(it) } && !s.contains("video")
         }
         return match?.let { clickableSelfOrAncestor(it) ?: it }
     }
