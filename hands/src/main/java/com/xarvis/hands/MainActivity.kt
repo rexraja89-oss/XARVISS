@@ -81,22 +81,26 @@ class MainActivity : Activity() {
             setOnClickListener { runSelfTap() }
         })
 
-        // ---- call in imo ----
-        col.addView(header("TEST 2 — call a contact in imo"))
+        // ---- call in imo / WhatsApp ----
+        col.addView(header("TEST 2 — call a contact in an app"))
         val nameBox = EditText(this).apply { setText("baarish"); hint = "contact name" }
         col.addView(nameBox)
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         row.addView(Button(this).apply {
             text = "Call in imo"
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            setOnClickListener { startCall(nameBox.text.toString(), video = false) }
+            setOnClickListener { startCall("imo", nameBox.text.toString(), video = false) }
         })
         row.addView(Button(this).apply {
-            text = "Stop"
+            text = "Call in WhatsApp"
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            setOnClickListener { HandsService.instance?.cancelTask() }
+            setOnClickListener { startCall("whatsapp", nameBox.text.toString(), video = false) }
         })
         col.addView(row)
+        col.addView(Button(this).apply {
+            text = "Stop"
+            setOnClickListener { HandsService.instance?.cancelTask() }
+        })
 
         // ---- live log ----
         col.addView(header("LOG (what Hands is doing)"))
@@ -127,9 +131,9 @@ class MainActivity : Activity() {
         ui.postDelayed({ HandsService.instance?.dispatchTap(x, y) }, 2000)
     }
 
-    private fun startCall(name: String, video: Boolean) {
+    private fun startCall(app: String, name: String, video: Boolean) {
         if (!ensureOn()) return
-        HandsService.instance?.startCallInApp(name, video)
+        HandsService.instance?.startCallInApp(app, name, video)
     }
 
     private fun render() {

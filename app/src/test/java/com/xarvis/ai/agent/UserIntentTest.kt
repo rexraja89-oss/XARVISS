@@ -57,6 +57,38 @@ class UserIntentTest {
         )
     }
 
+    @Test fun whatsAppCallsGoThroughXarvisHands() {
+        assertEquals(
+            listOf(Step.AppCall("whatsapp", "baarish")),
+            XarvisAgent.forUser("call baarish on whatsapp", listOf(Step.Call("baarish"))),
+        )
+        assertEquals(
+            listOf(Step.AppCall("whatsapp", "baarish")),
+            XarvisAgent.forUser("open whatsapp and call baarish", listOf(Step.LaunchApp("whatsapp"), Step.FindInApp("whatsapp", "baarish"))),
+        )
+        // "whats app" with a space, and a video call.
+        assertEquals(
+            listOf(Step.AppCall("whatsapp", "mom", video = true)),
+            XarvisAgent.forUser("video call mom on whats app", listOf(Step.Call("mom"))),
+        )
+    }
+
+    @Test fun directMobileCallsStayCellular() {
+        assertEquals(
+            listOf(Step.Call("baarish", direct = true)),
+            XarvisAgent.forUser("call baarish on mobile", listOf(Step.Call("baarish"))),
+        )
+        assertEquals(
+            listOf(Step.Call("baarish", direct = true)),
+            XarvisAgent.forUser("call baarish on his number", listOf(Step.FindContact("baarish"))),
+        )
+        // Mobile wins even if an app is also named.
+        assertEquals(
+            listOf(Step.Call("baarish", direct = true)),
+            XarvisAgent.forUser("call baarish on mobile not imo", listOf(Step.Call("baarish"))),
+        )
+    }
+
     @Test fun repliesThatSkipATool() {
         // Gemma's real reply to "where am I" in Rex's screenshot.
         assertTrue(XarvisAgent.skippedTool("I do not have access to your current location. I can use the location tool if you ask me to."))

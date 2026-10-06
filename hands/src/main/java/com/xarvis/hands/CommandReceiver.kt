@@ -17,15 +17,16 @@ class CommandReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != "com.xarvis.hands.action.CALL_IN_APP") return
         val contact = intent.getStringExtra("contact")?.trim().orEmpty()
+        val app = intent.getStringExtra("app")?.trim().orEmpty().ifEmpty { "imo" }
         val video = intent.getBooleanExtra("video", false)
         if (contact.isEmpty()) return
 
         val service = HandsService.instance
         if (service != null) {
-            HandsService.log("XARVIS asked: call '$contact'${if (video) " (video)" else ""}.")
-            service.startCallInApp(contact, video)
+            HandsService.log("XARVIS asked: call '$contact' in $app${if (video) " (video)" else ""}.")
+            service.startCallInApp(app, contact, video)
         } else {
-            HandsService.pendingCall = contact to video
+            HandsService.pendingCall = Triple(app, contact, video)
             HandsService.log("XARVIS asked to call '$contact', but Hands is off — turn it on.")
             try {
                 context.startActivity(

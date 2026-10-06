@@ -696,37 +696,64 @@ class XarvisAgent(
             } else {
                 adjusted
             }
-            return inAppCallsFor(message, callsFor(message, photosFor(message, withImages)))
+            return inAppCallsFor(message, directMobileFor(message, callsFor(message, photosFor(message, withImages))))
         }
 
         // Apps XARVIS can't call into with a normal link, so it uses XARVIS Hands (Accessibility)
-        // to tap through them. imo has no call deep-link, which is what started this.
-        private val HANDS_CALL_APP = Regex("""(?i)\bimo\b""")
+        // to tap through them: imo and WhatsApp (neither has a call deep-link).
+        private val HANDS_CALL_APP = Regex("""(?i)\b(imo|whats\s?app|wa)\b""")
         private val WANTS_VIDEO_CALL = Regex("""(?i)\bvideo\b""")
         // A call anywhere in the message (not just at the start), English or Hinglish.
         private val WANTS_CALL = Regex("""(?i)\b(?:call|phone|ring|dial)\b|\bko\s+(?:call|phone|fone)\b""")
+        // Rex explicitly wants a normal cellular call, not an in-app one.
+        private val SAYS_MOBILE = Regex("""(?i)\b(?:mobile|cellular|cell|sim|normal call|regular call|direct call|number)\b""")
         // The name after "call ..." (English) or before "... ko call" (Hinglish), as a fallback.
         private val CALL_NAME_EN = Regex("""(?i)\b(?:call|phone|ring|dial)\s+(?:to\s+)?([\p{L}][\p{L}\d .'_-]{0,30})""")
         private val CALL_NAME_HI = Regex("""(?i)([\p{L}][\p{L}\d'_-]{0,30})\s+(?:ko|ku)\s+(?:call|phone|fone)\b""")
 
+        private fun canonicalApp(word: String): String =
+            if (word.replace(" ", "").contains("whats", ignoreCase = true) || word.equals("wa", true)) "whatsapp" else "imo"
+
+        private fun nameMatchesApp(name: String, app: String): Boolean =
+            if (app == "whatsapp") name.contains("whats", true) || name.equals("wa", true) else name.contains("imo", true)
+
         /**
-         * "open imo and call baarish" / "imo pe baarish ko call karo": when Rex names imo and wants a
-         * call, route it to XARVIS Hands ([Step.AppCall]) instead of the dialer, whatever step the
-         * brain produced (a call, a contact lookup, or a find-in-imo search), and drop any "open imo"
-         * / "find in imo" steps (Hands opens imo itself).
+         * "call baarish on his mobile / number": force a normal cellular call even mid-sentence, so it
+         * isn't routed into an app. ("call X" at the start is already handled by [callsFor].)
+         */
+        private fun directMobileFor(message: String, steps: List<Step>): List<Step> {
+            if (!WANTS_CALL.containsMatchIn(message) || !SAYS_MOBILE.containsMatchIn(message)) return steps
+            return steps.map {
+                when (it) {
+                    is Step.Call -> it.copy(direct = true)
+                    is Step.FindContact -> Step.Call(it.name, direct = true)
+                    else -> it
+                }
+            }
+        }
+
+        /**
+         * "open imo and call baarish" / "call baarish on WhatsApp" / "imo pe baarish ko call karo":
+         * when Rex names imo or WhatsApp and wants a call, route it to XARVIS Hands ([Step.AppCall])
+         * instead of the dialer, whatever step the brain produced (a call, a contact lookup, or a
+         * find-in-app search), and drop any open-app / find-in-app steps (Hands opens the app itself).
+         * If Rex explicitly said mobile/number, [directMobileFor] already made it a cellular call and
+         * this backs off.
          */
         private fun inAppCallsFor(message: String, steps: List<Step>): List<Step> {
-            val app = HANDS_CALL_APP.find(message)?.value?.lowercase() ?: return steps
+            val word = HANDS_CALL_APP.find(message)?.value ?: return steps
             if (!WANTS_CALL.containsMatchIn(message)) return steps
-            val contact = contactToCall(message, steps) ?: return steps
+            if (SAYS_MOBILE.containsMatchIn(message)) return steps // a normal call was asked for
+            val app = canonicalApp(word)
+            val contact = contactToCall(message, steps, app) ?: return steps
             val video = WANTS_VIDEO_CALL.containsMatchIn(message)
             var added = false
             val out = ArrayList<Step>()
             for (s in steps) {
-                val imoStep = (s is Step.LaunchApp && s.appName.contains("imo", true)) ||
-                    (s is Step.FindInApp && s.app.contains("imo", true)) ||
+                val appStep = (s is Step.LaunchApp && nameMatchesApp(s.appName, app)) ||
+                    (s is Step.FindInApp && nameMatchesApp(s.app, app)) ||
                     s is Step.Call || s is Step.FindContact
-                if (imoStep) {
+                if (appStep) {
                     if (!added) { out.add(Step.AppCall(app, contact, video)); added = true }
                 } else out.add(s)
             }
@@ -735,12 +762,12 @@ class XarvisAgent(
         }
 
         /** The contact to call: from the brain's step if it has one, else parsed from the message. */
-        private fun contactToCall(message: String, steps: List<Step>): String? {
+        private fun contactToCall(message: String, steps: List<Step>, app: String): String? {
             steps.firstNotNullOfOrNull {
                 when (it) {
                     is Step.Call -> it.target
                     is Step.FindContact -> it.name
-                    is Step.FindInApp -> if (it.app.contains("imo", true)) it.query else null
+                    is Step.FindInApp -> if (nameMatchesApp(it.app, app)) it.query else null
                     else -> null
                 }
             }?.let { return cleanContact(it) }
@@ -751,8 +778,8 @@ class XarvisAgent(
 
         private fun cleanContact(raw: String): String? {
             val s = raw.trim()
-                .replace(Regex("""(?i)\s+(?:in|on|via|from|through|using)\s+imo.*$"""), "")
-                .replace(Regex("""(?i)\bimo\b"""), "")
+                .replace(Regex("""(?i)\s+(?:in|on|via|from|through|using)\s+(?:imo|whats\s?app|wa)\b.*$"""), "")
+                .replace(Regex("""(?i)\b(?:imo|whatsapp|wa)\b"""), "")
                 .trim().trim('"', '\'', ',', '.', '&').trim()
             return s.ifBlank { null }
         }

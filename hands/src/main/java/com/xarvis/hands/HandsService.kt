@@ -37,10 +37,10 @@ class HandsService : AccessibilityService() {
         instance = this
         log("Service connected.")
         // A call that arrived from XARVIS before Hands was turned on: run it now.
-        pendingCall?.let { (contact, video) ->
+        pendingCall?.let { (app, contact, video) ->
             pendingCall = null
             log("Running the call XARVIS asked for earlier: '$contact'.")
-            handler.postDelayed({ startCallInApp(contact, video) }, 500)
+            handler.postDelayed({ startCallInApp(app, contact, video) }, 500)
         }
     }
 
@@ -70,16 +70,19 @@ class HandsService : AccessibilityService() {
         log("tap ($x, $y) -> dispatched=$ok")
     }
 
-    // ---- Capability 2: place a call inside an app (imo) ----
+    // ---- Capability 2: place a call inside an app (imo or WhatsApp) ----
 
-    /** Launch [appName]'s package, then walk its screens to find [contact] and tap the call button. */
-    fun startCallInApp(contact: String, video: Boolean) {
+    /** Launch [app]'s package, then walk its screens to find [contact] and tap the call button. */
+    fun startCallInApp(app: String, contact: String, video: Boolean) {
         val name = contact.trim()
         if (name.isEmpty()) { log("No contact name given."); return }
-        log("TASK: ${if (video) "video-" else ""}call '$name' in imo")
-        val candidates = listOf(
-            "com.imo.android.imoim", "com.imo.android.imoimbeta", "com.imo.android.imoimhd",
-        )
+        val whatsapp = app.trim().lowercase().let { it.contains("whats") || it == "wa" }
+        val label = if (whatsapp) "WhatsApp" else "imo"
+        log("TASK: ${if (video) "video-" else ""}call '$name' in $label")
+        val candidates = if (whatsapp)
+            listOf("com.whatsapp", "com.whatsapp.w4b")
+        else
+            listOf("com.imo.android.imoim", "com.imo.android.imoimbeta", "com.imo.android.imoimhd")
         var launched: String? = null
         for (pkg in candidates) {
             val intent = packageManager.getLaunchIntentForPackage(pkg)
@@ -90,9 +93,10 @@ class HandsService : AccessibilityService() {
                 break
             }
         }
-        if (launched == null) { log("imo not found on this phone (or not visible)."); return }
+        if (launched == null) { log("$label not found on this phone (or not visible)."); return }
         log("Launched $launched — waiting for it to open…")
-        task = CallTask(name, launched, video)
+        // The package prefix we expect the app's windows under, to know its screen is in front.
+        task = CallTask(name, if (whatsapp) "com.whatsapp" else "com.imo", video)
         handler.removeCallbacks(runner)
         handler.postDelayed(runner, 1300)
     }
@@ -120,8 +124,8 @@ class HandsService : AccessibilityService() {
             val root = rootInActiveWindow
             if (root == null) { log("No window yet…"); handler.postDelayed(this, 600); return }
             val pkgNow = root.packageName?.toString() ?: ""
-            if (!pkgNow.startsWith("com.imo")) {
-                log("Waiting for imo (on $pkgNow)…"); handler.postDelayed(this, 700); return
+            if (!pkgNow.startsWith(t.pkg)) {
+                log("Waiting for the app (on $pkgNow)…"); handler.postDelayed(this, 700); return
             }
 
             when (t.state) {
@@ -252,8 +256,8 @@ class HandsService : AccessibilityService() {
         )
 
         @Volatile var instance: HandsService? = null; private set
-        /** A call requested before the service was connected; run on connect. */
-        @Volatile var pendingCall: Pair<String, Boolean>? = null
+        /** A call (app, contact, video) requested before the service was connected; run on connect. */
+        @Volatile var pendingCall: Triple<String, String, Boolean>? = null
         @Volatile var eventCount: Long = 0L; private set
         @Volatile var lastEventType: String = ""; private set
         @Volatile var lastEventPackage: String = ""; private set
