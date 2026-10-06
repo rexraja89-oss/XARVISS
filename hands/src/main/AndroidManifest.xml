@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- For the in-app "check for a newer Hands" update button. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <!-- Only another app signed with the same key (the main XARVIS app) may send Hands a command.
          signature-level means the permission is granted automatically to same-signer apps and to
          nobody else. -->

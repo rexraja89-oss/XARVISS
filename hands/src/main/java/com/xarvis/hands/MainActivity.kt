@@ -33,6 +33,7 @@ class MainActivity : Activity() {
     private lateinit var last: TextView
     private lateinit var tapTarget: Button
     private lateinit var log: TextView
+    private lateinit var updateBtn: Button
     private var selfTaps = 0
 
     private val ui = Handler(Looper.getMainLooper())
@@ -58,6 +59,19 @@ class MainActivity : Activity() {
         col.addView(TextView(this).apply {
             text = "XARVIS Hands"; textSize = 24f; setTextColor(Color.parseColor("#0B6E8C"))
         })
+
+        // ---- in-app update button (hidden until a newer Hands is found on GitHub) ----
+        updateBtn = Button(this).apply {
+            visibility = View.GONE
+            setBackgroundColor(Color.parseColor("#17A2B8"))
+            setTextColor(Color.WHITE)
+            setOnClickListener {
+                if (!Updates.openDownload(this@MainActivity)) {
+                    Toast.makeText(this@MainActivity, "Couldn't open the browser.", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        col.addView(updateBtn)
 
         // ---- live service diagnostic ----
         status = TextView(this).apply { textSize = 16f; setPadding(0, gap, 0, 0) }
@@ -114,8 +128,22 @@ class MainActivity : Activity() {
         setContentView(ScrollView(this).apply { addView(col) })
     }
 
-    override fun onResume() { super.onResume(); ui.post(refresh) }
+    override fun onResume() { super.onResume(); ui.post(refresh); checkForUpdate() }
     override fun onPause() { super.onPause(); ui.removeCallbacks(refresh) }
+
+    /** Ask GitHub if there's a newer Hands; if so, reveal the update button. Silent on failure. */
+    private fun checkForUpdate() {
+        val current = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+        } catch (e: Exception) { "" }
+        Thread {
+            val newer = Updates.newerVersion(current)
+            if (newer != null) runOnUiThread {
+                updateBtn.text = "⬆  Update to v$newer — tap to install"
+                updateBtn.visibility = View.VISIBLE
+            }
+        }.start()
+    }
 
     private fun ensureOn(): Boolean {
         if (HandsService.isRunning()) return true
