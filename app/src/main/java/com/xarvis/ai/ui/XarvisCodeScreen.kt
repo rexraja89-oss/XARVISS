@@ -1,19 +1,26 @@
 package com.xarvis.ai.ui
 
+import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -22,18 +29,19 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.core.net.toUri
-import android.content.Intent
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import com.xarvis.ai.code.XarvisCode
 import com.xarvis.ai.ui.theme.XarvisCyan
 import com.xarvis.ai.ui.theme.XarvisMuted
@@ -41,9 +49,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private enum class Role { USER, AGENT, STEP }
+private data class Msg(val role: Role, val text: String, val url: String? = null)
+
 /**
- * ☰ → XARVIS Code. Stage 1: connect a GitHub token and create a new project repository. XARVIS only
- * ever builds SEPARATE projects here — its own app is never touched.
+ * ☰ → XARVIS Code: a Claude-Code-style coding agent (this screen only — the main XARVIS is unchanged).
+ * Connect GitHub once, then just chat: "build a tic-tac-toe game", "make the snake blue", "fix the
+ * score". XARVIS writes the code, checks and fixes its own work (Stage 3), pushes it and publishes it
+ * live — all free, on the cloud brains. It only ever builds SEPARATE projects, never its own app.
  */
 @Composable
 fun XarvisCodeScreen(
@@ -55,255 +68,227 @@ fun XarvisCodeScreen(
     generate: suspend (String, String) -> String,
     onBack: () -> Unit,
 ) {
-    val context = LocalContext.current
+    val context = LocalContextCompat()
     val scope = rememberCoroutineScope()
     var tokenInput by remember { mutableStateOf("") }
     var saved by remember { mutableStateOf(hasToken()) }
     var login by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var logText by remember { mutableStateOf("") }
-    var projectName by remember { mutableStateOf("") }
-    var projectDesc by remember { mutableStateOf("a small fun mobile game, like snake") }
-    var playUrl by remember { mutableStateOf<String?>(null) }
+    var connectLog by remember { mutableStateOf("") }
+    var project by remember { mutableStateOf("my-app") }
+    var currentHtml by remember { mutableStateOf<String?>(null) }
+    var input by remember { mutableStateOf("") }
+    val msgs = remember { mutableStateListOf<Msg>() }
+    val listState = rememberLazyListState()
 
-    fun log(line: String) { logText = (logText + "\n" + line).trim() }
+    fun clog(line: String) { connectLog = (connectLog + "\n" + line).trim() }
 
-    // If a token is already saved, confirm the connection on open so the build section appears
-    // without Rex having to tap "Verify" every time.
     LaunchedEffect(Unit) {
         if (saved && login == null) {
-            busy = true; log("Verifying the saved token…")
+            busy = true; clog("Verifying the saved token…")
             val r = withContext(Dispatchers.IO) { XarvisCode.verify(token() ?: "") }
-            if (r.ok) { login = r.data; log("Connected as ${r.data}.") } else log("Couldn't connect: ${r.message}")
+            if (r.ok) { login = r.data; clog("Connected as ${r.data}.") } else clog("Couldn't connect: ${r.message}")
             busy = false
         }
     }
+    // Greeting once connected.
+    LaunchedEffect(login) {
+        if (login != null && msgs.isEmpty()) {
+            msgs.add(Msg(Role.AGENT, "XARVIS Code online, sir. Tell me what to build — e.g. \"a tic-tac-toe game\" or \"a tip calculator\" — and I'll write it, fix my own mistakes, and publish it live. Change the project name above to start a new one."))
+        }
+    }
+    LaunchedEffect(msgs.size) { if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.size - 1) }
 
-    Column(
-        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
-            .verticalScroll(rememberScrollState()).padding(16.dp),
-    ) {
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 14.dp)) {
         TextButton(onClick = onBack) { Text("‹ Back", color = XarvisCyan) }
         Text("XARVIS Code", style = MaterialTheme.typography.headlineSmall, color = XarvisCyan)
-        Text(
-            "Build separate projects with AI. XARVIS writes the code and GitHub builds it — your XARVIS app is never changed, so nothing here can break it.",
-            style = MaterialTheme.typography.bodySmall, color = XarvisMuted,
-            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
-        )
 
-        // ---- 1 · Connect GitHub ----
-        Section("1 · Connect GitHub")
-        login?.let { Text("✓ Connected as $it", color = Color(0xFF1B8A3A), style = MaterialTheme.typography.bodyLarge) }
-
-        if (!saved) {
-            Text(
-                "XARVIS needs a GitHub token to create and build projects for you. Make one once:\n" +
-                    "• On github.com → Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token (classic).\n" +
-                    "• Tick the \"repo\" and \"workflow\" boxes, generate it, and paste it below.\n" +
-                    "It's stored encrypted on your phone and only ever sent to GitHub.",
-                style = MaterialTheme.typography.bodySmall, color = XarvisMuted,
-                modifier = Modifier.padding(vertical = 6.dp),
-            )
-            OutlinedTextField(
-                value = tokenInput, onValueChange = { tokenInput = it.trim() },
-                label = { Text("GitHub token (starts with ghp_…)") },
-                singleLine = true, modifier = Modifier.fillMaxWidth(),
-            )
-            Button(
-                enabled = !busy && tokenInput.isNotBlank(),
-                onClick = {
-                    scope.launch {
-                        busy = true; log("Checking the token…")
-                        val r = withContext(Dispatchers.IO) { XarvisCode.verify(tokenInput) }
-                        if (r.ok) {
-                            saveToken(tokenInput); saved = true; login = r.data
-                            log("Connected as ${r.data}. Token saved.")
-                        } else log("Couldn't connect: ${r.message}")
-                        busy = false
+        if (login == null) {
+            // ---- connect ----
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "Connect GitHub once (a free account). Make a classic token with the \"repo\" and \"workflow\" " +
+                        "boxes ticked (github.com → Settings → Developer settings → Tokens (classic)), and paste it below. " +
+                        "It's stored encrypted on your phone and only ever sent to GitHub.",
+                    style = MaterialTheme.typography.bodySmall, color = XarvisMuted, modifier = Modifier.padding(vertical = 8.dp),
+                )
+                if (!saved) {
+                    OutlinedTextField(
+                        value = tokenInput, onValueChange = { tokenInput = it.trim() },
+                        label = { Text("GitHub token (ghp_…)") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    )
+                    Button(
+                        enabled = !busy && tokenInput.isNotBlank(),
+                        onClick = {
+                            scope.launch {
+                                busy = true; clog("Checking the token…")
+                                val r = withContext(Dispatchers.IO) { XarvisCode.verify(tokenInput) }
+                                if (r.ok) { saveToken(tokenInput); saved = true; login = r.data; clog("Connected as ${r.data}.") }
+                                else clog("Couldn't connect: ${r.message}")
+                                busy = false
+                            }
+                        },
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) { Text("Connect") }
+                } else {
+                    Row(Modifier.padding(top = 8.dp)) {
+                        Button(enabled = !busy, onClick = {
+                            scope.launch {
+                                busy = true; clog("Verifying…")
+                                val r = withContext(Dispatchers.IO) { XarvisCode.verify(token() ?: "") }
+                                if (r.ok) login = r.data else clog("Couldn't connect: ${r.message}")
+                                busy = false
+                            }
+                        }) { Text("Verify connection") }
+                        Spacer(Modifier.fillMaxWidth(0.04f))
+                        OutlinedButton(enabled = !busy, onClick = { clearToken(); saved = false; tokenInput = ""; clog("Token removed.") }) { Text("Remove") }
                     }
-                },
-                modifier = Modifier.padding(top = 8.dp),
-            ) { Text("Connect") }
-        } else {
-            Text("A GitHub token is saved on this phone.", style = MaterialTheme.typography.bodyMedium)
-            Row(Modifier.padding(top = 8.dp)) {
-                Button(
-                    enabled = !busy,
-                    onClick = {
-                        scope.launch {
-                            busy = true; log("Verifying the saved token…")
-                            val r = withContext(Dispatchers.IO) { XarvisCode.verify(token() ?: "") }
-                            if (r.ok) { login = r.data; log("Connected as ${r.data}.") }
-                            else log("Couldn't connect: ${r.message}")
-                            busy = false
-                        }
-                    },
-                ) { Text("Verify connection") }
-                Spacer(Modifier.fillMaxWidth(0.04f))
-                OutlinedButton(
-                    enabled = !busy,
-                    onClick = { clearToken(); saved = false; login = null; tokenInput = ""; log("Token removed.") },
-                ) { Text("Remove") }
+                }
+                if (connectLog.isNotEmpty()) {
+                    Text(connectLog, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
+                        color = XarvisMuted, modifier = Modifier.padding(top = 10.dp))
+                }
             }
+            return@Column
         }
 
-        // ---- 2 · Build a project (only once connected) ----
-        if (login != null) {
-            Section("2 · Build a project")
+        // ---- connected: project header + chat ----
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("✓ ${login}", color = Color(0xFF1B8A3A), style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.fillMaxWidth(0.03f))
             OutlinedTextField(
-                value = projectName,
-                onValueChange = { projectName = it.replace(" ", "-") },
-                label = { Text("Project name (e.g. snake-game)") },
-                singleLine = true, modifier = Modifier.fillMaxWidth(),
+                value = project, onValueChange = { project = it.replace(" ", "-") },
+                label = { Text("Project") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
             )
+        }
+        HorizontalDivider(Modifier.padding(vertical = 6.dp), color = XarvisMuted.copy(alpha = 0.3f))
+
+        LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth()) {
+            items(msgs) { m -> MessageRow(m) { url -> runCatching { context(Intent(Intent.ACTION_VIEW, url.toUri())) } } }
+        }
+
+        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
-                value = projectDesc, onValueChange = { projectDesc = it },
-                label = { Text("What should XARVIS build?") },
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                value = input, onValueChange = { input = it },
+                label = { Text("Tell XARVIS Code what to build…") },
+                modifier = Modifier.weight(1f), enabled = !busy,
             )
-            Button(
-                enabled = !busy && projectName.isNotBlank(),
-                onClick = {
-                    playUrl = null
+            Spacer(Modifier.fillMaxWidth(0.03f))
+            if (busy) {
+                CircularProgressIndicator(Modifier.padding(8.dp))
+            } else {
+                Button(enabled = input.isNotBlank(), onClick = {
+                    val text = input.trim(); input = ""
+                    msgs.add(Msg(Role.USER, text))
                     scope.launch {
                         busy = true
                         try {
-                            buildProject(projectName.trim(), projectDesc, login!!, token() ?: "", cloudReady, generate, ::log) { playUrl = it }
+                            val nh = runAgent(text, project.trim().ifBlank { "my-app" }, login!!, token() ?: "", currentHtml, cloudReady, generate) { r, t, u -> msgs.add(Msg(r, t, u)) }
+                            if (nh != null) currentHtml = nh
                         } catch (e: Exception) {
-                            log("Something went wrong: ${e.message}")
-                        } finally {
-                            busy = false
-                        }
+                            msgs.add(Msg(Role.AGENT, "Something went wrong: ${e.message}"))
+                        } finally { busy = false }
                     }
-                },
-                modifier = Modifier.padding(top = 8.dp),
-            ) { Text("Build it with XARVIS  ▶") }
-            Text(
-                "XARVIS writes the game, pushes it to a new public repo, and publishes it. It may take about a minute to go live.",
-                style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
-                modifier = Modifier.padding(top = 6.dp),
-            )
-            playUrl?.let { url ->
-                Button(
-                    onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) } },
-                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                ) { Text("▶  Play the game") }
-                Text(url, style = MaterialTheme.typography.labelSmall, color = XarvisMuted, modifier = Modifier.padding(top = 4.dp))
+                }) { Text("Send") }
             }
         }
-
-        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp))
-
-        if (logText.isNotEmpty()) {
-            Section("Log")
-            Text(
-                logText, style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
-        Spacer(Modifier.height(32.dp))
     }
 }
 
 @Composable
-private fun Section(title: String) {
-    HorizontalDivider(Modifier.padding(top = 16.dp, bottom = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
-    Text(title, style = MaterialTheme.typography.titleMedium, color = XarvisCyan)
+private fun MessageRow(m: Msg, onOpen: (String) -> Unit) {
+    when (m.role) {
+        Role.STEP -> Text(
+            m.text, style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace,
+            color = XarvisMuted, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp, horizontal = 4.dp),
+        )
+        else -> {
+            val user = m.role == Role.USER
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
+                Column(
+                    Modifier.widthIn(max = 320.dp).clip(RoundedCornerShape(14.dp))
+                        .background(if (user) XarvisCyan.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(12.dp),
+                ) {
+                    Text(m.text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                    if (m.url != null) {
+                        Button(onClick = { onOpen(m.url) }, modifier = Modifier.padding(top = 8.dp)) { Text("▶  Open it") }
+                        Text(m.url, style = MaterialTheme.typography.labelSmall, color = XarvisMuted, modifier = Modifier.padding(top = 4.dp))
+                    }
+                }
+            }
+        }
+    }
 }
 
-/**
- * The whole build: make a public repo, have the brain write the game, push index.html, publish via
- * GitHub Pages. Progress goes to [log]; on success [onPlayUrl] gets the playable URL.
- */
-private suspend fun buildProject(
-    repo: String, description: String, owner: String, token: String,
+/** One agent turn: get the brain's reply; if it's code, self-correct and publish; else just chat. */
+private suspend fun runAgent(
+    userText: String, project: String, owner: String, token: String, currentHtml: String?,
     cloudReady: () -> Boolean, generate: suspend (String, String) -> String,
-    log: (String) -> Unit, onPlayUrl: (String) -> Unit,
-) {
-    if (token.isBlank()) { log("No GitHub token saved."); return }
-    if (!cloudReady()) {
-        log("XARVIS needs a cloud brain to write code. Turn one on in ☰ → BRAIN (e.g. your Gemini key), then try again.")
-        return
-    }
+    add: (Role, String, String?) -> Unit,
+): String? {
+    if (token.isBlank()) { add(Role.AGENT, "No GitHub token saved.", null); return null }
+    if (!cloudReady()) { add(Role.AGENT, "I need a cloud brain turned on in ☰ → BRAIN to write code.", null); return null }
 
-    log("Creating public repo \"$repo\"…")
-    val cr = withContext(Dispatchers.IO) { XarvisCode.createRepo(token, repo, description.take(200), private = false) }
-    when {
-        cr.ok -> log("Repo created.")
-        cr.message.contains("already exists", ignoreCase = true) -> log("Repo already exists — reusing it.")
-        else -> { log("Couldn't create the repo: ${cr.message}"); return }
-    }
-
-    log("XARVIS is writing the game… (this can take up to a minute)")
+    val sys = XCODE_SYSTEM + if (currentHtml != null) "\n\nThe current index.html is:\n$currentHtml" else "\n\nThere is no file yet; create one from scratch."
+    add(Role.STEP, "Thinking…", null)
     val reply = try {
-        withContext(Dispatchers.IO) { generate(GAME_SYSTEM, "Build: ${description.ifBlank { "a small fun arcade game such as Snake" }}") }
-    } catch (e: Exception) {
-        log("The AI brain couldn't write it: ${e.message}"); return
-    }
-    var html: String = XarvisCode.extractHtml(reply) ?: run {
-        log("The AI didn't return a proper game page. Tap Build again to retry."); return
-    }
-    log("Game written (${html.length} characters). Checking it…")
+        withContext(Dispatchers.IO) { generate(sys, userText) }
+    } catch (e: Exception) { add(Role.AGENT, "Brain error: ${e.message}", null); return null }
 
-    // Stage 3 — XARVIS checks its own code and fixes real problems before publishing (up to 5 passes).
+    var html = XarvisCode.extractHtml(reply)
+    if (html == null) { add(Role.AGENT, reply.trim().ifBlank { "(no reply)" }.take(1500), null); return null }
+
+    add(Role.STEP, "Wrote index.html (${html.length} chars). Checking it…", null)
     var issues = XarvisCode.issuesIn(html)
     var pass = 0
     while (issues.isNotEmpty() && pass < 5) {
         pass++
-        log("Found: ${issues.joinToString("; ")}")
-        log("XARVIS is fixing it (pass $pass of 5)…")
+        add(Role.STEP, "Found: ${issues.joinToString("; ")} — fixing (pass $pass/5)…", null)
         val fixed = try {
-            withContext(Dispatchers.IO) {
-                generate(FIX_SYSTEM, "Problems to fix:\n- " + issues.joinToString("\n- ") + "\n\nCurrent index.html:\n" + html)
-            }
-        } catch (e: Exception) { log("Fix attempt failed: ${e.message}"); break }
-        val fh = XarvisCode.extractHtml(fixed)
-        if (fh == null) { log("The fix didn't come back as a page; keeping the current one."); break }
+            withContext(Dispatchers.IO) { generate(FIX_SYSTEM, "Problems to fix:\n- " + issues.joinToString("\n- ") + "\n\nCurrent index.html:\n" + html) }
+        } catch (e: Exception) { add(Role.STEP, "Fix failed: ${e.message}", null); break }
+        val fh = XarvisCode.extractHtml(fixed) ?: break
         html = fh
         issues = XarvisCode.issuesIn(html)
     }
-    when {
-        issues.isNotEmpty() -> log("Still not perfect after $pass fix pass(es): ${issues.joinToString("; ")}. Publishing the best version so far.")
-        pass > 0 -> log("All problems fixed after $pass pass(es). ✓")
-        else -> log("Looks sound — no problems found. ✓")
-    }
-    log("Pushing to GitHub…")
+    if (issues.isEmpty() && pass > 0) add(Role.STEP, "All problems fixed after $pass pass(es). ✓", null)
+    else if (issues.isNotEmpty()) add(Role.STEP, "Still imperfect after $pass pass(es); publishing the best version.", null)
 
-    val push = withContext(Dispatchers.IO) { XarvisCode.putFile(token, owner, repo, "index.html", html, "XARVIS Code: the game") }
-    if (!push.ok) { log("Couldn't push the file: ${push.message}"); return }
-    log("Pushed. Publishing the game…")
-
-    val pages = withContext(Dispatchers.IO) { XarvisCode.enablePages(token, owner, repo) }
-    if (pages.ok && pages.data != null) {
-        onPlayUrl(pages.data)
-        log("Published! It can take ~1 minute to go live — then tap \"Play the game\".\n${pages.data}")
-    } else {
-        log("Couldn't publish the page: ${pages.message}. Give it a moment and tap Build again.")
-    }
+    val cr = withContext(Dispatchers.IO) { XarvisCode.createRepo(token, project, "Built by XARVIS Code", private = false) }
+    if (!cr.ok && !cr.message.contains("already exists", ignoreCase = true)) { add(Role.AGENT, "Couldn't create the project \"$project\": ${cr.message}", null); return null }
+    add(Role.STEP, "Pushing to GitHub…", null)
+    val push = withContext(Dispatchers.IO) { XarvisCode.putFile(token, owner, project, "index.html", html, "XARVIS Code: $userText") }
+    if (!push.ok) { add(Role.AGENT, "Couldn't push the code: ${push.message}", null); return null }
+    val pages = withContext(Dispatchers.IO) { XarvisCode.enablePages(token, owner, project) }
+    add(Role.AGENT, "Done — published. It can take about a minute to go live.", pages.data)
+    return html
 }
 
-private const val GAME_SYSTEM =
-    "You are an expert game developer. Create a COMPLETE, self-contained, single-file HTML5 game. " +
-        "Output ONLY the raw contents of index.html and nothing else — no explanation, no markdown fences. " +
-        "Rules: put all HTML, CSS and JavaScript inline in the one file; use <canvas> and vanilla JavaScript; " +
-        "NO external files, libraries, CDNs, images or fonts of any kind. " +
-        "THIS RUNS ON A PHONE WITH NO PHYSICAL KEYBOARD, so TOUCH CONTROLS ARE MANDATORY: large on-screen " +
-        "direction buttons (a D-pad) and/or swipe gestures that actually move the player; also support arrow keys. " +
-        "A game that can only be played with a keyboard is unacceptable. " +
-        "Include a clear title, a visible score (make SURE the score text colour strongly contrasts its " +
-        "background so it is readable), a start/Play screen, and a Restart button. Give it a dark background and " +
-        "an attractive, polished look. Make it genuinely fun. " +
-        "QUALITY BAR: the game MUST run and be bug-free — it must NOT throw an error or show a blank screen on " +
-        "the first frame (handle the starting state safely), every function called from the HTML must be defined, " +
-        "and the file MUST be COMPLETE and end with a closing </script> and </html>. Do not truncate. " +
-        "Write the whole, finished game — do not cut corners to make it short."
+// A tiny indirection so the screen can start an Intent without importing LocalContext everywhere.
+@Composable
+private fun LocalContextCompat(): (Intent) -> Unit {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    return { intent -> ctx.startActivity(intent) }
+}
 
-/** Used by Stage 3's self-correction: hand the brain the broken file + the problems, get a fixed one back. */
+private const val XCODE_SYSTEM =
+    "You are XARVIS Code, a coding agent that builds a single-file web app or game — one file, index.html — " +
+        "that the user opens on a phone. " +
+        "WHEN the user asks you to build, create, make, change, add to, improve, or fix the app/game, reply with " +
+        "ONLY the complete updated contents of index.html and nothing else — no explanation, no markdown fences. " +
+        "That file must: put all HTML, CSS and JavaScript inline with NO external files/CDNs/images/fonts; be " +
+        "mobile-friendly with large on-screen TOUCH controls (buttons and/or swipe) since there is no keyboard, " +
+        "plus keyboard support; not show a blank screen or crash on the first frame; have every function that a " +
+        "button calls defined; use readable, contrasting colours; be polished and complete; and END with " +
+        "</script></html>. If you are changing an existing file, return the WHOLE updated file, not a snippet. " +
+        "OTHERWISE (a greeting, a question, or discussion) reply with a short normal sentence or two — never code."
+
 private const val FIX_SYSTEM =
-    "You are fixing a single-file HTML5 game meant for a phone. I will give you the current index.html and a " +
+    "You are fixing a single-file HTML5 app/game meant for a phone. I will give you the current index.html and a " +
         "list of problems. Return ONLY the corrected, COMPLETE index.html — no explanation, no markdown fences. " +
         "Fix EVERY listed problem. Also make sure: every function a button calls is defined; it does NOT show a " +
-        "blank screen or crash on the first frame; it has large on-screen TOUCH controls (buttons and/or swipe) " +
-        "because the phone has no keyboard; and the score text clearly contrasts its background. Keep all HTML, " +
-        "CSS and JavaScript inline with no external resources, and END the file with </script></html>."
+        "blank screen or crash on the first frame; it has large on-screen TOUCH controls (buttons and/or swipe); " +
+        "and text clearly contrasts its background. Keep all HTML, CSS and JavaScript inline with no external " +
+        "resources, and END the file with </script></html>."
