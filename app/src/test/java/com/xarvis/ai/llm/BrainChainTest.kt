@@ -19,7 +19,7 @@ class BrainChainTest {
         override fun hasKey() = true
         override fun saveKey(key: String) {}
         override fun clearKey() {}
-        override suspend fun chat(systemPrompt: String, message: String): String =
+        override suspend fun chat(systemPrompt: String, message: String, maxTokens: Int): String =
             reply ?: throw (error ?: IllegalStateException("no reply"))
     }
 

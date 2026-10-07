@@ -20,8 +20,11 @@ interface Brain {
     fun saveKey(key: String)
     fun clearKey()
 
-    /** Answers [message]. Throws [QuotaReached] when the free limit is used up, or another error. */
-    suspend fun chat(systemPrompt: String, message: String): String
+    /**
+     * Answers [message]. [maxTokens] caps the reply length (small for chat; large for code, where
+     * XARVIS Code needs a whole file). Throws [QuotaReached] when the free limit is used up.
+     */
+    suspend fun chat(systemPrompt: String, message: String, maxTokens: Int = 1536): String
 }
 
 /** A brain's state for the settings UI (no key material). */

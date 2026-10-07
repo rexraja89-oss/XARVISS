@@ -59,9 +59,9 @@ class CloudLlm(context: Context) : Brain {
     }.getOrDefault(false)
 
     /** Asks Gemini. Returns its text; throws [QuotaReached] on a 429, or another exception otherwise. */
-    override suspend fun chat(systemPrompt: String, message: String): String = withContext(Dispatchers.IO) {
+    override suspend fun chat(systemPrompt: String, message: String, maxTokens: Int): String = withContext(Dispatchers.IO) {
         val key = keys.get(BrainKeys.GEMINI) ?: throw IllegalStateException("no Gemini key")
-        runModels(modelsToTry(key), key, systemPrompt, message, remember = true)
+        runModels(modelsToTry(key), key, systemPrompt, message, maxTokens, remember = true)
     }
 
     /**
@@ -90,11 +90,11 @@ class CloudLlm(context: Context) : Brain {
         }
 
     /** Tries each model in order; returns the first answer. [remember] records the model that worked. */
-    private fun runModels(models: List<String>, key: String, systemPrompt: String, message: String, remember: Boolean): String {
+    private fun runModels(models: List<String>, key: String, systemPrompt: String, message: String, maxTokens: Int = 1536, remember: Boolean): String {
         var lastError: Exception? = null
         for (model in models) {
             try {
-                val answer = call(model, key, systemPrompt, message)
+                val answer = call(model, key, systemPrompt, message, maxTokens)
                 if (remember) working = model
                 return answer
             } catch (e: QuotaReached) {
@@ -174,9 +174,9 @@ class CloudLlm(context: Context) : Brain {
             hi > major || (hi == major && it.groupValues[2].toInt() >= minor)
         } == true
 
-    private fun call(model: String, key: String, systemPrompt: String, message: String): String {
+    private fun call(model: String, key: String, systemPrompt: String, message: String, maxTokens: Int): String {
         val url = URL("$BASE/models/$model:generateContent?key=$key")
-        val gen = JSONObject().put("maxOutputTokens", 1536).put("temperature", 0.7)
+        val gen = JSONObject().put("maxOutputTokens", maxTokens).put("temperature", 0.7)
         // 2.5+ flash "thinks" by default and can spend the whole budget thinking, leaving no text.
         // Turn thinking off for a direct answer (only flash models accept a 0 budget).
         if (model.contains("flash") && (model.contains("latest") || versionAtLeast(model, 2, 5))) {

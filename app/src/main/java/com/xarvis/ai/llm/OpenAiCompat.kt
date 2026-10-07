@@ -30,12 +30,12 @@ class OpenAiCompat(
     override fun saveKey(key: String) = keys.save(id, key)
     override fun clearKey() = keys.clear(id)
 
-    override suspend fun chat(systemPrompt: String, message: String): String = withContext(Dispatchers.IO) {
+    override suspend fun chat(systemPrompt: String, message: String, maxTokens: Int): String = withContext(Dispatchers.IO) {
         val key = keys.get(id) ?: throw IllegalStateException("no $label key")
         var lastError: Exception? = null
         for (model in models) {
             try {
-                return@withContext call(model, key, systemPrompt, message)
+                return@withContext call(model, key, systemPrompt, message, maxTokens)
             } catch (e: QuotaReached) {
                 throw e
             } catch (e: ModelNotFound) {
@@ -49,7 +49,7 @@ class OpenAiCompat(
 
     private class ModelNotFound(message: String) : Exception(message)
 
-    private fun call(model: String, key: String, systemPrompt: String, message: String): String {
+    private fun call(model: String, key: String, systemPrompt: String, message: String, maxTokens: Int): String {
         val url = URL("$base/chat/completions")
         val body = JSONObject()
             .put("model", model)
@@ -59,7 +59,7 @@ class OpenAiCompat(
                     .put(JSONObject().put("role", "system").put("content", systemPrompt))
                     .put(JSONObject().put("role", "user").put("content", message)),
             )
-            .put("max_tokens", 1536)
+            .put("max_tokens", maxTokens)
             .put("temperature", 0.7)
         val conn = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"

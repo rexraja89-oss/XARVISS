@@ -243,6 +243,10 @@ private suspend fun buildProject(
     }
     val html = XarvisCode.extractHtml(reply)
     if (html == null) { log("The AI didn't return a proper game page. Tap Build again to retry."); return }
+    // A cut-off reply (no closing tags) would publish a half-game that doesn't run — don't.
+    if (!html.contains("</html>", ignoreCase = true) && !html.contains("</script>", ignoreCase = true)) {
+        log("The game came out incomplete (the AI's reply was cut off). Tap Build again to retry."); return
+    }
     log("Game written (${html.length} characters). Pushing to GitHub…")
 
     val push = withContext(Dispatchers.IO) { XarvisCode.putFile(token, owner, repo, "index.html", html, "XARVIS Code: the game") }
@@ -264,4 +268,8 @@ private const val GAME_SYSTEM =
         "Rules: put all HTML, CSS and JavaScript inline in the one file; use <canvas> and vanilla JavaScript; " +
         "NO external files, libraries, CDNs, images or fonts of any kind. Make it mobile-friendly: it must work " +
         "with touch (large on-screen buttons or swipes) AND with the keyboard. Include a title, a visible score, " +
-        "and a Restart button. Make it polished and genuinely fun. Keep it under about 500 lines."
+        "and a Restart button. " +
+        "CRITICAL: the file MUST be COMPLETE — every function the HTML calls (e.g. the Play button's onclick) " +
+        "must be defined, and the file MUST end with a closing </script> and </html>. Completeness matters more " +
+        "than features: a simple game that fully works and is not cut off is far better than a fancy one that is " +
+        "incomplete. Keep it compact — aim for about 150–250 lines so it fits in one reply."

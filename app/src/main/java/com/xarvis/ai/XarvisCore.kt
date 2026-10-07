@@ -448,8 +448,8 @@ class XarvisCore(context: Context) {
 
     /** XARVIS Code needs a cloud brain to write code (Gemma on-device is too small for this). */
     fun cloudReady(): Boolean = cloudLlm.anyKey() && cloudLlm.online()
-    /** Ask the cloud brain chain to write code/text for a project (used by XARVIS Code). */
-    suspend fun generateCode(system: String, user: String): String = cloudLlm.chat(system, user) {}.text
+    /** Ask the cloud brain chain to write code for a project (a whole file needs a big output budget). */
+    suspend fun generateCode(system: String, user: String): String = cloudLlm.chat(system, user, maxTokens = 8192) {}.text
     fun setCloud(on: Boolean) {
         settings.edit().putBoolean("cloudEnabled", on).apply()
         _state.update { it.copy(cloudEnabled = on) }

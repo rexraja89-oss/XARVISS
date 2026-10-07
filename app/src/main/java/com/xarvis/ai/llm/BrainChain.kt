@@ -84,8 +84,8 @@ class BrainChain(context: Context) {
     data class Answer(val text: String, val via: String)
 
     /** Solo: the first brain that answers, falling through the chain on quota/error. */
-    suspend fun chat(systemPrompt: String, message: String, onStage: (String) -> Unit): Answer =
-        firstAnswer(enabled(), systemPrompt, message, onStage)
+    suspend fun chat(systemPrompt: String, message: String, maxTokens: Int = 1536, onStage: (String) -> Unit): Answer =
+        firstAnswer(enabled(), systemPrompt, message, maxTokens, onStage)
 
     /**
      * Council: one brain drafts, a different brain reviews and writes the best final answer. With
@@ -102,14 +102,14 @@ class BrainChain(context: Context) {
     companion object {
         /** Tries each brain in order; returns the first answer. Shared so it can be unit-tested. */
         internal suspend fun firstAnswer(
-            brains: List<Brain>, systemPrompt: String, message: String, onStage: (String) -> Unit,
+            brains: List<Brain>, systemPrompt: String, message: String, maxTokens: Int = 1536, onStage: (String) -> Unit,
         ): Answer {
             if (brains.isEmpty()) throw IllegalStateException("no cloud brain")
             var lastError: Exception? = null
             for ((i, b) in brains.withIndex()) {
                 try {
                     onStage(if (i == 0) "Thinking…" else "Switching to ${b.label}…")
-                    return Answer(b.chat(systemPrompt, message), b.label)
+                    return Answer(b.chat(systemPrompt, message, maxTokens), b.label)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
