@@ -101,7 +101,13 @@ object XarvisCode {
         }
     }
 
-    private fun errorMessage(code: Int, text: String): String =
-        runCatching { JSONObject(text).optString("message").ifBlank { "GitHub error $code" } }
-            .getOrDefault("GitHub error $code")
+    private fun errorMessage(code: Int, text: String): String = runCatching {
+        val o = JSONObject(text)
+        val base = o.optString("message").ifBlank { "GitHub error $code" }
+        // GitHub's detail (e.g. "name already exists on this account") is in the errors array, not
+        // the top-level message — include it so callers can tell "repo exists" from a real failure.
+        val errs = o.optJSONArray("errors")
+        val detail = if (errs != null && errs.length() > 0) errs.getJSONObject(0).optString("message") else ""
+        if (detail.isNotBlank()) "$base ($detail)" else base
+    }.getOrDefault("GitHub error $code")
 }
