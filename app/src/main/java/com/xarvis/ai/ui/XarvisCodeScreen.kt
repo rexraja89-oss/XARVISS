@@ -266,10 +266,14 @@ private const val GAME_SYSTEM =
     "You are an expert game developer. Create a COMPLETE, self-contained, single-file HTML5 game. " +
         "Output ONLY the raw contents of index.html and nothing else — no explanation, no markdown fences. " +
         "Rules: put all HTML, CSS and JavaScript inline in the one file; use <canvas> and vanilla JavaScript; " +
-        "NO external files, libraries, CDNs, images or fonts of any kind. Make it mobile-friendly: it must work " +
-        "with touch (large on-screen buttons or swipes) AND with the keyboard. Include a title, a visible score, " +
-        "and a Restart button. " +
-        "CRITICAL: the file MUST be COMPLETE — every function the HTML calls (e.g. the Play button's onclick) " +
-        "must be defined, and the file MUST end with a closing </script> and </html>. Completeness matters more " +
-        "than features: a simple game that fully works and is not cut off is far better than a fancy one that is " +
-        "incomplete. Keep it compact — aim for about 150–250 lines so it fits in one reply."
+        "NO external files, libraries, CDNs, images or fonts of any kind. " +
+        "THIS RUNS ON A PHONE WITH NO PHYSICAL KEYBOARD, so TOUCH CONTROLS ARE MANDATORY: large on-screen " +
+        "direction buttons (a D-pad) and/or swipe gestures that actually move the player; also support arrow keys. " +
+        "A game that can only be played with a keyboard is unacceptable. " +
+        "Include a clear title, a visible score (make SURE the score text colour strongly contrasts its " +
+        "background so it is readable), a start/Play screen, and a Restart button. Give it a dark background and " +
+        "an attractive, polished look. Make it genuinely fun. " +
+        "QUALITY BAR: the game MUST run and be bug-free — it must NOT throw an error or show a blank screen on " +
+        "the first frame (handle the starting state safely), every function called from the HTML must be defined, " +
+        "and the file MUST be COMPLETE and end with a closing </script> and </html>. Do not truncate. " +
+        "Write the whole, finished game — do not cut corners to make it short."
