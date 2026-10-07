@@ -66,6 +66,29 @@ object XarvisCode {
         }
     }.getOrElse { Result(false, it.message ?: "Couldn't reach GitHub.") }
 
+    /**
+     * Deterministic checks on a generated game page, so XARVIS can fix real bugs itself (Stage 3):
+     * a cut-off file, or a button that calls a function that was never defined (the "nothing happens
+     * when I tap" bug). Returns a plain-language list of problems, empty if it looks sound.
+     */
+    fun issuesIn(html: String): List<String> {
+        val out = ArrayList<String>()
+        if (!html.contains("</html>", ignoreCase = true) && !html.contains("</script>", ignoreCase = true)) {
+            out.add("the file is cut off — it has no closing </script>/</html>")
+        }
+        // Functions a button calls via onclick="name(" that are never defined anywhere in the file.
+        val called = Regex("""onclick\s*=\s*["']\s*([A-Za-z_$][\w$]*)\s*\(""")
+            .findAll(html).map { it.groupValues[1] }.toSet()
+        for (fn in called) {
+            val defined = html.contains("function $fn") ||
+                Regex("""(?:const|let|var)\s+\Q$fn\E\s*=""").containsMatchIn(html) ||
+                Regex("""\b\Q$fn\E\s*=\s*(?:function|\()""").containsMatchIn(html) ||
+                Regex("""\b\Q$fn\E\s*:\s*function""").containsMatchIn(html)
+            if (!defined) out.add("a button calls $fn() but that function is never defined")
+        }
+        return out
+    }
+
     /** Pulls the HTML out of a brain's reply (strips ``` fences / leading prose), or null if it isn't a page. */
     fun extractHtml(raw: String): String? {
         var s = raw.trim()

@@ -241,13 +241,34 @@ private suspend fun buildProject(
     } catch (e: Exception) {
         log("The AI brain couldn't write it: ${e.message}"); return
     }
-    val html = XarvisCode.extractHtml(reply)
-    if (html == null) { log("The AI didn't return a proper game page. Tap Build again to retry."); return }
-    // A cut-off reply (no closing tags) would publish a half-game that doesn't run — don't.
-    if (!html.contains("</html>", ignoreCase = true) && !html.contains("</script>", ignoreCase = true)) {
-        log("The game came out incomplete (the AI's reply was cut off). Tap Build again to retry."); return
+    var html: String = XarvisCode.extractHtml(reply) ?: run {
+        log("The AI didn't return a proper game page. Tap Build again to retry."); return
     }
-    log("Game written (${html.length} characters). Pushing to GitHub…")
+    log("Game written (${html.length} characters). Checking it…")
+
+    // Stage 3 — XARVIS checks its own code and fixes real problems before publishing (up to 5 passes).
+    var issues = XarvisCode.issuesIn(html)
+    var pass = 0
+    while (issues.isNotEmpty() && pass < 5) {
+        pass++
+        log("Found: ${issues.joinToString("; ")}")
+        log("XARVIS is fixing it (pass $pass of 5)…")
+        val fixed = try {
+            withContext(Dispatchers.IO) {
+                generate(FIX_SYSTEM, "Problems to fix:\n- " + issues.joinToString("\n- ") + "\n\nCurrent index.html:\n" + html)
+            }
+        } catch (e: Exception) { log("Fix attempt failed: ${e.message}"); break }
+        val fh = XarvisCode.extractHtml(fixed)
+        if (fh == null) { log("The fix didn't come back as a page; keeping the current one."); break }
+        html = fh
+        issues = XarvisCode.issuesIn(html)
+    }
+    when {
+        issues.isNotEmpty() -> log("Still not perfect after $pass fix pass(es): ${issues.joinToString("; ")}. Publishing the best version so far.")
+        pass > 0 -> log("All problems fixed after $pass pass(es). ✓")
+        else -> log("Looks sound — no problems found. ✓")
+    }
+    log("Pushing to GitHub…")
 
     val push = withContext(Dispatchers.IO) { XarvisCode.putFile(token, owner, repo, "index.html", html, "XARVIS Code: the game") }
     if (!push.ok) { log("Couldn't push the file: ${push.message}"); return }
@@ -277,3 +298,12 @@ private const val GAME_SYSTEM =
         "the first frame (handle the starting state safely), every function called from the HTML must be defined, " +
         "and the file MUST be COMPLETE and end with a closing </script> and </html>. Do not truncate. " +
         "Write the whole, finished game — do not cut corners to make it short."
+
+/** Used by Stage 3's self-correction: hand the brain the broken file + the problems, get a fixed one back. */
+private const val FIX_SYSTEM =
+    "You are fixing a single-file HTML5 game meant for a phone. I will give you the current index.html and a " +
+        "list of problems. Return ONLY the corrected, COMPLETE index.html — no explanation, no markdown fences. " +
+        "Fix EVERY listed problem. Also make sure: every function a button calls is defined; it does NOT show a " +
+        "blank screen or crash on the first frame; it has large on-screen TOUCH controls (buttons and/or swipe) " +
+        "because the phone has no keyboard; and the score text clearly contrasts its background. Keep all HTML, " +
+        "CSS and JavaScript inline with no external resources, and END the file with </script></html>."
