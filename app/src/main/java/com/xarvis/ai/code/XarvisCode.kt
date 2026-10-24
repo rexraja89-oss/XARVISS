@@ -54,6 +54,94 @@ object XarvisCode {
         if (code in 200..299) Result(true, "Pushed $path.") else Result(false, errorMessage(code, text))
     }.getOrElse { Result(false, it.message ?: "Couldn't reach GitHub.") }
 
+    /** Reads file [path] from [owner]/[repo] and returns its decoded text in [Result.data] (null if missing). */
+    fun getFile(token: String, owner: String, repo: String, path: String): Result = runCatching {
+        val p = path.split("/").joinToString("/") { URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
+        val (code, text) = http("GET", "$API/repos/$owner/$repo/contents/$p", token, null)
+        if (code == 404) return@runCatching Result(false, "not found", null)
+        if (code !in 200..299) return@runCatching Result(false, errorMessage(code, text))
+        val b64 = JSONObject(text).optString("content").replace("\n", "")
+        val decoded = String(Base64.decode(b64, Base64.DEFAULT), Charsets.UTF_8)
+        Result(true, "ok", decoded)
+    }.getOrElse { Result(false, it.message ?: "Couldn't reach GitHub.") }
+
+    /**
+     * Creates a release tagged [tag] and streams [file] up as an asset (handles large OBBs without loading
+     * the whole file into memory). Returns the asset's download URL in [Result.data].
+     */
+    fun uploadReleaseAsset(token: String, owner: String, repo: String, tag: String, file: java.io.File): Result = runCatching {
+        // Reuse the release for this tag if it exists, else make it.
+        var uploadBase: String
+        val existing = http("GET", "$API/repos/$owner/$repo/releases/tags/$tag", token, null)
+        if (existing.first in 200..299) {
+            val rel = JSONObject(existing.second)
+            uploadBase = rel.optString("upload_url")
+            // GitHub rejects a second asset with the same name — delete the old one first.
+            val assets = rel.optJSONArray("assets")
+            if (assets != null) for (i in 0 until assets.length()) {
+                val a = assets.getJSONObject(i)
+                if (a.optString("name") == file.name) {
+                    http("DELETE", "$API/repos/$owner/$repo/releases/assets/${a.optLong("id")}", token, null)
+                }
+            }
+        } else {
+            val body = JSONObject().put("tag_name", tag).put("name", tag).put("body", "Uploaded by XARVIS").toString()
+            val (code, text) = http("POST", "$API/repos/$owner/$repo/releases", token, body)
+            if (code !in 200..299) return@runCatching Result(false, errorMessage(code, text))
+            uploadBase = JSONObject(text).optString("upload_url")
+        }
+        // upload_url looks like ".../assets{?name,label}" — strip the template.
+        val base = uploadBase.substringBefore("{")
+        val assetName = file.name
+        val url = "$base?name=" + URLEncoder.encode(assetName, "UTF-8")
+        val dl = streamUpload(url, token, file)
+        if (dl != null) Result(true, "uploaded", dl) else Result(false, "Upload failed.")
+    }.getOrElse { Result(false, it.message ?: "Couldn't reach GitHub.") }
+
+    /** Fires the workflow file [workflowFile] on branch main with [inputs]. */
+    fun dispatchWorkflow(token: String, owner: String, repo: String, workflowFile: String, inputs: Map<String, String>): Result = runCatching {
+        val inp = JSONObject(); for ((k, v) in inputs) inp.put(k, v)
+        val body = JSONObject().put("ref", "main").put("inputs", inp).toString()
+        val (code, text) = http("POST", "$API/repos/$owner/$repo/actions/workflows/$workflowFile/dispatches", token, body)
+        if (code in 200..299) Result(true, "started") else Result(false, errorMessage(code, text))
+    }.getOrElse { Result(false, it.message ?: "Couldn't reach GitHub.") }
+
+    /** Streams the release asset named [name] under [tag] into [out]. Handles the redirect to storage without leaking the token. */
+    fun downloadAsset(token: String, owner: String, repo: String, tag: String, name: String, out: java.io.OutputStream): Result = runCatching {
+        val rel = http("GET", "$API/repos/$owner/$repo/releases/tags/$tag", token, null)
+        if (rel.first !in 200..299) return@runCatching Result(false, errorMessage(rel.first, rel.second))
+        val assets = JSONObject(rel.second).optJSONArray("assets")
+        var assetUrl: String? = null
+        if (assets != null) for (i in 0 until assets.length()) {
+            val a = assets.getJSONObject(i)
+            if (a.optString("name") == name) { assetUrl = a.optString("url"); break }
+        }
+        if (assetUrl == null) return@runCatching Result(false, "the modified file wasn't found in the release yet")
+        // First hop: authenticated, no redirect-follow, so the token is never sent to storage.
+        val c = URL(assetUrl).openConnection() as HttpURLConnection
+        c.instanceFollowRedirects = false
+        c.setRequestProperty("Authorization", "Bearer $token")
+        c.setRequestProperty("Accept", "application/octet-stream")
+        c.setRequestProperty("User-Agent", "XARVIS-Code")
+        val code = c.responseCode
+        val src = if (code in 300..399) {
+            val loc = c.getHeaderField("Location"); c.disconnect()
+            (URL(loc).openConnection() as HttpURLConnection).apply { setRequestProperty("User-Agent", "XARVIS-Code") }.inputStream
+        } else if (code in 200..299) c.inputStream else { c.disconnect(); return@runCatching Result(false, "download failed ($code)") }
+        src.use { input -> input.copyTo(out, 64 * 1024) }
+        Result(true, "downloaded")
+    }.getOrElse { Result(false, it.message ?: "Couldn't reach GitHub.") }
+
+    /** The newest workflow run's status+conclusion for [owner]/[repo], as "status|conclusion" in [Result.data]. */
+    fun latestRun(token: String, owner: String, repo: String): Result = runCatching {
+        val (code, text) = http("GET", "$API/repos/$owner/$repo/actions/runs?per_page=1", token, null)
+        if (code !in 200..299) return@runCatching Result(false, errorMessage(code, text))
+        val runs = JSONObject(text).optJSONArray("workflow_runs")
+        if (runs == null || runs.length() == 0) return@runCatching Result(false, "no runs yet")
+        val r = runs.getJSONObject(0)
+        Result(true, "ok", r.optString("status") + "|" + r.optString("conclusion") + "|" + r.optLong("id"))
+    }.getOrElse { Result(false, it.message ?: "Couldn't reach GitHub.") }
+
     /** Turns on GitHub Pages for [owner]/[repo] (main branch, root). Returns the site URL in [Result.data]. */
     fun enablePages(token: String, owner: String, repo: String): Result = runCatching {
         val body = JSONObject().put("source", JSONObject().put("branch", "main").put("path", "/")).toString()
@@ -100,6 +188,28 @@ object XarvisCode {
     }
 
     // ---- plumbing ----
+
+    /** Streams a file's bytes up to GitHub's asset endpoint without loading it all into memory. Returns the asset download URL. */
+    private fun streamUpload(urlStr: String, token: String, file: java.io.File): String? {
+        val c = URL(urlStr).openConnection() as HttpURLConnection
+        return try {
+            c.requestMethod = "POST"
+            c.connectTimeout = 15_000
+            c.readTimeout = 120_000
+            c.doOutput = true
+            c.setRequestProperty("Authorization", "Bearer $token")
+            c.setRequestProperty("Accept", "application/vnd.github+json")
+            c.setRequestProperty("User-Agent", "XARVIS-Code")
+            c.setRequestProperty("Content-Type", "application/octet-stream")
+            c.setFixedLengthStreamingMode(file.length())
+            file.inputStream().use { input -> c.outputStream.use { out -> input.copyTo(out, 64 * 1024) } }
+            val code = c.responseCode
+            if (code in 200..299) {
+                val text = c.inputStream.bufferedReader().use { it.readText() }
+                JSONObject(text).optString("browser_download_url")
+            } else null
+        } catch (e: Exception) { null } finally { c.disconnect() }
+    }
 
     /** One request. Returns (HTTP status, response body or error body). */
     private fun http(method: String, urlStr: String, token: String, body: String?): Pair<Int, String> {

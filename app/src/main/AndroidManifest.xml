@@ -130,6 +130,11 @@
             android:name=".XarvisCodeActivity"
             android:exported="false" />
 
+        <!-- ☰ → CONTROL → XARVIS Mod: open/edit/rebuild an offline game's OBB via the cloud. -->
+        <activity
+            android:name=".GameModActivity"
+            android:exported="false" />
+
         <!-- Record my voice: Rex reads sentences to train XARVIS's voice on his own. -->
         <activity
             android:name=".RecordVoiceActivity"

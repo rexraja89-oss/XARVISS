@@ -199,7 +199,7 @@ fun SettingsMenu(
     enabled: Boolean,
     wakeWord: Boolean, onWakeWord: (Boolean) -> Unit, onAssistantSettings: () -> Unit, onRecordVoice: () -> Unit,
     onLoadVoice: () -> Unit, ownVoices: () -> String?, ownVoiceOn: () -> Boolean, onOwnVoice: (Boolean) -> Unit,
-    onPermissions: () -> Unit, onActivityLog: () -> Unit, onFolders: () -> Unit, onXarvisCode: () -> Unit,
+    onPermissions: () -> Unit, onActivityLog: () -> Unit, onFolders: () -> Unit, onXarvisCode: () -> Unit, onGameMod: () -> Unit,
     smartBrain: Boolean, smartDownload: ModelDownload, hasModel: Boolean, onSmartBrain: (Boolean) -> Unit,
     modelDownload: ModelDownload, onDownloadModel: () -> Unit,
     cloudEnabled: Boolean, hasCloudKey: () -> Boolean, onCloud: (Boolean) -> Unit, onSaveKey: (String) -> Unit, onClearKey: () -> Unit,
@@ -325,6 +325,10 @@ fun SettingsMenu(
             Column(Modifier.fillMaxWidth().clickable(onClick = onXarvisCode).padding(horizontal = 20.dp, vertical = 10.dp)) {
                 Text("XARVIS Code ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
                 Text("Build separate projects with AI — your XARVIS is never changed.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+            }
+            Column(Modifier.fillMaxWidth().clickable(onClick = onGameMod).padding(horizontal = 20.dp, vertical = 10.dp)) {
+                Text("XARVIS Mod ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+                Text("Hand me an offline game's file (OBB/APK/ZIP) — I open, edit and rebuild it in the cloud.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
             }
             Column(Modifier.fillMaxWidth().clickable(onClick = onFolders).padding(horizontal = 20.dp, vertical = 10.dp)) {
                 Text("Search folders ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
