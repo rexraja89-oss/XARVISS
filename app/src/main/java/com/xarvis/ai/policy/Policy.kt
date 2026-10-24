@@ -37,10 +37,13 @@ enum class Answer { ONCE, ALWAYS, NO, NO_ANSWER }
 /** The permission rules, kept free of Android so they can be unit tested. */
 object PolicyRules {
 
-    /** Today's behaviour (Rex chose it): everything allowed, except calls and messages ask first. */
+    /**
+     * Rex wants maximum freedom: by default XARVIS may do everything without asking. He can still
+     * tighten any category to "Ask me" or "Off" himself in ☰ → CONTROL → Permissions. (Messages still
+     * open prefilled for him to tap Send, so nothing is sent silently — that's in the action, not here.)
+     */
     fun defaultLevel(c: Category): Level = when {
         c.alwaysManual -> Level.ALWAYS_MANUAL
-        c == Category.PHONE_CALL || c == Category.MESSAGING -> Level.ASK
         else -> Level.ALLOW
     }
 

@@ -13,10 +13,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PolicyTest {
-    @Test fun defaultsKeepTodaysBehaviour() {
-        assertEquals(Level.ASK, PolicyRules.defaultLevel(Category.PHONE_CALL))
-        assertEquals(Level.ASK, PolicyRules.defaultLevel(Category.MESSAGING))
-        Category.entries.filter { it != Category.PHONE_CALL && it != Category.MESSAGING }
+    @Test fun defaultsGiveMaximumFreedom() {
+        // Rex wants no nagging: every category Rex can set defaults to Allow.
+        Category.entries.filter { !it.alwaysManual }
             .forEach { assertEquals(it.name, Level.ALLOW, PolicyRules.defaultLevel(it)) }
     }
 
