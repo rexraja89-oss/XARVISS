@@ -1,6 +1,9 @@
 package com.xarvis.ai.ui
 
 import android.content.Intent
+import android.speech.RecognizerIntent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -11,11 +14,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -39,8 +44,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.xarvis.ai.code.XarvisCode
@@ -84,6 +95,11 @@ fun XarvisCodeScreen(
     val repos = remember { mutableStateListOf<XarvisCode.RepoInfo>() }
     var showRepos by remember { mutableStateOf(false) }
     var activeRepo by remember { mutableStateOf<XarvisCode.RepoInfo?>(null) }
+    val clipboard = LocalClipboardManager.current
+    val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        val spoken = res.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+        if (!spoken.isNullOrBlank()) input = (input + " " + spoken).trim()
+    }
 
     fun clog(line: String) { connectLog = (connectLog + "\n" + line).trim() }
 
@@ -215,37 +231,68 @@ fun XarvisCodeScreen(
             }
         } else {
             LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth()) {
-                items(msgs) { m -> MessageRow(m) { url -> runCatching { context(Intent(Intent.ACTION_VIEW, url.toUri())) } } }
+                items(msgs) { m ->
+                    MessageRow(
+                        m,
+                        onOpen = { url -> runCatching { context(Intent(Intent.ACTION_VIEW, url.toUri())) } },
+                        onCopy = { runCatching { clipboard.setText(AnnotatedString(it)) } },
+                    )
+                }
             }
 
-            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = input, onValueChange = { input = it },
-                    label = { Text(if (activeRepo != null) "Ask about ${activeRepo!!.name}…" else "Tell XARVIS Code what to build…") },
-                    modifier = Modifier.weight(1f), enabled = !busy,
-                )
-                Spacer(Modifier.fillMaxWidth(0.03f))
-                if (busy) {
-                    CircularProgressIndicator(Modifier.padding(8.dp))
-                } else {
-                    Button(enabled = input.isNotBlank(), onClick = {
-                        val text = input.trim(); input = ""
-                        msgs.add(Msg(Role.USER, text))
-                        scope.launch {
-                            busy = true
-                            try {
-                                if (activeRepo != null) {
-                                    // Stage 1: an existing repo is open for viewing. Editing arrives in the next step.
-                                    msgs.add(Msg(Role.AGENT, "I've opened ${activeRepo!!.name} and can see its files. Editing existing repos is the next step I'm building — for now, pick “＋ New web app” to build something from scratch."))
-                                } else {
-                                    val nh = runAgent(text, project.trim().ifBlank { "my-app" }, login!!, token() ?: "", currentHtml, cloudReady, generate) { r, t, u -> msgs.add(Msg(r, t, u)) }
-                                    if (nh != null) currentHtml = nh
-                                }
-                            } catch (e: Exception) {
-                                msgs.add(Msg(Role.AGENT, "Something went wrong: ${e.message}"))
-                            } finally { busy = false }
+            val send: () -> Unit = {
+                val text = input.trim(); input = ""
+                msgs.add(Msg(Role.USER, text))
+                scope.launch {
+                    busy = true
+                    try {
+                        if (activeRepo != null) {
+                            msgs.add(Msg(Role.AGENT, "I've opened ${activeRepo!!.name} and can see its files. Editing existing repos is the next step I'm building — for now, pick “＋ New web app” to build something from scratch."))
+                        } else {
+                            val nh = runAgent(text, project.trim().ifBlank { "my-app" }, login!!, token() ?: "", currentHtml, cloudReady, generate) { r, t, u -> msgs.add(Msg(r, t, u)) }
+                            if (nh != null) currentHtml = nh
                         }
-                    }) { Text("Send") }
+                    } catch (e: Exception) {
+                        msgs.add(Msg(Role.AGENT, "Something went wrong: ${e.message}"))
+                    } finally { busy = false }
+                }
+            }
+            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier.weight(1f).clip(RoundedCornerShape(26.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = input, onValueChange = { input = it },
+                        placeholder = { Text(if (activeRepo != null) "Ask about ${activeRepo!!.name}…" else "Message XARVIS Code…", color = XarvisMuted) },
+                        modifier = Modifier.weight(1f), enabled = !busy,
+                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent,
+                            disabledBorderColor = Color.Transparent,
+                        ),
+                    )
+                    // Mic: speak instead of type.
+                    Text(
+                        "🎤", modifier = Modifier.clip(CircleShape).clickable(enabled = !busy) {
+                            runCatching {
+                                micLauncher.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your message")
+                                })
+                            }
+                        }.padding(10.dp),
+                    )
+                }
+                Spacer(Modifier.size(8.dp))
+                // Circular send / progress.
+                Box(
+                    Modifier.size(48.dp).clip(CircleShape)
+                        .background(if (input.isBlank() || busy) XarvisMuted.copy(alpha = 0.3f) else XarvisCyan)
+                        .clickable(enabled = input.isNotBlank() && !busy) { send() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (busy) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = XarvisCyan)
+                    else Text("↑", color = Color(0xFF04121F), style = MaterialTheme.typography.titleLarge)
                 }
             }
         }
@@ -271,7 +318,7 @@ private suspend fun openRepo(
 }
 
 @Composable
-private fun MessageRow(m: Msg, onOpen: (String) -> Unit) {
+private fun MessageRow(m: Msg, onOpen: (String) -> Unit, onCopy: (String) -> Unit) {
     when (m.role) {
         Role.STEP -> Text(
             m.text, style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace,
@@ -279,20 +326,46 @@ private fun MessageRow(m: Msg, onOpen: (String) -> Unit) {
         )
         else -> {
             val user = m.role == Role.USER
-            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
+            Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalAlignment = if (user) Alignment.End else Alignment.Start) {
                 Column(
-                    Modifier.widthIn(max = 320.dp).clip(RoundedCornerShape(14.dp))
+                    Modifier.widthIn(max = 330.dp).clip(RoundedCornerShape(16.dp))
                         .background(if (user) XarvisCyan.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant)
                         .padding(12.dp),
                 ) {
-                    Text(m.text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text(mdText(m.text), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                     if (m.url != null) {
                         Button(onClick = { onOpen(m.url) }, modifier = Modifier.padding(top = 8.dp)) { Text("▶  Open it") }
                         Text(m.url, style = MaterialTheme.typography.labelSmall, color = XarvisMuted, modifier = Modifier.padding(top = 4.dp))
                     }
                 }
+                if (!user) {
+                    Text(
+                        "⧉ Copy", style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { onCopy(m.text) }.padding(horizontal = 6.dp, vertical = 4.dp),
+                    )
+                }
             }
         }
+    }
+}
+
+/** Tiny markdown → styled text: **bold**, # headings, and - / * bullets. Keeps the chat looking like Claude Code. */
+internal fun mdText(raw: String): AnnotatedString = buildAnnotatedString {
+    val lines = raw.split("\n")
+    lines.forEachIndexed { idx, rawLine ->
+        var line = rawLine
+        var headingBold = false
+        Regex("^\\s*#{1,6}\\s+").find(line)?.let { line = line.substring(it.range.last + 1); headingBold = true }
+        val trimmed = line.trimStart()
+        if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+            append(" ".repeat(line.length - trimmed.length)); append("•  ")
+            line = trimmed.substring(2)
+        }
+        line.split("**").forEachIndexed { pIdx, seg ->
+            if (seg.isEmpty()) return@forEachIndexed
+            if (headingBold || pIdx % 2 == 1) withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(seg) } else append(seg)
+        }
+        if (idx != lines.lastIndex) append("\n")
     }
 }
 
@@ -363,8 +436,7 @@ private const val XCODE_SYSTEM =
         "button calls defined; use readable, contrasting colours; be polished and complete; and END with " +
         "</script></html>. If you are changing an existing file, return the WHOLE updated file, not a snippet. " +
         "OTHERWISE (a greeting, a question, or discussion) reply with a short normal sentence or two — never code. " +
-        "Write conversational replies in plain text with no markdown symbols (no **, no #, no bullet dashes) — the " +
-        "chat shows them raw."
+        "You may use light markdown in conversational replies (**bold** and - bullet points); it is rendered nicely."
 
 private const val FIX_SYSTEM =
     "You are fixing a single-file HTML5 app/game meant for a phone. I will give you the current index.html and a " +
