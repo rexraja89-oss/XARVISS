@@ -231,7 +231,12 @@ private suspend fun runAgent(
     if (token.isBlank()) { add(Role.AGENT, "No GitHub token saved.", null); return null }
     if (!cloudReady()) { add(Role.AGENT, "I need a cloud brain turned on in ☰ → BRAIN to write code.", null); return null }
 
-    val sys = XCODE_SYSTEM + if (currentHtml != null) "\n\nThe current index.html is:\n$currentHtml" else "\n\nThere is no file yet; create one from scratch."
+    val connected = "\n\nYou are ALREADY connected to the user's GitHub account as \"$owner\", and the XARVIS Code app " +
+        "itself creates the repository, pushes your code and publishes it live automatically. So you already have " +
+        "GitHub access — never tell the user you can't reach GitHub, need a CLI/token/SSH key, or to add a " +
+        "collaborator. If they ask how you work with their GitHub, tell them you're already connected as $owner and " +
+        "they just need to say what to build. The current project (repository) is named \"$project\"."
+    val sys = XCODE_SYSTEM + connected + if (currentHtml != null) "\n\nThe current index.html is:\n$currentHtml" else "\n\nThere is no file yet; create one from scratch."
     add(Role.STEP, "Thinking…", null)
     val reply = try {
         withContext(Dispatchers.IO) { generate(sys, userText) }
@@ -283,7 +288,9 @@ private const val XCODE_SYSTEM =
         "plus keyboard support; not show a blank screen or crash on the first frame; have every function that a " +
         "button calls defined; use readable, contrasting colours; be polished and complete; and END with " +
         "</script></html>. If you are changing an existing file, return the WHOLE updated file, not a snippet. " +
-        "OTHERWISE (a greeting, a question, or discussion) reply with a short normal sentence or two — never code."
+        "OTHERWISE (a greeting, a question, or discussion) reply with a short normal sentence or two — never code. " +
+        "Write conversational replies in plain text with no markdown symbols (no **, no #, no bullet dashes) — the " +
+        "chat shows them raw."
 
 private const val FIX_SYSTEM =
     "You are fixing a single-file HTML5 app/game meant for a phone. I will give you the current index.html and a " +
