@@ -8,6 +8,7 @@ import android.util.Base64
 import android.webkit.WebView
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -134,6 +135,10 @@ fun XarvisCodeScreen(
     // Auto screenshot paste: offer the screenshot Rex just took.
     var recentShot by remember { mutableStateOf<Uri?>(null) }
     var attachedShot by remember { mutableStateOf<Uri?>(null) }
+    // + attach: pick a photo to send to the agent (reuses the screenshot/vision path).
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) { attachedShot = uri; recentShot = null }
+    }
     // Approval gate for editing XARVIS's own repo.
     var approvalFiles by remember { mutableStateOf<List<String>?>(null) }
     var approvalDeferred by remember { mutableStateOf<kotlinx.coroutines.CompletableDeferred<Boolean>?>(null) }
@@ -446,6 +451,14 @@ fun XarvisCodeScreen(
                     Modifier.weight(1f).rgbGlow(26.dp).clip(RoundedCornerShape(26.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // + attach a photo (invisible circular tap target, visible "+").
+                    Box(
+                        Modifier.size(44.dp).clip(CircleShape)
+                            .clickable(enabled = !busy || askDeferred != null) {
+                                pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) { Text("+", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = XarvisCyan) }
                     OutlinedTextField(
                         value = input, onValueChange = { input = it },
                         placeholder = { Text(if (askDeferred != null) "Type your answer…" else if (activeRepo != null) "Ask about ${activeRepo!!.name}…" else "Message XARVIS Code…", color = XarvisMuted) },
