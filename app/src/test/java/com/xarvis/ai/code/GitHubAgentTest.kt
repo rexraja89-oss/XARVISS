@@ -36,6 +36,18 @@ class GitHubAgentTest {
         assertEquals(GitHubAgent.Kind.DONE, GitHubAgent.parse("DONE made the change").kind)
     }
 
+    @Test fun parsesAnswerWithText() {
+        val a = GitHubAgent.parse("ANSWER: This repo holds analysis tools, not the game's source.")
+        assertEquals(GitHubAgent.Kind.ANSWER, a.kind)
+        assertEquals("This repo holds analysis tools, not the game's source.", a.content)
+    }
+
+    @Test fun parsesMultilineAnswer() {
+        val a = GitHubAgent.parse("ANSWER\nLine one.\nLine two.")
+        assertEquals(GitHubAgent.Kind.ANSWER, a.kind)
+        assertEquals("Line one.\nLine two.", a.content)
+    }
+
     @Test fun unknownWhenNoAction() {
         assertEquals(GitHubAgent.Kind.UNKNOWN, GitHubAgent.parse("let me think about this").kind)
     }

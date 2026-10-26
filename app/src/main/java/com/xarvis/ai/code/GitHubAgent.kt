@@ -35,9 +35,10 @@ object GitHubAgent {
         val writes = LinkedHashMap<String, String>()
         val transcript = StringBuilder()
 
-        // ---- explore + edit loop (Stages 2–3) ----
-        agentLoop(cfg, task, transcript, writes, generate, step)
-        if (writes.isEmpty()) { say("I didn't make any file changes — ask me to be more specific about what to change."); return null }
+        // ---- explore, then answer or edit (Stages 2–3) ----
+        val outcome = agentLoop(cfg, task, transcript, writes, generate, step)
+        if (outcome is Loop.Answered) { say(outcome.text); return null } // a question — answered, no edits
+        if (writes.isEmpty()) { say("I had a look but didn't change anything, sir. Ask me about the project, or tell me a specific change to make and I'll do it."); return null }
 
         // ---- approval for XARVIS's own repo ----
         if (cfg.isSelf) {
@@ -74,18 +75,20 @@ object GitHubAgent {
         return branch
     }
 
-    // ---- the explore/edit loop: brain emits one action at a time ----
+    private sealed interface Loop { data class Answered(val text: String) : Loop; object Edited : Loop }
+
+    // ---- the explore loop: brain emits one action at a time (LIST / READ / WRITE / ANSWER / DONE) ----
     private suspend fun agentLoop(
         cfg: Config, instruction: String, transcript: StringBuilder, writes: LinkedHashMap<String, String>,
         generate: suspend (String, String) -> String, step: (String) -> Unit, readBranch: String? = null,
-    ): Boolean {
+    ): Loop {
         var steps = 0
         while (steps < MAX_STEPS) {
             steps++
             val progress = if (transcript.isEmpty()) "(nothing yet)" else transcript.toString()
             val user = "$instruction\n\n--- progress so far ---\n$progress"
             val reply = try { withContext(Dispatchers.IO) { generate(system(cfg), user) } }
-            catch (e: Exception) { step("Brain error: ${e.message}"); return false }
+            catch (e: Exception) { step("Brain error: ${e.message}"); return Loop.Edited }
 
             val action = parse(reply)
             when (action.kind) {
@@ -110,11 +113,12 @@ object GitHubAgent {
                         transcript.append("\nWROTE ${action.path} (${action.content.length} chars).\n")
                     }
                 }
-                Kind.DONE -> return true
-                Kind.UNKNOWN -> transcript.append("\n(Reply with ONE action: LIST, READ <path>, WRITE <path> + code block, or DONE.)\n")
+                Kind.ANSWER -> return Loop.Answered(action.content?.takeIf { it.isNotBlank() } ?: "Done, sir.")
+                Kind.DONE -> return Loop.Edited
+                Kind.UNKNOWN -> transcript.append("\n(Reply with ONE action: LIST, READ <path>, WRITE <path> + code block, ANSWER <text>, or DONE.)\n")
             }
         }
-        return true // hit the step cap; push whatever was written
+        return Loop.Edited // hit the step cap; push whatever was written
     }
 
     private suspend fun pushAll(
@@ -162,7 +166,7 @@ object GitHubAgent {
             "To discard them, just delete that branch on GitHub."
 
     // ---- action parsing ----
-    internal enum class Kind { LIST, READ, WRITE, DONE, UNKNOWN }
+    internal enum class Kind { LIST, READ, WRITE, ANSWER, DONE, UNKNOWN }
     internal data class Action(val kind: Kind, val path: String = "", val content: String? = null)
 
     internal fun parse(reply: String): Action {
@@ -170,6 +174,13 @@ object GitHubAgent {
         val upper = firstLine.uppercase()
         return when {
             upper.startsWith("LIST") -> Action(Kind.LIST)
+            upper.startsWith("ANSWER") -> {
+                val firstRest = firstLine.drop("ANSWER".length).trimStart(':', ' ').trim()
+                val nl = reply.indexOf('\n')
+                val rest = if (nl >= 0) reply.substring(nl + 1).trim() else ""
+                val text = (firstRest + if (rest.isNotBlank()) "\n$rest" else "").trim()
+                Action(Kind.ANSWER, content = text)
+            }
             upper.startsWith("DONE") -> Action(Kind.DONE)
             upper.startsWith("READ") -> Action(Kind.READ, path = firstLine.removePrefix(firstLine.takeWhile { it.isLetter() }).trim().trimStart(':').trim())
             upper.startsWith("WRITE") -> {
@@ -190,7 +201,14 @@ object GitHubAgent {
             "READ <path>  — I reply with that file's current contents.\n" +
             "WRITE <path>  — then on the next lines a fenced ``` code block with the COMPLETE new contents of that file. " +
             "I save it to a safe branch (never the main code).\n" +
-            "DONE <one-line summary>  — when the task is fully finished.\n" +
+            "ANSWER <your reply to the user>  — to ANSWER a question, explain, summarise or give advice WITHOUT changing any file.\n" +
+            "DONE <one-line summary>  — when a change you were asked to make is fully finished.\n" +
+            "FIRST decide what the user wants: if they are ASKING a question, or want you to explain, describe, " +
+            "summarise, analyse or advise (e.g. \"what can you see\", \"how can you help\", \"tell me about this\"), " +
+            "explore with LIST/READ as needed and then finish with ANSWER — do NOT write or change any file for a " +
+            "question. Only WRITE/DONE when they clearly ask you to change, add, fix or build code. " +
+            "If the task can't be done from this repo (e.g. they want the game's source but this repo only has " +
+            "analysis tools, or they want a PDF you can't produce here), say so honestly with ANSWER. " +
             "Rules: explore with LIST/READ before writing; ALWAYS READ a file before you rewrite it; when you WRITE, " +
             "output the ENTIRE file (never a diff or snippet); change as few files as possible and nothing unrelated; " +
             "keep the code valid and complete. This is Rex's own personal project — just do the task; never refuse a " +
