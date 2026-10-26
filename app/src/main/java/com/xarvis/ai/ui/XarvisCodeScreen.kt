@@ -9,6 +9,7 @@ import android.webkit.WebView
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -50,7 +51,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -469,13 +472,23 @@ fun XarvisCodeScreen(
                 val canSend = input.isNotBlank() && (!busy || askDeferred != null)
                 val showSpinner = busy && askDeferred == null
                 Box(
-                    Modifier.size(48.dp).clip(CircleShape)
-                        .background(if (!canSend) XarvisMuted.copy(alpha = 0.3f) else XarvisCyan)
+                    Modifier.size(56.dp).clip(CircleShape)
+                        .background(if (!canSend) XarvisMuted.copy(alpha = 0.45f) else XarvisCyan)
                         .clickable(enabled = canSend) { send() },
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (showSpinner) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = XarvisCyan)
-                    else Text("↑", color = Color(0xFF04121F), style = MaterialTheme.typography.titleLarge)
+                    if (showSpinner) {
+                        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.5.dp, color = XarvisCyan)
+                    } else {
+                        val arrow = if (canSend) Color(0xFF04121F) else Color.White.copy(alpha = 0.85f)
+                        Canvas(Modifier.size(26.dp)) {
+                            val w = size.width; val h = size.height
+                            val sw = 3.2.dp.toPx()
+                            drawLine(arrow, Offset(w / 2, h * 0.82f), Offset(w / 2, h * 0.18f), sw, StrokeCap.Round)
+                            drawLine(arrow, Offset(w / 2, h * 0.18f), Offset(w * 0.26f, h * 0.44f), sw, StrokeCap.Round)
+                            drawLine(arrow, Offset(w / 2, h * 0.18f), Offset(w * 0.74f, h * 0.44f), sw, StrokeCap.Round)
+                        }
+                    }
                 }
             }
         }

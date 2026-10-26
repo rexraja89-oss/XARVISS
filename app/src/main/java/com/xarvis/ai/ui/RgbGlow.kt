@@ -38,7 +38,11 @@ fun Modifier.rgbGlow(corner: Dp, width: Dp = 3.dp): Modifier {
         }
         val brush = Brush.sweepGradient(colors)
         val cr = CornerRadius(corner.toPx(), corner.toPx())
-        drawRoundRect(brush = brush, cornerRadius = cr, style = Stroke(width = width.toPx() * 3.5f), alpha = 0.22f) // soft glow
-        drawRoundRect(brush = brush, cornerRadius = cr, style = Stroke(width = width.toPx()))                       // bright edge
+        val w = width.toPx()
+        // Layered halo — brighter at each ring, but the sharp bright core keeps its thin width.
+        drawRoundRect(brush = brush, cornerRadius = cr, style = Stroke(width = w * 6f), alpha = 0.30f)
+        drawRoundRect(brush = brush, cornerRadius = cr, style = Stroke(width = w * 3.5f), alpha = 0.55f)
+        drawRoundRect(brush = brush, cornerRadius = cr, style = Stroke(width = w * 2f), alpha = 0.85f)
+        drawRoundRect(brush = brush, cornerRadius = cr, style = Stroke(width = w)) // sharp bright core (unchanged width)
     }
 }
