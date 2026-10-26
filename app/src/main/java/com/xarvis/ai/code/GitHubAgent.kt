@@ -87,13 +87,22 @@ object GitHubAgent {
         makeDoc: suspend (String, String) -> String, ask: suspend (String) -> String, readBranch: String? = null,
     ): Loop {
         var steps = 0
+        var lastSig = ""
+        var repeats = 0
         while (steps < MAX_STEPS) {
             steps++
+            if (transcript.length > 24000) transcript.delete(0, transcript.length - 20000) // keep context bounded
             val progress = if (transcript.isEmpty()) "(nothing yet)" else transcript.toString()
             val reply = try { withContext(Dispatchers.IO) { generate(system(cfg), "$instruction\n\n--- progress so far ---\n$progress") } }
             catch (e: Exception) { step("Brain error: ${e.message}"); return Loop.Edited }
 
             val action = parse(reply)
+            // Stop wasting the brain's quota if it keeps repeating the same read-only action.
+            val sig = "${action.kind}:${action.path}"
+            if (action.kind in setOf(Kind.LIST, Kind.READ, Kind.WEB, Kind.READURL)) {
+                if (sig == lastSig) { repeats++ } else { repeats = 0; lastSig = sig }
+                if (repeats >= 2) { step("I'm going in circles — moving on."); return Loop.Edited }
+            } else { repeats = 0; lastSig = "" }
             when (action.kind) {
                 Kind.PLAN -> { if (action.content != null) { say("📋 Plan: ${action.content}"); transcript.append("\nPLAN: ${action.content}\n") } }
                 Kind.ASK -> {
@@ -194,16 +203,28 @@ object GitHubAgent {
     internal enum class Kind { PLAN, ASK, WEB, READURL, LIST, READ, WRITE, DOC, ANSWER, DONE, UNKNOWN }
     internal data class Action(val kind: Kind, val path: String = "", val content: String? = null)
 
+    private val KEYWORDS = listOf("PLAN", "ASK", "WEB", "READURL", "READ URL", "LIST", "READ", "WRITE", "DOC", "PDF", "ANSWER", "DONE")
+
     internal fun parse(reply: String): Action {
-        val firstLine = reply.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() } ?: return Action(Kind.UNKNOWN)
+        // Find the action line: the first non-empty line that starts with a keyword. If the very first
+        // line isn't one (the brain added prose), scan on — so "Sure, let me look:\nREAD x" still works.
+        val lines = reply.lines()
+        var idx = -1
+        var firstLine = ""
+        for (i in lines.indices) {
+            val t = lines[i].trim().trim('`').trim()
+            if (t.isEmpty()) continue
+            if (KEYWORDS.any { t.uppercase().startsWith(it) }) { idx = i; firstLine = t; break }
+            // otherwise it's prose — keep scanning for the action line
+        }
+        if (idx < 0) return Action(Kind.UNKNOWN)
         val upper = firstLine.uppercase()
         fun arg() = firstLine.drop(firstLine.takeWhile { it.isLetter() }.length).trim().trimStart(':').trim()
         fun block() = Regex("```[a-zA-Z0-9]*\\s*([\\s\\S]*?)```").find(reply)?.groupValues?.get(1)?.trim()
         fun restText(): String {
             val keyword = firstLine.takeWhile { it.isLetter() }
             val firstRest = firstLine.drop(keyword.length).trimStart(':', ' ').trim()
-            val nl = reply.indexOf('\n')
-            val rest = if (nl >= 0) reply.substring(nl + 1).trim() else ""
+            val rest = lines.drop(idx + 1).joinToString("\n").trim()
             return (firstRest + if (rest.isNotBlank()) "\n$rest" else "").trim()
         }
         return when {

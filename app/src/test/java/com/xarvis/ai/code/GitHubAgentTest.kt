@@ -71,4 +71,23 @@ class GitHubAgentTest {
         assertEquals(GitHubAgent.Kind.READURL, GitHubAgent.parse("READURL https://example.com").kind)
         assertEquals(GitHubAgent.Kind.READ, GitHubAgent.parse("READ src/Main.kt").kind)
     }
+
+    @Test fun toleratesProseBeforeTheAction() {
+        val a = GitHubAgent.parse("Sure, sir — let me take a look first.\nREAD app/Main.kt")
+        assertEquals(GitHubAgent.Kind.READ, a.kind)
+        assertEquals("app/Main.kt", a.path)
+    }
+
+    @Test fun toleratesAFencedActionLine() {
+        val a = GitHubAgent.parse("```\nLIST\n```")
+        assertEquals(GitHubAgent.Kind.LIST, a.kind)
+    }
+
+    @Test fun writeAfterProseStillGetsTheBlock() {
+        val reply = "Okay, I'll update the file now.\nWRITE index.html\n```html\n<html>hi</html>\n```"
+        val a = GitHubAgent.parse(reply)
+        assertEquals(GitHubAgent.Kind.WRITE, a.kind)
+        assertEquals("index.html", a.path)
+        assertEquals("<html>hi</html>", a.content)
+    }
 }
