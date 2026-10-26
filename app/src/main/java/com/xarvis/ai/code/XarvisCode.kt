@@ -54,6 +54,51 @@ object XarvisCode {
         if (code in 200..299) Result(true, "Pushed $path.") else Result(false, errorMessage(code, text))
     }.getOrElse { Result(false, it.message ?: "Couldn't reach GitHub.") }
 
+    /** The XARVIS app's own repository — edits here need Rex's explicit ask + approval (never on its own). */
+    const val SELF_REPO = "XARVISS"
+
+    /** True if [repo] is XARVIS's own app repo (case-insensitive), which is approval-gated. */
+    fun isSelfRepo(repo: String): Boolean = repo.equals(SELF_REPO, ignoreCase = true) || repo.equals("xarviss", ignoreCase = true)
+
+    data class RepoInfo(val name: String, val owner: String, val branch: String, val private: Boolean)
+
+    /** Lists the user's repositories (most recently updated first). Raw JSON array in [Result.data]. */
+    fun listRepos(token: String): Result = runCatching {
+        val (code, text) = http("GET", "$API/user/repos?per_page=100&sort=updated&affiliation=owner", token, null)
+        if (code in 200..299) Result(true, "ok", text) else Result(false, errorMessage(code, text))
+    }.getOrElse { Result(false, it.message ?: "Couldn't reach GitHub.") }
+
+    /** Parses [listRepos]'s JSON into repo info. Pure, so it is unit-tested. */
+    fun parseRepos(json: String): List<RepoInfo> = runCatching {
+        val arr = org.json.JSONArray(json)
+        (0 until arr.length()).map {
+            val o = arr.getJSONObject(it)
+            val full = o.optString("full_name")
+            RepoInfo(
+                name = o.optString("name"),
+                owner = full.substringBefore("/", o.optJSONObject("owner")?.optString("login") ?: ""),
+                branch = o.optString("default_branch").ifBlank { "main" },
+                private = o.optBoolean("private"),
+            )
+        }
+    }.getOrDefault(emptyList())
+
+    /** Lists every file path in [owner]/[repo] on [branch]. Raw JSON in [Result.data]. */
+    fun listTree(token: String, owner: String, repo: String, branch: String): Result = runCatching {
+        val (code, text) = http("GET", "$API/repos/$owner/$repo/git/trees/$branch?recursive=1", token, null)
+        if (code in 200..299) Result(true, "ok", text) else Result(false, errorMessage(code, text))
+    }.getOrElse { Result(false, it.message ?: "Couldn't reach GitHub.") }
+
+    /** Parses [listTree]'s JSON into file paths (blobs only, no folders). Pure, so it is unit-tested. */
+    fun parseTreePaths(json: String): List<String> = runCatching {
+        val o = JSONObject(json)
+        val tree = o.optJSONArray("tree") ?: return@runCatching emptyList<String>()
+        (0 until tree.length()).mapNotNull {
+            val e = tree.getJSONObject(it)
+            if (e.optString("type") == "blob") e.optString("path") else null
+        }
+    }.getOrDefault(emptyList())
+
     /** Reads file [path] from [owner]/[repo] and returns its decoded text in [Result.data] (null if missing). */
     fun getFile(token: String, owner: String, repo: String, path: String): Result = runCatching {
         val p = path.split("/").joinToString("/") { URLEncoder.encode(it, "UTF-8").replace("+", "%20") }

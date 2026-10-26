@@ -2,6 +2,7 @@ package com.xarvis.ai.ui
 
 import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -80,6 +81,9 @@ fun XarvisCodeScreen(
     var input by remember { mutableStateOf("") }
     val msgs = remember { mutableStateListOf<Msg>() }
     val listState = rememberLazyListState()
+    val repos = remember { mutableStateListOf<XarvisCode.RepoInfo>() }
+    var showRepos by remember { mutableStateOf(false) }
+    var activeRepo by remember { mutableStateOf<XarvisCode.RepoInfo?>(null) }
 
     fun clog(line: String) { connectLog = (connectLog + "\n" + line).trim() }
 
@@ -152,48 +156,118 @@ fun XarvisCodeScreen(
             return@Column
         }
 
-        // ---- connected: project header + chat ----
+        // ---- connected: header + (repo browser | chat) ----
         Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("✓ ${login}", color = Color(0xFF1B8A3A), style = MaterialTheme.typography.labelMedium)
-            Spacer(Modifier.fillMaxWidth(0.03f))
+            Spacer(Modifier.weight(1f))
+            TextButton(enabled = !busy, onClick = {
+                showRepos = !showRepos
+                if (showRepos && repos.isEmpty()) scope.launch {
+                    busy = true
+                    val r = withContext(Dispatchers.IO) { XarvisCode.listRepos(token() ?: "") }
+                    if (r.ok && r.data != null) { repos.clear(); repos.addAll(XarvisCode.parseRepos(r.data!!)) }
+                    else msgs.add(Msg(Role.AGENT, "Couldn't list your repos: ${r.message}"))
+                    busy = false
+                }
+            }) { Text(if (showRepos) "Close" else "My repos", color = XarvisCyan) }
+        }
+        if (activeRepo != null) {
+            val self = XarvisCode.isSelfRepo(activeRepo!!.name)
+            Text(
+                "Working on: ${activeRepo!!.owner}/${activeRepo!!.name}" + if (self) "  ⚠ XARVIS app — approval needed" else "",
+                style = MaterialTheme.typography.labelSmall, color = if (self) Color(0xFFE0A030) else XarvisMuted,
+                modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+            )
+        } else {
             OutlinedTextField(
                 value = project, onValueChange = { project = it.replace(" ", "-") },
-                label = { Text("Project") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                label = { Text("New project name") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
             )
         }
         HorizontalDivider(Modifier.padding(vertical = 6.dp), color = XarvisMuted.copy(alpha = 0.3f))
 
-        LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth()) {
-            items(msgs) { m -> MessageRow(m) { url -> runCatching { context(Intent(Intent.ACTION_VIEW, url.toUri())) } } }
-        }
-
-        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = input, onValueChange = { input = it },
-                label = { Text("Tell XARVIS Code what to build…") },
-                modifier = Modifier.weight(1f), enabled = !busy,
-            )
-            Spacer(Modifier.fillMaxWidth(0.03f))
-            if (busy) {
-                CircularProgressIndicator(Modifier.padding(8.dp))
-            } else {
-                Button(enabled = input.isNotBlank(), onClick = {
-                    val text = input.trim(); input = ""
-                    msgs.add(Msg(Role.USER, text))
-                    scope.launch {
-                        busy = true
-                        try {
-                            val nh = runAgent(text, project.trim().ifBlank { "my-app" }, login!!, token() ?: "", currentHtml, cloudReady, generate) { r, t, u -> msgs.add(Msg(r, t, u)) }
-                            if (nh != null) currentHtml = nh
-                        } catch (e: Exception) {
-                            msgs.add(Msg(Role.AGENT, "Something went wrong: ${e.message}"))
-                        } finally { busy = false }
+        if (showRepos) {
+            Text("Tap a repo to open it, or build something new.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted, modifier = Modifier.padding(bottom = 6.dp))
+            LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+                item {
+                    Text(
+                        "＋  New web app (build from scratch)", color = XarvisCyan, style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.fillMaxWidth().clickable { activeRepo = null; currentHtml = null; showRepos = false }.padding(vertical = 10.dp),
+                    )
+                    HorizontalDivider(color = XarvisMuted.copy(alpha = 0.2f))
+                }
+                items(repos) { r ->
+                    val self = XarvisCode.isSelfRepo(r.name)
+                    Column(
+                        Modifier.fillMaxWidth().clickable {
+                            activeRepo = r; currentHtml = null; showRepos = false
+                            scope.launch { openRepo(r, token() ?: "", { b -> busy = b }) { role, t, u -> msgs.add(Msg(role, t, u)) } }
+                        }.padding(vertical = 10.dp),
+                    ) {
+                        Text(
+                            (if (r.private) "🔒 " else "") + r.name + (if (self) "   ⚠ XARVIS app" else ""),
+                            color = if (self) Color(0xFFE0A030) else XarvisCyan, style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text("${r.owner}/${r.name} · ${r.branch}", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
                     }
-                }) { Text("Send") }
+                }
+            }
+        } else {
+            LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth()) {
+                items(msgs) { m -> MessageRow(m) { url -> runCatching { context(Intent(Intent.ACTION_VIEW, url.toUri())) } } }
+            }
+
+            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = input, onValueChange = { input = it },
+                    label = { Text(if (activeRepo != null) "Ask about ${activeRepo!!.name}…" else "Tell XARVIS Code what to build…") },
+                    modifier = Modifier.weight(1f), enabled = !busy,
+                )
+                Spacer(Modifier.fillMaxWidth(0.03f))
+                if (busy) {
+                    CircularProgressIndicator(Modifier.padding(8.dp))
+                } else {
+                    Button(enabled = input.isNotBlank(), onClick = {
+                        val text = input.trim(); input = ""
+                        msgs.add(Msg(Role.USER, text))
+                        scope.launch {
+                            busy = true
+                            try {
+                                if (activeRepo != null) {
+                                    // Stage 1: an existing repo is open for viewing. Editing arrives in the next step.
+                                    msgs.add(Msg(Role.AGENT, "I've opened ${activeRepo!!.name} and can see its files. Editing existing repos is the next step I'm building — for now, pick “＋ New web app” to build something from scratch."))
+                                } else {
+                                    val nh = runAgent(text, project.trim().ifBlank { "my-app" }, login!!, token() ?: "", currentHtml, cloudReady, generate) { r, t, u -> msgs.add(Msg(r, t, u)) }
+                                    if (nh != null) currentHtml = nh
+                                }
+                            } catch (e: Exception) {
+                                msgs.add(Msg(Role.AGENT, "Something went wrong: ${e.message}"))
+                            } finally { busy = false }
+                        }
+                    }) { Text("Send") }
+                }
             }
         }
     }
+}
+
+/** Stage 1: open an existing repo read-only and show its file tree in the chat. */
+private suspend fun openRepo(
+    repo: XarvisCode.RepoInfo, token: String, setBusy: (Boolean) -> Unit, add: (Role, String, String?) -> Unit,
+) {
+    setBusy(true)
+    add(Role.STEP, "Opening ${repo.owner}/${repo.name}…", null)
+    val t = withContext(Dispatchers.IO) { XarvisCode.listTree(token, repo.owner, repo.name, repo.branch) }
+    if (!t.ok || t.data == null) { add(Role.AGENT, "Couldn't open ${repo.name}: ${t.message}", null); setBusy(false); return }
+    val paths = XarvisCode.parseTreePaths(t.data!!)
+    val note = if (XarvisCode.isSelfRepo(repo.name))
+        "\n\n⚠ This is XARVIS's own app. I'll only change it when you explicitly ask, and I'll confirm with you first."
+    else ""
+    add(Role.AGENT, "Opened ${repo.owner}/${repo.name} — ${paths.size} files.$note", null)
+    add(Role.STEP, paths.take(250).joinToString("\n").ifBlank { "(empty repo)" }, null)
+    if (paths.size > 250) add(Role.STEP, "… and ${paths.size - 250} more files.", null)
+    setBusy(false)
 }
 
 @Composable

@@ -30,6 +30,33 @@ class XarvisCodeTest {
         assertTrue(XarvisCode.issuesIn(html).isEmpty())
     }
 
+    @Test fun parsesRepoListWithOwnerBranchAndPrivacy() {
+        val json = """[
+            {"name":"XARVISS","full_name":"rexraja89-oss/XARVISS","private":false,"default_branch":"main"},
+            {"name":"snake2","full_name":"rexraja89-oss/snake2","private":true,"default_branch":"master"}
+        ]"""
+        val repos = XarvisCode.parseRepos(json)
+        assertTrue(repos.size == 2)
+        assertTrue(repos[0].name == "XARVISS" && repos[0].owner == "rexraja89-oss" && repos[0].branch == "main" && !repos[0].private)
+        assertTrue(repos[1].branch == "master" && repos[1].private)
+    }
+
+    @Test fun parsesTreeBlobsOnly() {
+        val json = """{"tree":[
+            {"path":"app","type":"tree"},
+            {"path":"app/Main.kt","type":"blob"},
+            {"path":"README.md","type":"blob"}
+        ]}"""
+        val paths = XarvisCode.parseTreePaths(json)
+        assertTrue(paths == listOf("app/Main.kt", "README.md"))
+    }
+
+    @Test fun recognisesXarvisOwnRepo() {
+        assertTrue(XarvisCode.isSelfRepo("XARVISS"))
+        assertTrue(XarvisCode.isSelfRepo("xarviss"))
+        assertTrue(!XarvisCode.isSelfRepo("snake2"))
+    }
+
     @Test fun pullsHtmlOutOfMarkdownFences() {
         val raw = "Sure, here it is:\n```html\n<!doctype html><html><body><canvas></canvas></body></html>\n```"
         val h = XarvisCode.extractHtml(raw)
