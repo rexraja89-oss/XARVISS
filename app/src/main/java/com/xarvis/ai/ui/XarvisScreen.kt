@@ -10,6 +10,12 @@ import com.xarvis.ai.tools.PermissionGate
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.xarvis.ai.tools.PermissionGate
+import com.xarvis.ai.tools.ScreenshotFinder
 import androidx.compose.ui.res.painterResource
 import com.xarvis.ai.R
 import com.xarvis.ai.files.DocumentReader
@@ -99,6 +105,22 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
     var input by rememberSaveable { mutableStateOf("") }
     var photo by rememberSaveable { mutableStateOf<Uri?>(null) }
     var document by rememberSaveable { mutableStateOf<Uri?>(null) }
+    // Auto screenshot paste: when Rex comes back to XARVIS just after taking a screenshot, offer it.
+    var recentShot by remember { mutableStateOf<Uri?>(null) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(Unit) { runCatching { PermissionGate.request(android.Manifest.permission.READ_MEDIA_IMAGES) } }
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME &&
+                PermissionGate.has(context, android.Manifest.permission.READ_MEDIA_IMAGES)
+            ) {
+                val s = ScreenshotFinder.recent(context)
+                if (s != null && s != photo) recentShot = s
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
     // Android's photo picker: no storage permission needed, Rex picks one photo.
     // "Take a photo": the phone's camera app shoots straight into Pictures/XARVIS, and the photo
     // comes back as an attachment to ask about (no camera permission needed).
@@ -313,6 +335,16 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
             }
         }
 
+        if (recentShot != null && photo == null && document == null) {
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "📷 Screenshot ready to attach",
+                    style = MaterialTheme.typography.labelSmall, color = XarvisCyan, modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { photo = recentShot; recentShot = null }) { Text("ATTACH") }
+                TextButton(onClick = { recentShot = null }) { Text("DISMISS") }
+            }
+        }
         if (photo != null) {
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
