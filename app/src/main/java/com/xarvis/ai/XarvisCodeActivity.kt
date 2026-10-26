@@ -20,6 +20,8 @@ class XarvisCodeActivity : ComponentActivity() {
                     token = core::githubKey,
                     cloudReady = core::cloudReady,
                     generate = core::generateCode,
+                    visionReady = core::visionReady,
+                    generateWithImage = core::generateCodeWithImage,
                     onBack = ::finish,
                 )
             }

@@ -450,6 +450,11 @@ class XarvisCore(context: Context) {
     fun cloudReady(): Boolean = cloudLlm.anyKey() && cloudLlm.online()
     /** Ask the cloud brain chain to write code for a project (a whole file needs a big output budget). */
     suspend fun generateCode(system: String, user: String): String = cloudLlm.chat(system, user, maxTokens = 8192) {}.text
+    /** Vision (seeing a screenshot) needs Gemini specifically — the backup brains aren't wired for images. */
+    fun visionReady(): Boolean = cloudLlm.gemini.hasKey() && cloudLlm.online()
+    /** Ask Gemini to write code from a prompt plus an attached screenshot. */
+    suspend fun generateCodeWithImage(system: String, user: String, imageB64: String, mime: String): String =
+        cloudLlm.gemini.chatWithImage(system, user, imageB64, mime, maxTokens = 8192)
     fun setCloud(on: Boolean) {
         settings.edit().putBoolean("cloudEnabled", on).apply()
         _state.update { it.copy(cloudEnabled = on) }

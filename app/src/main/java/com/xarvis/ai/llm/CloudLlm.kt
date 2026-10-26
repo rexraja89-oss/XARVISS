@@ -174,7 +174,24 @@ class CloudLlm(context: Context) : Brain {
             hi > major || (hi == major && it.groupValues[2].toInt() >= minor)
         } == true
 
-    private fun call(model: String, key: String, systemPrompt: String, message: String, maxTokens: Int): String {
+    /** Asks Gemini with an image (base64 JPEG/PNG) attached, so XARVIS Code can "see" a screenshot. */
+    suspend fun chatWithImage(systemPrompt: String, message: String, imageB64: String, mime: String, maxTokens: Int): String =
+        withContext(Dispatchers.IO) {
+            val key = keys.get(BrainKeys.GEMINI) ?: throw IllegalStateException("no Gemini key")
+            var lastError: Exception? = null
+            for (model in modelsToTry(key)) {
+                try {
+                    val a = call(model, key, systemPrompt, message, maxTokens, imageB64, mime)
+                    working = model
+                    return@withContext a
+                } catch (e: QuotaReached) { throw e }
+                catch (e: ModelNotFound) { lastError = e; if (working == model) working = null }
+                catch (e: Exception) { lastError = e }
+            }
+            throw lastError ?: IllegalStateException("Gemini didn't answer")
+        }
+
+    private fun call(model: String, key: String, systemPrompt: String, message: String, maxTokens: Int, imageB64: String? = null, mime: String? = null): String {
         val url = URL("$BASE/models/$model:generateContent?key=$key")
         val gen = JSONObject().put("maxOutputTokens", maxTokens).put("temperature", 0.7)
         // 2.5+ flash "thinks" by default and can spend the whole budget thinking, leaving no text.
@@ -182,9 +199,13 @@ class CloudLlm(context: Context) : Brain {
         if (model.contains("flash") && (model.contains("latest") || versionAtLeast(model, 2, 5))) {
             gen.put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
         }
+        val userParts = JSONArray().put(JSONObject().put("text", message))
+        if (imageB64 != null) {
+            userParts.put(JSONObject().put("inline_data", JSONObject().put("mime_type", mime ?: "image/jpeg").put("data", imageB64)))
+        }
         val body = JSONObject()
             .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt))))
-            .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", message)))))
+            .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", userParts)))
             .put("generationConfig", gen)
         val conn = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"

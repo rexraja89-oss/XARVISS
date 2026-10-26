@@ -1,7 +1,9 @@
 package com.xarvis.ai.ui
 
 import android.content.Intent
+import android.net.Uri
 import android.speech.RecognizerIntent
+import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -33,6 +35,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -45,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -54,7 +58,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.xarvis.ai.code.XarvisCode
+import com.xarvis.ai.llm.PhotoPrep
+import com.xarvis.ai.tools.PermissionGate
+import com.xarvis.ai.tools.ScreenshotFinder
 import com.xarvis.ai.ui.theme.XarvisCyan
 import com.xarvis.ai.ui.theme.XarvisMuted
 import kotlinx.coroutines.Dispatchers
@@ -78,9 +88,12 @@ fun XarvisCodeScreen(
     token: () -> String?,
     cloudReady: () -> Boolean,
     generate: suspend (String, String) -> String,
+    visionReady: () -> Boolean,
+    generateWithImage: suspend (String, String, String, String) -> String,
     onBack: () -> Unit,
 ) {
     val context = LocalContextCompat()
+    val realCtx = LocalContext.current
     val scope = rememberCoroutineScope()
     var tokenInput by remember { mutableStateOf("") }
     var saved by remember { mutableStateOf(hasToken()) }
@@ -99,6 +112,22 @@ fun XarvisCodeScreen(
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         val spoken = res.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
         if (!spoken.isNullOrBlank()) input = (input + " " + spoken).trim()
+    }
+    // Auto screenshot paste: offer the screenshot Rex just took.
+    var recentShot by remember { mutableStateOf<Uri?>(null) }
+    var attachedShot by remember { mutableStateOf<Uri?>(null) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(Unit) { runCatching { PermissionGate.request(android.Manifest.permission.READ_MEDIA_IMAGES) } }
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && attachedShot == null &&
+                PermissionGate.has(realCtx, android.Manifest.permission.READ_MEDIA_IMAGES)
+            ) {
+                ScreenshotFinder.recent(realCtx)?.let { recentShot = it }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
 
     fun clog(line: String) { connectLog = (connectLog + "\n" + line).trim() }
@@ -242,19 +271,42 @@ fun XarvisCodeScreen(
 
             val send: () -> Unit = {
                 val text = input.trim(); input = ""
-                msgs.add(Msg(Role.USER, text))
+                val shot = attachedShot; attachedShot = null; recentShot = null
+                msgs.add(Msg(Role.USER, if (shot != null) "$text  📷" else text))
                 scope.launch {
                     busy = true
                     try {
                         if (activeRepo != null) {
                             msgs.add(Msg(Role.AGENT, "I've opened ${activeRepo!!.name} and can see its files. Editing existing repos is the next step I'm building — for now, pick “＋ New web app” to build something from scratch."))
                         } else {
-                            val nh = runAgent(text, project.trim().ifBlank { "my-app" }, login!!, token() ?: "", currentHtml, cloudReady, generate) { r, t, u -> msgs.add(Msg(r, t, u)) }
+                            var b64: String? = null
+                            if (shot != null) {
+                                if (!visionReady()) {
+                                    msgs.add(Msg(Role.AGENT, "To read a screenshot I need the Gemini cloud brain on (☰ → BRAIN). Building from your words only."))
+                                } else {
+                                    val bytes = withContext(Dispatchers.IO) { PhotoPrep.downscaledJpeg(realCtx, shot) }
+                                    if (bytes != null) b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                                    else msgs.add(Msg(Role.AGENT, "I couldn't read that screenshot; building from your words only."))
+                                }
+                            }
+                            val nh = runAgent(text, project.trim().ifBlank { "my-app" }, login!!, token() ?: "", currentHtml, cloudReady, generate, b64, generateWithImage) { r, t, u -> msgs.add(Msg(r, t, u)) }
                             if (nh != null) currentHtml = nh
                         }
                     } catch (e: Exception) {
                         msgs.add(Msg(Role.AGENT, "Something went wrong: ${e.message}"))
                     } finally { busy = false }
+                }
+            }
+            if (recentShot != null && attachedShot == null) {
+                Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("📷 Screenshot ready to attach", style = MaterialTheme.typography.labelSmall, color = XarvisCyan, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { attachedShot = recentShot; recentShot = null }) { Text("ATTACH") }
+                    TextButton(onClick = { recentShot = null }) { Text("DISMISS") }
+                }
+            } else if (attachedShot != null) {
+                Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("📷 Screenshot attached — sent with your message", style = MaterialTheme.typography.labelSmall, color = XarvisCyan, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { attachedShot = null }) { Text("REMOVE") }
                 }
             }
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -373,6 +425,7 @@ internal fun mdText(raw: String): AnnotatedString = buildAnnotatedString {
 private suspend fun runAgent(
     userText: String, project: String, owner: String, token: String, currentHtml: String?,
     cloudReady: () -> Boolean, generate: suspend (String, String) -> String,
+    imageB64: String?, generateWithImage: suspend (String, String, String, String) -> String,
     add: (Role, String, String?) -> Unit,
 ): String? {
     if (token.isBlank()) { add(Role.AGENT, "No GitHub token saved.", null); return null }
@@ -383,10 +436,11 @@ private suspend fun runAgent(
         "GitHub access — never tell the user you can't reach GitHub, need a CLI/token/SSH key, or to add a " +
         "collaborator. If they ask how you work with their GitHub, tell them you're already connected as $owner and " +
         "they just need to say what to build. The current project (repository) is named \"$project\"."
-    val sys = XCODE_SYSTEM + connected + if (currentHtml != null) "\n\nThe current index.html is:\n$currentHtml" else "\n\nThere is no file yet; create one from scratch."
-    add(Role.STEP, "Thinking…", null)
+    val img = if (imageB64 != null) "\n\nThe user attached a screenshot — use it as the reference for what to build." else ""
+    val sys = XCODE_SYSTEM + connected + img + if (currentHtml != null) "\n\nThe current index.html is:\n$currentHtml" else "\n\nThere is no file yet; create one from scratch."
+    add(Role.STEP, if (imageB64 != null) "Looking at your screenshot…" else "Thinking…", null)
     val reply = try {
-        withContext(Dispatchers.IO) { generate(sys, userText) }
+        withContext(Dispatchers.IO) { if (imageB64 != null) generateWithImage(sys, userText, imageB64, "image/jpeg") else generate(sys, userText) }
     } catch (e: Exception) { add(Role.AGENT, "Brain error: ${e.message}", null); return null }
 
     var html = XarvisCode.extractHtml(reply)

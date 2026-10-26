@@ -14,7 +14,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.xarvis.ai.tools.PermissionGate
 import com.xarvis.ai.tools.ScreenshotFinder
 import androidx.compose.ui.res.painterResource
 import com.xarvis.ai.R
