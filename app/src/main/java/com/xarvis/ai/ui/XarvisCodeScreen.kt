@@ -71,8 +71,10 @@ import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.xarvis.ai.R
 import com.xarvis.ai.code.GitHubAgent
 import com.xarvis.ai.code.XarvisCode
+import com.xarvis.ai.files.DocumentReader
 import com.xarvis.ai.llm.PhotoPrep
 import com.xarvis.ai.tools.PermissionGate
 import com.xarvis.ai.tools.ScreenshotFinder
@@ -135,9 +137,22 @@ fun XarvisCodeScreen(
     // Auto screenshot paste: offer the screenshot Rex just took.
     var recentShot by remember { mutableStateOf<Uri?>(null) }
     var attachedShot by remember { mutableStateOf<Uri?>(null) }
-    // + attach: pick a photo to send to the agent (reuses the screenshot/vision path).
+    // + attach: a photo (vision) or a file (its text becomes context for the agent).
+    var attachedFile by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var showAttach by remember { mutableStateOf(false) }
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) { attachedShot = uri; recentShot = null }
+        if (uri != null) { attachedShot = uri; recentShot = null; attachedFile = null }
+    }
+    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            busy = true
+            try {
+                val doc = withContext(Dispatchers.IO) { DocumentReader.read(realCtx, uri) }
+                if (doc.text.isNotBlank()) { attachedFile = doc.name to doc.text; attachedShot = null }
+                else msgs.add(Msg(Role.AGENT, "I couldn't read any text from \"${doc.name}\" — it may be a scanned/locked PDF or an unsupported type."))
+            } catch (e: Exception) { msgs.add(Msg(Role.AGENT, "Couldn't read that file: ${e.message}")) }
+            finally { busy = false }
+        }
     }
     // Approval gate for editing XARVIS's own repo.
     var approvalFiles by remember { mutableStateOf<List<String>?>(null) }
@@ -372,7 +387,10 @@ fun XarvisCodeScreen(
                 } else {
                 val text = input.trim(); input = ""
                 val shot = attachedShot; attachedShot = null; recentShot = null
-                msgs.add(Msg(Role.USER, if (shot != null) "$text  📷" else text))
+                val file = attachedFile; attachedFile = null
+                val marker = text + (if (shot != null) "  📷" else "") + (if (file != null) "  📎 ${file.first}" else "")
+                msgs.add(Msg(Role.USER, marker.trim().ifBlank { "📎" }))
+                val task = if (file != null) "[Attached file \"${file.first}\"]\n${file.second}\n\n---\n$text" else text
                 scope.launch {
                     busy = true
                     try {
@@ -386,7 +404,7 @@ fun XarvisCodeScreen(
                                 else
                                     GitHubAgent.Config(login ?: "", "", "", token() ?: "", isSelf = false, hasRepo = false)
                                 GitHubAgent.run(
-                                    task = text, cfg = cfg, generate = generate,
+                                    task = task, cfg = cfg, generate = generate,
                                     step = { s -> msgs.add(Msg(Role.STEP, s)) },
                                     say = { s -> msgs.add(Msg(Role.AGENT, s)) },
                                     approve = approve, web = webSearch, readUrl = webRead, makeDoc = makeDoc, ask = ask,
@@ -403,7 +421,7 @@ fun XarvisCodeScreen(
                                     else msgs.add(Msg(Role.AGENT, "I couldn't read that screenshot; building from your words only."))
                                 }
                             }
-                            val nh = runAgent(text, project.trim().ifBlank { "my-app" }, login!!, token() ?: "", currentHtml, cloudReady, generate, b64, generateWithImage) { r, t, u -> msgs.add(Msg(r, t, u)) }
+                            val nh = runAgent(task, project.trim().ifBlank { "my-app" }, login!!, token() ?: "", currentHtml, cloudReady, generate, b64, generateWithImage) { r, t, u -> msgs.add(Msg(r, t, u)) }
                             if (nh != null) currentHtml = nh
                         }
                     } catch (e: Exception) {
@@ -441,6 +459,25 @@ fun XarvisCodeScreen(
                     TextButton(onClick = { attachedShot = null; recentShot = null }) { Text(if (attached) "REMOVE" else "DISMISS") }
                 }
             }
+            if (attachedFile != null) {
+                Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("📎 ${attachedFile!!.first}", style = MaterialTheme.typography.labelLarge, color = XarvisCyan, modifier = Modifier.weight(1f), maxLines = 1)
+                    TextButton(onClick = { attachedFile = null }) { Text("REMOVE") }
+                }
+            }
+            if (showAttach) {
+                AttachSheet(
+                    listOf(
+                        AttachOption(R.drawable.ic_photo_lens, "Photos", "Attach a photo for XARVIS Code to see") {
+                            pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        },
+                        AttachOption(R.drawable.ic_file, "Files", "Attach a PDF, Word, Excel or text file as context") {
+                            pickFile.launch(arrayOf("*/*"))
+                        },
+                    ),
+                    onDismiss = { showAttach = false },
+                )
+            }
             if (currentHtml != null) {
                 Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { showPreview = true }) { Text("▣ Preview the app", color = XarvisCyan) }
@@ -451,12 +488,10 @@ fun XarvisCodeScreen(
                     Modifier.weight(1f).rgbGlow(26.dp).clip(RoundedCornerShape(26.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // + attach a photo (invisible circular tap target, visible "+").
+                    // + attach a photo or a file (invisible circular tap target, visible "+").
                     Box(
                         Modifier.size(44.dp).clip(CircleShape)
-                            .clickable(enabled = !busy || askDeferred != null) {
-                                pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                            },
+                            .clickable(enabled = !busy || askDeferred != null) { showAttach = true },
                         contentAlignment = Alignment.Center,
                     ) { Text("+", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = XarvisCyan) }
                     OutlinedTextField(
@@ -482,7 +517,11 @@ fun XarvisCodeScreen(
                 }
                 Spacer(Modifier.size(8.dp))
                 // Circular send / progress. Stays active while the agent awaits an answer.
-                val canSend = input.isNotBlank() && (!busy || askDeferred != null)
+                val canSend = when {
+                    askDeferred != null -> input.isNotBlank()
+                    busy -> false
+                    else -> input.isNotBlank() || attachedShot != null || attachedFile != null
+                }
                 val showSpinner = busy && askDeferred == null
                 Box(
                     Modifier.size(56.dp).clip(CircleShape)
