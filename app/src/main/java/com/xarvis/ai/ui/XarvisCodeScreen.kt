@@ -1,11 +1,13 @@
 package com.xarvis.ai.ui
 
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.speech.RecognizerIntent
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -47,6 +49,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -297,16 +301,25 @@ fun XarvisCodeScreen(
                     } finally { busy = false }
                 }
             }
-            if (recentShot != null && attachedShot == null) {
+            val shotForThumb = attachedShot ?: recentShot
+            if (shotForThumb != null) {
+                val thumb = remember(shotForThumb) { loadShotThumb(realCtx, shotForThumb) }
+                val attached = attachedShot != null
                 Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("📷 Screenshot ready to attach", style = MaterialTheme.typography.labelSmall, color = XarvisCyan, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { attachedShot = recentShot; recentShot = null }) { Text("ATTACH") }
-                    TextButton(onClick = { recentShot = null }) { Text("DISMISS") }
-                }
-            } else if (attachedShot != null) {
-                Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("📷 Screenshot attached — sent with your message", style = MaterialTheme.typography.labelSmall, color = XarvisCyan, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { attachedShot = null }) { Text("REMOVE") }
+                    Row(
+                        Modifier.clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
+                            .clickable(enabled = !attached) { attachedShot = recentShot; recentShot = null }.padding(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (thumb != null) {
+                            Image(bitmap = thumb, contentDescription = null, modifier = Modifier.size(34.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
+                        }
+                        Spacer(Modifier.size(8.dp))
+                        Text(if (attached) "Attached" else "Paste", style = MaterialTheme.typography.labelLarge, color = XarvisCyan)
+                        Spacer(Modifier.size(10.dp))
+                    }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { attachedShot = null; recentShot = null }) { Text(if (attached) "REMOVE" else "DISMISS") }
                 }
             }
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -471,6 +484,12 @@ private suspend fun runAgent(
     add(Role.AGENT, "Done — published. It can take about a minute to go live.", pages.data)
     return html
 }
+
+/** A small thumbnail of the screenshot for the "Paste" pill. */
+private fun loadShotThumb(context: android.content.Context, uri: Uri): androidx.compose.ui.graphics.ImageBitmap? = runCatching {
+    val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+    context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }?.asImageBitmap()
+}.getOrNull()
 
 // A tiny indirection so the screen can start an Intent without importing LocalContext everywhere.
 @Composable

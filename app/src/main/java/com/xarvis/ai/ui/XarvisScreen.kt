@@ -335,12 +335,24 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
         }
 
         if (recentShot != null && photo == null && document == null) {
+            val thumb = remember(recentShot) { recentShot?.let { loadThumbnail(context, it.toString()) } }
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "📷 Screenshot ready to attach",
-                    style = MaterialTheme.typography.labelSmall, color = XarvisCyan, modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = { photo = recentShot; recentShot = null }) { Text("ATTACH") }
+                Row(
+                    Modifier.clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { photo = recentShot; recentShot = null }.padding(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (thumb != null) {
+                        Image(
+                            bitmap = thumb, contentDescription = null,
+                            modifier = Modifier.size(34.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop,
+                        )
+                    }
+                    Spacer(Modifier.size(8.dp))
+                    Text("Paste", style = MaterialTheme.typography.labelLarge, color = XarvisCyan)
+                    Spacer(Modifier.size(10.dp))
+                }
+                Spacer(Modifier.weight(1f))
                 TextButton(onClick = { recentShot = null }) { Text("DISMISS") }
             }
         }
