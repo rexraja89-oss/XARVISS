@@ -79,6 +79,9 @@ import kotlinx.coroutines.withContext
 private enum class Role { USER, AGENT, STEP }
 private data class Msg(val role: Role, val text: String, val url: String? = null)
 
+// A balanced deep red that marks XARVIS Code apart from the cyan main app; white text stays readable on it.
+private val CodeRed = Color(0xFF9E2A2A)
+
 /**
  * ☰ → XARVIS Code: a Claude-Code-style coding agent (this screen only — the main XARVIS is unchanged).
  * Connect GitHub once, then just chat: "build a tic-tac-toe game", "make the snake blue", "fix the
@@ -430,22 +433,25 @@ private suspend fun openRepo(
 @Composable
 private fun MessageRow(m: Msg, onOpen: (String) -> Unit, onCopy: (String) -> Unit) {
     when (m.role) {
+        // Working lines: a muted-red strip with white text, so "XARVIS Code is working" reads at a glance.
         Role.STEP -> Text(
             m.text, style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace,
-            color = XarvisMuted, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp, horizontal = 4.dp),
+            color = Color.White,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                .clip(RoundedCornerShape(8.dp)).background(CodeRed.copy(alpha = 0.6f)).padding(horizontal = 8.dp, vertical = 4.dp),
         )
         else -> {
             val user = m.role == Role.USER
             Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalAlignment = if (user) Alignment.End else Alignment.Start) {
                 Column(
                     Modifier.widthIn(max = 330.dp).clip(RoundedCornerShape(16.dp))
-                        .background(if (user) XarvisCyan.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant)
+                        .background(if (user) XarvisCyan.copy(alpha = 0.18f) else CodeRed)
                         .padding(12.dp),
                 ) {
-                    Text(mdText(m.text), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text(mdText(m.text), style = MaterialTheme.typography.bodyMedium, color = if (user) MaterialTheme.colorScheme.onSurface else Color.White)
                     if (m.url != null) {
                         Button(onClick = { onOpen(m.url) }, modifier = Modifier.padding(top = 8.dp)) { Text("▶  Open it") }
-                        Text(m.url, style = MaterialTheme.typography.labelSmall, color = XarvisMuted, modifier = Modifier.padding(top = 4.dp))
+                        Text(m.url, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.85f), modifier = Modifier.padding(top = 4.dp))
                     }
                 }
                 if (!user) {
