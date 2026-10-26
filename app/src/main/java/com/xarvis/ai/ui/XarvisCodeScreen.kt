@@ -65,6 +65,7 @@ import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.xarvis.ai.code.GitHubAgent
 import com.xarvis.ai.code.XarvisCode
 import com.xarvis.ai.llm.PhotoPrep
 import com.xarvis.ai.tools.PermissionGate
@@ -120,6 +121,16 @@ fun XarvisCodeScreen(
     // Auto screenshot paste: offer the screenshot Rex just took.
     var recentShot by remember { mutableStateOf<Uri?>(null) }
     var attachedShot by remember { mutableStateOf<Uri?>(null) }
+    // Approval gate for editing XARVIS's own repo.
+    var approvalFiles by remember { mutableStateOf<List<String>?>(null) }
+    var approvalDeferred by remember { mutableStateOf<kotlinx.coroutines.CompletableDeferred<Boolean>?>(null) }
+    val approve: suspend (List<String>) -> Boolean = { files ->
+        val d = kotlinx.coroutines.CompletableDeferred<Boolean>()
+        approvalFiles = files; approvalDeferred = d
+        val ok = d.await()
+        approvalFiles = null; approvalDeferred = null
+        ok
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(Unit) { runCatching { PermissionGate.request(android.Manifest.permission.READ_MEDIA_IMAGES) } }
     DisposableEffect(lifecycleOwner) {
@@ -281,7 +292,18 @@ fun XarvisCodeScreen(
                     busy = true
                     try {
                         if (activeRepo != null) {
-                            msgs.add(Msg(Role.AGENT, "I've opened ${activeRepo!!.name} and can see its files. Editing existing repos is the next step I'm building — for now, pick “＋ New web app” to build something from scratch."))
+                            if (!cloudReady()) {
+                                msgs.add(Msg(Role.AGENT, "I need a cloud brain on (☰ → BRAIN) to work on a repo."))
+                            } else {
+                                val repo = activeRepo!!
+                                val cfg = GitHubAgent.Config(repo.owner, repo.name, repo.branch, token() ?: "", XarvisCode.isSelfRepo(repo.name))
+                                GitHubAgent.run(
+                                    task = text, cfg = cfg, generate = generate,
+                                    step = { s -> msgs.add(Msg(Role.STEP, s)) },
+                                    say = { s -> msgs.add(Msg(Role.AGENT, s)) },
+                                    approve = approve,
+                                )
+                            }
                         } else {
                             var b64: String? = null
                             if (shot != null) {
@@ -299,6 +321,14 @@ fun XarvisCodeScreen(
                     } catch (e: Exception) {
                         msgs.add(Msg(Role.AGENT, "Something went wrong: ${e.message}"))
                     } finally { busy = false }
+                }
+            }
+            if (approvalFiles != null) {
+                Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Approve changes to XARVIS?", style = MaterialTheme.typography.labelMedium, color = Color(0xFFE0A030), modifier = Modifier.weight(1f))
+                    Button(onClick = { approvalDeferred?.complete(true) }) { Text("APPROVE") }
+                    Spacer(Modifier.size(6.dp))
+                    OutlinedButton(onClick = { approvalDeferred?.complete(false) }) { Text("CANCEL") }
                 }
             }
             val shotForThumb = attachedShot ?: recentShot

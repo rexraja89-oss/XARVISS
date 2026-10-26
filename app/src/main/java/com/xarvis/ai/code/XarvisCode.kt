@@ -40,18 +40,74 @@ object XarvisCode {
         else Result(false, errorMessage(code, text))
     }.getOrElse { Result(false, it.message ?: "Couldn't reach GitHub.") }
 
-    /** Creates or updates file [path] in [owner]/[repo] with [content]. */
-    fun putFile(token: String, owner: String, repo: String, path: String, content: String, message: String): Result = runCatching {
+    /** Creates or updates file [path] in [owner]/[repo] with [content], on [branch] when given. */
+    fun putFile(token: String, owner: String, repo: String, path: String, content: String, message: String, branch: String? = null): Result = runCatching {
         val p = path.split("/").joinToString("/") { URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
-        // An update needs the existing file's sha; a first create doesn't.
-        val existing = http("GET", "$API/repos/$owner/$repo/contents/$p", token, null)
+        val refQ = if (branch != null) "?ref=$branch" else ""
+        // An update needs the existing file's sha (on that branch); a first create doesn't.
+        val existing = http("GET", "$API/repos/$owner/$repo/contents/$p$refQ", token, null)
         val sha = if (existing.first in 200..299) runCatching { JSONObject(existing.second).optString("sha") }.getOrNull() else null
         val body = JSONObject()
             .put("message", message)
             .put("content", Base64.encodeToString(content.toByteArray(Charsets.UTF_8), Base64.NO_WRAP))
         if (!sha.isNullOrBlank()) body.put("sha", sha)
+        if (branch != null) body.put("branch", branch)
         val (code, text) = http("PUT", "$API/repos/$owner/$repo/contents/$p", token, body.toString())
         if (code in 200..299) Result(true, "Pushed $path.") else Result(false, errorMessage(code, text))
+    }.getOrElse { Result(false, it.message ?: "Couldn't reach GitHub.") }
+
+    /** Creates [newBranch] from the tip of [fromBranch]. Succeeds (no-op) if it already exists. */
+    fun createBranch(token: String, owner: String, repo: String, fromBranch: String, newBranch: String): Result = runCatching {
+        val ref = http("GET", "$API/repos/$owner/$repo/git/ref/heads/$fromBranch", token, null)
+        if (ref.first !in 200..299) return@runCatching Result(false, errorMessage(ref.first, ref.second))
+        val sha = JSONObject(ref.second).optJSONObject("object")?.optString("sha").orEmpty()
+        if (sha.isBlank()) return@runCatching Result(false, "couldn't read the base branch")
+        val body = JSONObject().put("ref", "refs/heads/$newBranch").put("sha", sha).toString()
+        val (code, text) = http("POST", "$API/repos/$owner/$repo/git/refs", token, body)
+        when {
+            code in 200..299 -> Result(true, "branch created", newBranch)
+            code == 422 -> Result(true, "branch exists", newBranch) // already there
+            else -> Result(false, errorMessage(code, text))
+        }
+    }.getOrElse { Result(false, it.message ?: "Couldn't reach GitHub.") }
+
+    /** The newest workflow run on [branch] as "status|conclusion|id|headSha" in [Result.data]. */
+    fun latestRunOnBranch(token: String, owner: String, repo: String, branch: String): Result = runCatching {
+        val (code, text) = http("GET", "$API/repos/$owner/$repo/actions/runs?branch=$branch&per_page=1", token, null)
+        if (code !in 200..299) return@runCatching Result(false, errorMessage(code, text))
+        val runs = JSONObject(text).optJSONArray("workflow_runs")
+        if (runs == null || runs.length() == 0) return@runCatching Result(false, "no runs")
+        val r = runs.getJSONObject(0)
+        Result(true, "ok", "${r.optString("status")}|${r.optString("conclusion")}|${r.optLong("id")}|${r.optString("head_sha")}")
+    }.getOrElse { Result(false, it.message ?: "Couldn't reach GitHub.") }
+
+    /** Failure messages (compiler/test errors) for commit [sha], from its check-run annotations. */
+    fun buildErrors(token: String, owner: String, repo: String, sha: String): String = runCatching {
+        val runs = http("GET", "$API/repos/$owner/$repo/commits/$sha/check-runs", token, null)
+        if (runs.first !in 200..299) return@runCatching ""
+        val arr = JSONObject(runs.second).optJSONArray("check_runs") ?: return@runCatching ""
+        val out = StringBuilder()
+        for (i in 0 until arr.length()) {
+            val cr = arr.getJSONObject(i)
+            if (cr.optString("conclusion") != "failure") continue
+            val id = cr.optLong("id")
+            val ann = http("GET", "$API/repos/$owner/$repo/check-runs/$id/annotations", token, null)
+            if (ann.first in 200..299) {
+                val a = org.json.JSONArray(ann.second)
+                for (j in 0 until a.length()) {
+                    val o = a.getJSONObject(j)
+                    out.append(o.optString("path")).append(":").append(o.optInt("start_line"))
+                        .append(" ").append(o.optString("message")).append("\n")
+                }
+            }
+        }
+        out.toString().trim()
+    }.getOrDefault("")
+
+    /** Deletes branch [branch] (to discard an agent's work). */
+    fun deleteBranch(token: String, owner: String, repo: String, branch: String): Result = runCatching {
+        val (code, text) = http("DELETE", "$API/repos/$owner/$repo/git/refs/heads/$branch", token, null)
+        if (code in 200..299) Result(true, "deleted") else Result(false, errorMessage(code, text))
     }.getOrElse { Result(false, it.message ?: "Couldn't reach GitHub.") }
 
     /** The XARVIS app's own repository — edits here need Rex's explicit ask + approval (never on its own). */
@@ -99,10 +155,11 @@ object XarvisCode {
         }
     }.getOrDefault(emptyList())
 
-    /** Reads file [path] from [owner]/[repo] and returns its decoded text in [Result.data] (null if missing). */
-    fun getFile(token: String, owner: String, repo: String, path: String): Result = runCatching {
+    /** Reads file [path] from [owner]/[repo] (on [branch] when given) and returns its decoded text in [Result.data]. */
+    fun getFile(token: String, owner: String, repo: String, path: String, branch: String? = null): Result = runCatching {
         val p = path.split("/").joinToString("/") { URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
-        val (code, text) = http("GET", "$API/repos/$owner/$repo/contents/$p", token, null)
+        val refQ = if (branch != null) "?ref=$branch" else ""
+        val (code, text) = http("GET", "$API/repos/$owner/$repo/contents/$p$refQ", token, null)
         if (code == 404) return@runCatching Result(false, "not found", null)
         if (code !in 200..299) return@runCatching Result(false, errorMessage(code, text))
         val b64 = JSONObject(text).optString("content").replace("\n", "")
