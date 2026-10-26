@@ -5,6 +5,8 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.speech.RecognizerIntent
 import android.util.Base64
+import android.webkit.WebView
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -139,6 +141,7 @@ fun XarvisCodeScreen(
         approvalFiles = null; approvalDeferred = null
         ok
     }
+    var showPreview by remember { mutableStateOf(false) }
     // Clarify-before-acting: the agent asks a question and waits for Rex's typed answer.
     var askDeferred by remember { mutableStateOf<kotlinx.coroutines.CompletableDeferred<String>?>(null) }
     val ask: suspend (String) -> String = { question ->
@@ -203,6 +206,7 @@ fun XarvisCodeScreen(
         }
     }
 
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 14.dp)) {
         TextButton(onClick = onBack) { Text("‹ Back", color = XarvisCyan) }
         Text("XARVIS Code", style = MaterialTheme.typography.headlineSmall, color = XarvisCyan)
@@ -429,6 +433,11 @@ fun XarvisCodeScreen(
                     TextButton(onClick = { attachedShot = null; recentShot = null }) { Text(if (attached) "REMOVE" else "DISMISS") }
                 }
             }
+            if (currentHtml != null) {
+                Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { showPreview = true }) { Text("▣ Preview the app", color = XarvisCyan) }
+                }
+            }
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(
                     Modifier.weight(1f).clip(RoundedCornerShape(26.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
@@ -470,6 +479,29 @@ fun XarvisCodeScreen(
                 }
             }
         }
+    }
+        if (showPreview && currentHtml != null) { PreviewOverlay(currentHtml!!) { showPreview = false } }
+    }
+}
+
+@Composable
+private fun PreviewOverlay(html: String, onClose: () -> Unit) {
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Preview", style = MaterialTheme.typography.titleMedium, color = XarvisCyan, modifier = Modifier.weight(1f))
+            Button(onClick = onClose) { Text("Close") }
+        }
+        AndroidView(
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
+                }
+            },
+            update = { it.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null) },
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+        )
     }
 }
 
