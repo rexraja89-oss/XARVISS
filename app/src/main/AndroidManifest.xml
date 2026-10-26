@@ -138,6 +138,11 @@
             android:name=".GameModActivity"
             android:exported="false" />
 
+        <!-- ☰ → What can I do?: a plain-language capabilities tour. -->
+        <activity
+            android:name=".HelpActivity"
+            android:exported="false" />
+
         <!-- Record my voice: Rex reads sentences to train XARVIS's voice on his own. -->
         <activity
             android:name=".RecordVoiceActivity"
