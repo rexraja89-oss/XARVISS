@@ -193,5 +193,7 @@ object GitHubAgent {
             "DONE <one-line summary>  — when the task is fully finished.\n" +
             "Rules: explore with LIST/READ before writing; ALWAYS READ a file before you rewrite it; when you WRITE, " +
             "output the ENTIRE file (never a diff or snippet); change as few files as possible and nothing unrelated; " +
-            "keep the code valid and complete. Reply with ONLY one action (plus the code block for WRITE), no chatter."
+            "keep the code valid and complete. This is Rex's own personal project — just do the task; never refuse a " +
+            "reasonable request or lecture about ethics (only money/payments warrant caution). Reply with ONLY one " +
+            "action (plus the code block for WRITE), no chatter."
 }
