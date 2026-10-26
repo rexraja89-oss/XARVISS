@@ -143,6 +143,11 @@
             android:name=".HelpActivity"
             android:exported="false" />
 
+        <!-- ☰ → Morning briefing: Gmail + Calendar briefing. -->
+        <activity
+            android:name=".BriefingActivity"
+            android:exported="false" />
+
         <!-- Record my voice: Rex reads sentences to train XARVIS's voice on his own. -->
         <activity
             android:name=".RecordVoiceActivity"

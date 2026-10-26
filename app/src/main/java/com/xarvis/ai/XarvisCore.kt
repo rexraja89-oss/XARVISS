@@ -441,6 +441,18 @@ class XarvisCore(context: Context) {
 
     // XARVIS Code: a GitHub token (stored encrypted, like the other keys) so XARVIS can create and
     // build separate projects on GitHub without ever touching its own app.
+    // ---- Morning briefing (Gmail app password + Calendar secret iCal URL, no OAuth) ----
+    fun briefEmail(): String? = searchKeys.get("brief_email")
+    fun briefAppPw(): String? = searchKeys.get("brief_apppw")
+    fun briefIcal(): String? = searchKeys.get("brief_ical")
+    fun briefCity(): String? = searchKeys.get("brief_city")
+    fun saveBrief(email: String, appPw: String, ical: String, city: String) {
+        fun put(id: String, v: String) { if (v.isBlank()) searchKeys.clear(id) else searchKeys.save(id, v.trim()) }
+        put("brief_email", email); put("brief_apppw", appPw.replace(" ", "")); put("brief_ical", ical); put("brief_city", city)
+    }
+    suspend fun buildBriefing(): String =
+        com.xarvis.ai.brief.Briefing.build(appContext, briefEmail(), briefAppPw(), briefIcal(), briefCity())
+
     fun githubHasKey(): Boolean = searchKeys.has(com.xarvis.ai.llm.BrainKeys.GITHUB)
     fun saveGithubKey(key: String) { searchKeys.save(com.xarvis.ai.llm.BrainKeys.GITHUB, key) }
     fun clearGithubKey() { searchKeys.clear(com.xarvis.ai.llm.BrainKeys.GITHUB) }

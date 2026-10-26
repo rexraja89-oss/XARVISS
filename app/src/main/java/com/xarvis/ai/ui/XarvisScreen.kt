@@ -272,6 +272,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 onXarvisCode = { context.startActivity(Intent(context, com.xarvis.ai.XarvisCodeActivity::class.java)) },
                 onGameMod = { context.startActivity(Intent(context, com.xarvis.ai.GameModActivity::class.java)) },
                 onHelp = { context.startActivity(Intent(context, com.xarvis.ai.HelpActivity::class.java)) },
+                onBriefing = { context.startActivity(Intent(context, com.xarvis.ai.BriefingActivity::class.java)) },
                 onActivityLog = {
                     context.startActivity(Intent(context, com.xarvis.ai.PolicyActivity::class.java).putExtra(com.xarvis.ai.PolicyActivity.EXTRA_LOG, true))
                 },

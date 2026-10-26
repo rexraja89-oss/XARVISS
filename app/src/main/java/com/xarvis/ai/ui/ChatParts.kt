@@ -200,7 +200,7 @@ fun SettingsMenu(
     wakeWord: Boolean, onWakeWord: (Boolean) -> Unit, onAssistantSettings: () -> Unit, onRecordVoice: () -> Unit,
     onLoadVoice: () -> Unit, ownVoices: () -> String?, ownVoiceOn: () -> Boolean, onOwnVoice: (Boolean) -> Unit,
     onPermissions: () -> Unit, onActivityLog: () -> Unit, onFolders: () -> Unit, onXarvisCode: () -> Unit, onGameMod: () -> Unit,
-    onHelp: () -> Unit,
+    onHelp: () -> Unit, onBriefing: () -> Unit,
     smartBrain: Boolean, smartDownload: ModelDownload, hasModel: Boolean, onSmartBrain: (Boolean) -> Unit,
     modelDownload: ModelDownload, onDownloadModel: () -> Unit,
     cloudEnabled: Boolean, hasCloudKey: () -> Boolean, onCloud: (Boolean) -> Unit, onSaveKey: (String) -> Unit, onClearKey: () -> Unit,
@@ -216,6 +216,10 @@ fun SettingsMenu(
             Column(Modifier.fillMaxWidth().clickable(onClick = onHelp).padding(horizontal = 20.dp, vertical = 14.dp)) {
                 Text("✦ What can I do? ›", style = MaterialTheme.typography.titleMedium, color = XarvisCyan)
                 Text("Everything XARVIS can do, in plain words.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+            }
+            Column(Modifier.fillMaxWidth().clickable(onClick = onBriefing).padding(horizontal = 20.dp, vertical = 10.dp)) {
+                Text("🌅 Morning briefing ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+                Text("Connect Gmail + Calendar for a daily briefing.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
             }
             HorizontalDivider(Modifier.padding(vertical = 4.dp), color = XarvisMuted.copy(alpha = 0.3f))
             Text(
