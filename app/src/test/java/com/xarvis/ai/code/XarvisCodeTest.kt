@@ -57,6 +57,23 @@ class XarvisCodeTest {
         assertTrue(!XarvisCode.isSelfRepo("snake2"))
     }
 
+    @Test fun flagsAnExternalCdn() {
+        val html = "<html><head><script src=\"https://cdn.example.com/x.js\"></script></head>" +
+            "<body><button onclick=\"go()\">go</button><script>function go(){}</script></body></html>"
+        assertTrue(XarvisCode.issuesIn(html).any { it.contains("external", ignoreCase = true) })
+    }
+
+    @Test fun flagsKeyboardOnlyControls() {
+        val html = "<html><body><canvas></canvas><script>document.addEventListener('keydown',function(){});</script></body></html>"
+        assertTrue(XarvisCode.issuesIn(html).any { it.contains("keyboard", ignoreCase = true) })
+    }
+
+    @Test fun passesWhenTouchControlsPresent() {
+        val html = "<html><body><div onclick=\"m()\">btn</div><script>function m(){}" +
+            "document.addEventListener('keydown',function(){});</script></body></html>"
+        assertTrue(XarvisCode.issuesIn(html).none { it.contains("keyboard", ignoreCase = true) })
+    }
+
     @Test fun pullsHtmlOutOfMarkdownFences() {
         val raw = "Sure, here it is:\n```html\n<!doctype html><html><body><canvas></canvas></body></html>\n```"
         val h = XarvisCode.extractHtml(raw)
