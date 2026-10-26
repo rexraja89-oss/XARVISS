@@ -139,6 +139,16 @@ fun XarvisCodeScreen(
         approvalFiles = null; approvalDeferred = null
         ok
     }
+    // Clarify-before-acting: the agent asks a question and waits for Rex's typed answer.
+    var askDeferred by remember { mutableStateOf<kotlinx.coroutines.CompletableDeferred<String>?>(null) }
+    val ask: suspend (String) -> String = { question ->
+        msgs.add(Msg(Role.AGENT, "❓ $question"))
+        val d = kotlinx.coroutines.CompletableDeferred<String>()
+        askDeferred = d
+        val answer = d.await()
+        askDeferred = null
+        answer
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(Unit) { runCatching { PermissionGate.request(android.Manifest.permission.READ_MEDIA_IMAGES) } }
     DisposableEffect(lifecycleOwner) {
@@ -169,6 +179,11 @@ fun XarvisCodeScreen(
             val saved = store.get(sessionId)
             if (saved != null && saved.messages.isNotEmpty()) {
                 saved.messages.forEach { msgs.add(Msg(runCatching { Role.valueOf(it.role) }.getOrDefault(Role.AGENT), it.text, it.url)) }
+                // Resume full state: the open repo and the current file, so follow-ups continue seamlessly.
+                if (saved.repoName != null && saved.repoOwner != null) {
+                    activeRepo = XarvisCode.RepoInfo(saved.repoName, saved.repoOwner, saved.repoBranch ?: "main", false)
+                }
+                currentHtml = saved.currentHtml
             } else {
                 msgs.add(Msg(Role.AGENT, "XARVIS Code online, sir. Tell me what to build — e.g. \"a tic-tac-toe game\" or \"a tip calculator\" — and I'll write it, fix my own mistakes, and publish it live. Or tap “My repos” to work on an existing project."))
             }
@@ -180,7 +195,11 @@ fun XarvisCodeScreen(
         if (msgs.any { it.role == Role.USER }) {
             val title = msgs.firstOrNull { it.role == Role.USER }?.text?.take(48)?.ifBlank { null } ?: "New session"
             val sub = activeRepo?.let { "${it.owner}/${it.name}" } ?: "New web app"
-            store.save(com.xarvis.ai.code.CodeSession(sessionId, title, sub, System.currentTimeMillis(), msgs.map { com.xarvis.ai.code.CodeMsg(it.role.name, it.text, it.url) }))
+            store.save(com.xarvis.ai.code.CodeSession(
+                sessionId, title, sub, System.currentTimeMillis(),
+                msgs.map { com.xarvis.ai.code.CodeMsg(it.role.name, it.text, it.url) },
+                repoOwner = activeRepo?.owner, repoName = activeRepo?.name, repoBranch = activeRepo?.branch, currentHtml = currentHtml,
+            ))
         }
     }
 
@@ -241,6 +260,33 @@ fun XarvisCodeScreen(
         Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("✓ ${login}", color = Color(0xFF1B8A3A), style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.weight(1f))
+            if (msgs.any { it.role == Role.USER }) {
+                TextButton(enabled = !busy, onClick = {
+                    scope.launch {
+                        busy = true
+                        try {
+                            val sb = StringBuilder("# XARVIS Code hand-off brief\n\n")
+                            activeRepo?.let { sb.append("Repository: ${it.owner}/${it.name} (branch ${it.branch})\n\n") }
+                            sb.append("## Conversation\n\n")
+                            msgs.filter { it.role != Role.STEP }.forEach {
+                                sb.append(if (it.role == Role.USER) "**Rex:** " else "**XARVIS Code:** ").append(it.text).append("\n\n")
+                            }
+                            activeRepo?.let { repo ->
+                                val t = withContext(Dispatchers.IO) { XarvisCode.listTree(token() ?: "", repo.owner, repo.name, repo.branch) }
+                                if (t.ok && t.data != null) {
+                                    sb.append("## Files in ${repo.name}\n\n")
+                                    XarvisCode.parseTreePaths(t.data!!).forEach { sb.append("- ").append(it).append("\n") }
+                                }
+                            }
+                            val brief = sb.toString()
+                            runCatching { clipboard.setText(AnnotatedString(brief)) }
+                            val saved = withContext(Dispatchers.IO) { makeDoc("claude-brief.md", brief) }
+                            msgs.add(Msg(Role.AGENT, "Copied a hand-off brief to your clipboard and $saved Paste it to Claude for the big jobs, sir."))
+                        } catch (e: Exception) { msgs.add(Msg(Role.AGENT, "Couldn't build the brief: ${e.message}")) }
+                        finally { busy = false }
+                    }
+                }) { Text("⎙ Brief", color = XarvisCyan) }
+            }
             TextButton(enabled = !busy, onClick = {
                 showRepos = !showRepos
                 if (showRepos && repos.isEmpty()) scope.launch {
@@ -306,6 +352,12 @@ fun XarvisCodeScreen(
             }
 
             val send: () -> Unit = {
+                val pending = askDeferred
+                if (pending != null) {
+                    // Answering the agent's clarifying question — hand the text back to the waiting agent.
+                    val a = input.trim(); input = ""
+                    if (a.isNotEmpty()) { msgs.add(Msg(Role.USER, a)); pending.complete(a) }
+                } else {
                 val text = input.trim(); input = ""
                 val shot = attachedShot; attachedShot = null; recentShot = null
                 msgs.add(Msg(Role.USER, if (shot != null) "$text  📷" else text))
@@ -325,7 +377,7 @@ fun XarvisCodeScreen(
                                     task = text, cfg = cfg, generate = generate,
                                     step = { s -> msgs.add(Msg(Role.STEP, s)) },
                                     say = { s -> msgs.add(Msg(Role.AGENT, s)) },
-                                    approve = approve, web = webSearch, readUrl = webRead, makeDoc = makeDoc,
+                                    approve = approve, web = webSearch, readUrl = webRead, makeDoc = makeDoc, ask = ask,
                                 )
                             }
                         } else {
@@ -345,6 +397,7 @@ fun XarvisCodeScreen(
                     } catch (e: Exception) {
                         msgs.add(Msg(Role.AGENT, "Something went wrong: ${e.message}"))
                     } finally { busy = false }
+                }
                 }
             }
             if (approvalFiles != null) {
@@ -383,8 +436,8 @@ fun XarvisCodeScreen(
                 ) {
                     OutlinedTextField(
                         value = input, onValueChange = { input = it },
-                        placeholder = { Text(if (activeRepo != null) "Ask about ${activeRepo!!.name}…" else "Message XARVIS Code…", color = XarvisMuted) },
-                        modifier = Modifier.weight(1f), enabled = !busy,
+                        placeholder = { Text(if (askDeferred != null) "Type your answer…" else if (activeRepo != null) "Ask about ${activeRepo!!.name}…" else "Message XARVIS Code…", color = XarvisMuted) },
+                        modifier = Modifier.weight(1f), enabled = !busy || askDeferred != null,
                         colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent,
                             disabledBorderColor = Color.Transparent,
@@ -403,14 +456,16 @@ fun XarvisCodeScreen(
                     )
                 }
                 Spacer(Modifier.size(8.dp))
-                // Circular send / progress.
+                // Circular send / progress. Stays active while the agent awaits an answer.
+                val canSend = input.isNotBlank() && (!busy || askDeferred != null)
+                val showSpinner = busy && askDeferred == null
                 Box(
                     Modifier.size(48.dp).clip(CircleShape)
-                        .background(if (input.isBlank() || busy) XarvisMuted.copy(alpha = 0.3f) else XarvisCyan)
-                        .clickable(enabled = input.isNotBlank() && !busy) { send() },
+                        .background(if (!canSend) XarvisMuted.copy(alpha = 0.3f) else XarvisCyan)
+                        .clickable(enabled = canSend) { send() },
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (busy) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = XarvisCyan)
+                    if (showSpinner) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = XarvisCyan)
                     else Text("↑", color = Color(0xFF04121F), style = MaterialTheme.typography.titleLarge)
                 }
             }

@@ -14,6 +14,11 @@ data class CodeSession(
     val subtitle: String,
     val updatedAt: Long,
     val messages: List<CodeMsg>,
+    // Full state so reopening resumes where Rex left off.
+    val repoOwner: String? = null,
+    val repoName: String? = null,
+    val repoBranch: String? = null,
+    val currentHtml: String? = null,
 )
 
 /**
@@ -46,6 +51,7 @@ class CodeSessionStore(context: Context) {
         val msgs = JSONArray()
         s.messages.forEach { m -> msgs.put(JSONObject().put("r", m.role).put("t", m.text).put("u", m.url ?: "")) }
         return JSONObject().put("id", s.id).put("title", s.title).put("sub", s.subtitle).put("at", s.updatedAt).put("msgs", msgs)
+            .put("ro", s.repoOwner ?: "").put("rn", s.repoName ?: "").put("rb", s.repoBranch ?: "").put("html", s.currentHtml ?: "")
     }
 
     private fun parse(o: JSONObject): CodeSession {
@@ -54,7 +60,11 @@ class CodeSessionStore(context: Context) {
             val m = msgs.getJSONObject(it)
             CodeMsg(m.optString("r"), m.optString("t"), m.optString("u").ifBlank { null })
         }
-        return CodeSession(o.optString("id"), o.optString("title"), o.optString("sub"), o.optLong("at"), list)
+        return CodeSession(
+            o.optString("id"), o.optString("title"), o.optString("sub"), o.optLong("at"), list,
+            o.optString("ro").ifBlank { null }, o.optString("rn").ifBlank { null },
+            o.optString("rb").ifBlank { null }, o.optString("html").ifBlank { null },
+        )
     }
 
     private companion object { const val KEY = "sessions" }

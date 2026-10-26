@@ -51,4 +51,24 @@ class GitHubAgentTest {
     @Test fun unknownWhenNoAction() {
         assertEquals(GitHubAgent.Kind.UNKNOWN, GitHubAgent.parse("let me think about this").kind)
     }
+
+    @Test fun parsesAskAndPlanAndWeb() {
+        assertEquals(GitHubAgent.Kind.ASK, GitHubAgent.parse("ASK Which colour do you want, sir?").kind)
+        assertEquals("Which colour do you want, sir?", GitHubAgent.parse("ASK Which colour do you want, sir?").content)
+        assertEquals(GitHubAgent.Kind.PLAN, GitHubAgent.parse("PLAN first research, then write the PDF").kind)
+        assertEquals(GitHubAgent.Kind.WEB, GitHubAgent.parse("WEB best roguelike mechanics 2026").kind)
+        assertEquals("best roguelike mechanics 2026", GitHubAgent.parse("WEB best roguelike mechanics 2026").path)
+    }
+
+    @Test fun parsesDocWithFilenameAndBody() {
+        val a = GitHubAgent.parse("DOC report.pdf\n```\n# Title\n- point\n```")
+        assertEquals(GitHubAgent.Kind.DOC, a.kind)
+        assertEquals("report.pdf", a.path)
+        assertEquals("# Title\n- point", a.content)
+    }
+
+    @Test fun readUrlIsNotConfusedWithRead() {
+        assertEquals(GitHubAgent.Kind.READURL, GitHubAgent.parse("READURL https://example.com").kind)
+        assertEquals(GitHubAgent.Kind.READ, GitHubAgent.parse("READ src/Main.kt").kind)
+    }
 }

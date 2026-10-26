@@ -32,13 +32,14 @@ object GitHubAgent {
         web: suspend (String) -> String,
         readUrl: suspend (String) -> String,
         makeDoc: suspend (String, String) -> String,
+        ask: suspend (String) -> String,
     ): String? {
         val branch = "xarvis-code/" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
         val writes = LinkedHashMap<String, String>()
         val produced = ArrayList<String>()
         val transcript = StringBuilder()
 
-        val outcome = agentLoop(cfg, task, transcript, writes, produced, generate, step, say, web, readUrl, makeDoc)
+        val outcome = agentLoop(cfg, task, transcript, writes, produced, generate, step, say, web, readUrl, makeDoc, ask)
         if (outcome is Loop.Answered) { say(outcome.text); return null }
 
         val repoEdits = writes.isNotEmpty() && cfg.hasRepo
@@ -67,7 +68,7 @@ object GitHubAgent {
                     round++
                     say("The build failed. Reading the errors and fixing (round $round/$MAX_FIX_ROUNDS)…")
                     writes.clear(); transcript.setLength(0)
-                    agentLoop(cfg, "The build FAILED with these errors. Fix them:\n${build.second}", transcript, writes, produced, generate, step, say, web, readUrl, makeDoc, branch)
+                    agentLoop(cfg, "The build FAILED with these errors. Fix them:\n${build.second}", transcript, writes, produced, generate, step, say, web, readUrl, makeDoc, ask, branch)
                     if (writes.isEmpty()) { say("I couldn't find a fix. The work is on branch $branch.\n" + done(cfg, branch)); return branch }
                     if (!pushAll(cfg, branch, writes, "XARVIS Code: fix build", step, say)) return branch
                 }
@@ -83,7 +84,7 @@ object GitHubAgent {
         cfg: Config, instruction: String, transcript: StringBuilder, writes: LinkedHashMap<String, String>,
         produced: MutableList<String>, generate: suspend (String, String) -> String, step: (String) -> Unit,
         say: (String) -> Unit, web: suspend (String) -> String, readUrl: suspend (String) -> String,
-        makeDoc: suspend (String, String) -> String, readBranch: String? = null,
+        makeDoc: suspend (String, String) -> String, ask: suspend (String) -> String, readBranch: String? = null,
     ): Loop {
         var steps = 0
         while (steps < MAX_STEPS) {
@@ -95,6 +96,11 @@ object GitHubAgent {
             val action = parse(reply)
             when (action.kind) {
                 Kind.PLAN -> { if (action.content != null) { say("📋 Plan: ${action.content}"); transcript.append("\nPLAN: ${action.content}\n") } }
+                Kind.ASK -> {
+                    val q = action.content ?: "Could you clarify, sir?"
+                    val answer = ask(q)
+                    transcript.append("\nI ASKED: $q\nREX ANSWERED: $answer\n")
+                }
                 Kind.WEB -> {
                     step("Searching the web: ${action.path}…")
                     val res = withContext(Dispatchers.IO) { web(action.path) }
@@ -185,7 +191,7 @@ object GitHubAgent {
             "To discard them, just delete that branch on GitHub."
 
     // ---- action parsing ----
-    internal enum class Kind { PLAN, WEB, READURL, LIST, READ, WRITE, DOC, ANSWER, DONE, UNKNOWN }
+    internal enum class Kind { PLAN, ASK, WEB, READURL, LIST, READ, WRITE, DOC, ANSWER, DONE, UNKNOWN }
     internal data class Action(val kind: Kind, val path: String = "", val content: String? = null)
 
     internal fun parse(reply: String): Action {
@@ -202,6 +208,7 @@ object GitHubAgent {
         }
         return when {
             upper.startsWith("PLAN") -> Action(Kind.PLAN, content = restText())
+            upper.startsWith("ASK") -> Action(Kind.ASK, content = restText())
             upper.startsWith("WEB") -> Action(Kind.WEB, path = arg())
             upper.startsWith("READURL") || upper.startsWith("READ URL") -> Action(Kind.READURL, path = arg())
             upper.startsWith("LIST") -> Action(Kind.LIST)
@@ -226,6 +233,7 @@ object GitHubAgent {
             where + " Complete the task by emitting EXACTLY ONE action per reply; I run it and feed the result back, then you reply again.\n" +
             "Actions:\n" +
             "PLAN <your short plan>  — think first and tell Rex your plan before you act on anything non-trivial.\n" +
+            "ASK <one short question>  — when the request is unclear or you need a decision, ASK Rex and wait for his answer; don't guess.\n" +
             "WEB <search query>  — search the web (for research, facts, references).\n" +
             "READURL <url>  — read a web page's text.\n" +
             repoTools +
