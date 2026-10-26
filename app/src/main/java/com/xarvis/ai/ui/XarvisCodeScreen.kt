@@ -98,6 +98,9 @@ fun XarvisCodeScreen(
     generate: suspend (String, String) -> String,
     visionReady: () -> Boolean,
     generateWithImage: suspend (String, String, String, String) -> String,
+    webSearch: suspend (String) -> String,
+    webRead: suspend (String) -> String,
+    makeDoc: suspend (String, String) -> String,
     sessionId: String,
     store: com.xarvis.ai.code.CodeSessionStore,
     onBack: () -> Unit,
@@ -309,17 +312,20 @@ fun XarvisCodeScreen(
                 scope.launch {
                     busy = true
                     try {
-                        if (activeRepo != null) {
+                        if (activeRepo != null || wantsDocOrResearch(text)) {
                             if (!cloudReady()) {
-                                msgs.add(Msg(Role.AGENT, "I need a cloud brain on (☰ → BRAIN) to work on a repo."))
+                                msgs.add(Msg(Role.AGENT, "I need a cloud brain on (☰ → BRAIN) for this."))
                             } else {
-                                val repo = activeRepo!!
-                                val cfg = GitHubAgent.Config(repo.owner, repo.name, repo.branch, token() ?: "", XarvisCode.isSelfRepo(repo.name))
+                                val repo = activeRepo
+                                val cfg = if (repo != null)
+                                    GitHubAgent.Config(repo.owner, repo.name, repo.branch, token() ?: "", XarvisCode.isSelfRepo(repo.name), hasRepo = true)
+                                else
+                                    GitHubAgent.Config(login ?: "", "", "", token() ?: "", isSelf = false, hasRepo = false)
                                 GitHubAgent.run(
                                     task = text, cfg = cfg, generate = generate,
                                     step = { s -> msgs.add(Msg(Role.STEP, s)) },
                                     say = { s -> msgs.add(Msg(Role.AGENT, s)) },
-                                    approve = approve,
+                                    approve = approve, web = webSearch, readUrl = webRead, makeDoc = makeDoc,
                                 )
                             }
                         } else {
@@ -548,6 +554,11 @@ private fun LocalContextCompat(): (Intent) -> Unit {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     return { intent -> ctx.startActivity(intent) }
 }
+
+// With no repo open, a request for a document or research goes to the full agent (web + PDF tools);
+// otherwise a no-repo message builds a web app as before.
+private val DOC_RESEARCH = Regex("\\b(pdf|docx|document|report|research|paper|essay|article|white[\\s-]?paper|dissertation|thesis)\\b", RegexOption.IGNORE_CASE)
+private fun wantsDocOrResearch(text: String): Boolean = DOC_RESEARCH.containsMatchIn(text)
 
 private const val XCODE_SYSTEM =
     "You are XARVIS Code, the coding side of XARVIS — Rex's own personal AI, created by Rex. " +

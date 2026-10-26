@@ -455,6 +455,26 @@ class XarvisCore(context: Context) {
     /** Ask Gemini to write code from a prompt plus an attached screenshot. */
     suspend fun generateCodeWithImage(system: String, user: String, imageB64: String, mime: String): String =
         cloudLlm.gemini.chatWithImage(system, user, imageB64, mime, maxTokens = 8192)
+
+    // ---- tools XARVIS Code can use (same ones XARVIS main has) ----
+    /** Web search for research (Brave if a key is set, else DuckDuckGo). Returns the top results as text. */
+    suspend fun codeWebSearch(query: String): String {
+        val brave = searchKeys.get(com.xarvis.ai.llm.BrainKeys.BRAVE)
+            ?.let { runCatching { com.xarvis.ai.tools.BraveSearch.web(query, it) }.getOrNull() }?.ifBlank { null }
+        val results = brave ?: runCatching { com.xarvis.ai.tools.WebSearch.search(query) }.getOrDefault("")
+        return results.ifBlank { "No web results found for \"$query\"." }
+    }
+
+    /** Fetches a web page and returns its readable text, for reading sources/references. */
+    suspend fun codeWebRead(url: String): String =
+        runCatching { com.xarvis.ai.tools.WebRead.read(url) }.getOrDefault("Couldn't reach that page.")
+            .ifBlank { "That page had no readable text (it may need a login or JavaScript)." }
+
+    /** Writes a document (PDF/Word/Excel/text/markdown) to Downloads/XARVIS; returns a confirmation. */
+    suspend fun codeMakeDoc(name: String, content: String): String = runCatching {
+        val saved = com.xarvis.ai.files.FileStore(appContext).save(com.xarvis.ai.files.FileBlock(name, content))
+        "Saved \"${saved.name}\" to Downloads/XARVIS — open or share it from there."
+    }.getOrElse { "Couldn't save the document: ${it.message}" }
     fun setCloud(on: Boolean) {
         settings.edit().putBoolean("cloudEnabled", on).apply()
         _state.update { it.copy(cloudEnabled = on) }
