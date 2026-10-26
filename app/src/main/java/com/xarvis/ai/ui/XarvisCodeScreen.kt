@@ -440,7 +440,7 @@ fun XarvisCodeScreen(
             }
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(
-                    Modifier.weight(1f).clip(RoundedCornerShape(26.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
+                    Modifier.weight(1f).rgbGlow(26.dp).clip(RoundedCornerShape(26.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     OutlinedTextField(

@@ -386,7 +386,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
-                modifier = Modifier.weight(1f).height(InputHeight),
+                modifier = Modifier.weight(1f).height(InputHeight).rgbGlow(12.dp),
                 placeholder = { Text("Command…") },
                 singleLine = true,
                 shape = InputShape,
