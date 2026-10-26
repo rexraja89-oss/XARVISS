@@ -276,9 +276,9 @@ object XarvisCode {
                 Regex("""\b\Q$fn\E\s*:\s*function""").containsMatchIn(html)
             if (!defined) out.add("a button calls $fn() but that function is never defined")
         }
-        // External files/CDNs break an offline single-file app.
-        if (Regex("""<(?:script|link|img)[^>]*\b(?:src|href)\s*=\s*["']https?://""", RegexOption.IGNORE_CASE).containsMatchIn(html)) {
-            out.add("it loads an external file/CDN (a src/href to http) — everything must be inline, with no external files")
+        // CDN libraries (three.js, p5.js, GSAP…) are allowed now; only external IMAGES tend to break silently.
+        if (Regex("""<img[^>]*\bsrc\s*=\s*["']https?://""", RegexOption.IGNORE_CASE).containsMatchIn(html)) {
+            out.add("it uses an external image URL that may fail to load — draw it, use a data: URI, or generate it instead")
         }
         // Keyboard-only controls are unplayable on a phone (no keyboard): needs touch too.
         val hasKeyboard = Regex("""(keydown|keyup|keypress|onkey)""", RegexOption.IGNORE_CASE).containsMatchIn(html)

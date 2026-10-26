@@ -57,10 +57,17 @@ class XarvisCodeTest {
         assertTrue(!XarvisCode.isSelfRepo("snake2"))
     }
 
-    @Test fun flagsAnExternalCdn() {
-        val html = "<html><head><script src=\"https://cdn.example.com/x.js\"></script></head>" +
+    @Test fun allowsCdnLibraries() {
+        // three.js / p5.js etc. from a CDN are now allowed and must NOT be flagged.
+        val html = "<html><head><script src=\"https://cdnjs.cloudflare.com/three.min.js\"></script></head>" +
             "<body><button onclick=\"go()\">go</button><script>function go(){}</script></body></html>"
-        assertTrue(XarvisCode.issuesIn(html).any { it.contains("external", ignoreCase = true) })
+        assertTrue(XarvisCode.issuesIn(html).isEmpty())
+    }
+
+    @Test fun flagsAnExternalImage() {
+        val html = "<html><body><img src=\"https://example.com/sprite.png\"><canvas></canvas>" +
+            "<script>document.addEventListener('touchstart',function(){});</script></body></html>"
+        assertTrue(XarvisCode.issuesIn(html).any { it.contains("image", ignoreCase = true) })
     }
 
     @Test fun flagsKeyboardOnlyControls() {
