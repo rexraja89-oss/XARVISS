@@ -32,17 +32,21 @@ fun Modifier.rgbGlow(corner: Dp, width: Dp = 3.dp): Modifier {
         val base = hue % 360f
         val colors = (0..n).map { i ->
             val pos = i.toFloat() / n
-            val d = (head - pos + 1f) % 1f           // 0 at the moving head, grows going backward
-            val a = (1f - d / 0.5f).coerceIn(0f, 1f)  // the trail fades over half the perimeter
-            Color.hsv(base, 1f, 1f, a * a)            // one cycling colour; a*a sharpens the head
+            val d = (head - pos + 1f) % 1f            // 0 at the moving head, grows going backward
+            // Brighter light along the SAME thin line: a fully-lit head that fades over the trail.
+            val a = when {
+                d < 0.07f -> 1f                        // bright head segment
+                d < 0.5f -> (1f - (d - 0.07f) / 0.43f).coerceIn(0f, 1f) // linear fade (not dimmed by a*a)
+                else -> 0f
+            }
+            Color.hsv(base, 1f, 1f, a)
         }
         val brush = Brush.sweepGradient(colors)
         val cr = CornerRadius(corner.toPx(), corner.toPx())
         val w = width.toPx()
-        // Layered halo — brighter at each ring, but the sharp bright core keeps its thin width.
-        drawRoundRect(brush = brush, cornerRadius = cr, style = Stroke(width = w * 6f), alpha = 0.30f)
-        drawRoundRect(brush = brush, cornerRadius = cr, style = Stroke(width = w * 3.5f), alpha = 0.55f)
-        drawRoundRect(brush = brush, cornerRadius = cr, style = Stroke(width = w * 2f), alpha = 0.85f)
-        drawRoundRect(brush = brush, cornerRadius = cr, style = Stroke(width = w)) // sharp bright core (unchanged width)
+        // A faint soft halo (doesn't read as thickness), then the thin bright core — now much brighter
+        // because the comet itself is fully lit, so intensity is up while the line stays thin.
+        drawRoundRect(brush = brush, cornerRadius = cr, style = Stroke(width = w * 2.5f), alpha = 0.16f)
+        drawRoundRect(brush = brush, cornerRadius = cr, style = Stroke(width = w)) // thin sharp bright core (unchanged width)
     }
 }
