@@ -95,6 +95,8 @@ fun XarvisCodeScreen(
     generate: suspend (String, String) -> String,
     visionReady: () -> Boolean,
     generateWithImage: suspend (String, String, String, String) -> String,
+    sessionId: String,
+    store: com.xarvis.ai.code.CodeSessionStore,
     onBack: () -> Unit,
 ) {
     val context = LocalContextCompat()
@@ -155,13 +157,26 @@ fun XarvisCodeScreen(
             busy = false
         }
     }
-    // Greeting once connected.
+    // Load this session's saved messages, or greet if it's new.
     LaunchedEffect(login) {
         if (login != null && msgs.isEmpty()) {
-            msgs.add(Msg(Role.AGENT, "XARVIS Code online, sir. Tell me what to build — e.g. \"a tic-tac-toe game\" or \"a tip calculator\" — and I'll write it, fix my own mistakes, and publish it live. Change the project name above to start a new one."))
+            val saved = store.get(sessionId)
+            if (saved != null && saved.messages.isNotEmpty()) {
+                saved.messages.forEach { msgs.add(Msg(runCatching { Role.valueOf(it.role) }.getOrDefault(Role.AGENT), it.text, it.url)) }
+            } else {
+                msgs.add(Msg(Role.AGENT, "XARVIS Code online, sir. Tell me what to build — e.g. \"a tic-tac-toe game\" or \"a tip calculator\" — and I'll write it, fix my own mistakes, and publish it live. Or tap “My repos” to work on an existing project."))
+            }
         }
     }
-    LaunchedEffect(msgs.size) { if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.size - 1) }
+    LaunchedEffect(msgs.size) {
+        if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.size - 1)
+        // Persist once the session has real activity (a message from Rex), so empty ones don't clutter home.
+        if (msgs.any { it.role == Role.USER }) {
+            val title = msgs.firstOrNull { it.role == Role.USER }?.text?.take(48)?.ifBlank { null } ?: "New session"
+            val sub = activeRepo?.let { "${it.owner}/${it.name}" } ?: "New web app"
+            store.save(com.xarvis.ai.code.CodeSession(sessionId, title, sub, System.currentTimeMillis(), msgs.map { com.xarvis.ai.code.CodeMsg(it.role.name, it.text, it.url) }))
+        }
+    }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 14.dp)) {
         TextButton(onClick = onBack) { Text("‹ Back", color = XarvisCyan) }
