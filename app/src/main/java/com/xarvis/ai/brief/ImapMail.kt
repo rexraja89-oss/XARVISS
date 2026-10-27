@@ -55,7 +55,7 @@ object ImapMail {
             val items = ArrayList<String>()
             for (id in ids.takeLast(max).reversed()) {
                 val f = cmd("FETCH $id (BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])").joinToString("\n")
-                val from = header(f, "From").let { it.substringBefore('<').trim().ifBlank { it } }.take(40)
+                val from = decode(header(f, "From")).let { it.substringBefore('<').trim().ifBlank { it } }.take(40)
                 val subj = decode(header(f, "Subject")).ifBlank { "(no subject)" }.take(70)
                 if (from.isNotBlank() || subj.isNotBlank()) items.add("$from — $subj")
             }

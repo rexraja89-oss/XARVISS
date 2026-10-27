@@ -31,7 +31,8 @@ object Briefing {
 
         runCatching {
             val bat = BatteryTool(context).read()
-            bat.substringBefore(".").trim().takeIf { it.isNotBlank() }?.let { sb.append("Battery is $it. ") }
+            bat.substringBefore(".").trim().removePrefix("Battery:").trim()
+                .takeIf { it.isNotBlank() }?.let { sb.append("Battery is $it. ") }
         }
 
         if (!icalUrl.isNullOrBlank()) {
