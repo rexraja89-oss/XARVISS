@@ -456,6 +456,9 @@ class XarvisCore(context: Context) {
     /** Speaks any text aloud in XARVIS's voice (used by the daily briefing). */
     fun speakAloud(text: String) = voice.speak(text)
 
+    /** Stops the briefing (or any speech) mid-sentence — the notification's and screen's Stop. */
+    fun stopSpeaking() = voice.stop()
+
     /** Builds today's briefing, reads it aloud, and drops it in a notification. Runs on the daily alarm. */
     suspend fun announceBriefing() {
         val text = runCatching { buildBriefing() }.getOrNull()?.takeIf { it.isNotBlank() } ?: return

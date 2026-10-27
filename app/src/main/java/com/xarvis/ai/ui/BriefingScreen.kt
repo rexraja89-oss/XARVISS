@@ -42,6 +42,8 @@ fun BriefingScreen(
     email: () -> String?, appPw: () -> String?, ical: () -> String?, city: () -> String?,
     save: (String, String, String, String) -> Unit,
     buildBriefing: suspend () -> String,
+    speak: (String) -> Unit = {},
+    stopSpeaking: () -> Unit = {},
     onBack: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -83,8 +85,18 @@ fun BriefingScreen(
             if (busy) CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 2.dp, color = XarvisCyan)
             else Button(onClick = {
                 save(em, pw, ic, ct); savedOk = true
-                scope.launch { busy = true; result = runCatching { buildBriefing() }.getOrElse { "Error: ${it.message}" }; busy = false }
+                scope.launch {
+                    busy = true
+                    val r = runCatching { buildBriefing() }.getOrElse { "Error: ${it.message}" }
+                    result = r; busy = false
+                    if (!r.startsWith("Error")) speak(r) // hear it aloud, like the daily briefing
+                }
             }) { Text("Test now") }
+        }
+        if (result.isNotEmpty()) {
+            TextButton(onClick = stopSpeaking, modifier = Modifier.padding(top = 2.dp)) {
+                Text("⏹  Stop speaking", color = Color(0xFF9E2A2A))
+            }
         }
 
         HorizontalDivider(Modifier.padding(vertical = 14.dp), color = XarvisMuted.copy(alpha = 0.3f))

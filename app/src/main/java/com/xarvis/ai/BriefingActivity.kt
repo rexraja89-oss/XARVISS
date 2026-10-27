@@ -17,6 +17,8 @@ class BriefingActivity : ComponentActivity() {
                     email = core::briefEmail, appPw = core::briefAppPw, ical = core::briefIcal, city = core::briefCity,
                     save = core::saveBrief,
                     buildBriefing = core::buildBriefing,
+                    speak = core::speakAloud,
+                    stopSpeaking = core::stopSpeaking,
                     onBack = ::finish,
                 )
             }
