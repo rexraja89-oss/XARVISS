@@ -453,6 +453,16 @@ class XarvisCore(context: Context) {
     suspend fun buildBriefing(): String =
         com.xarvis.ai.brief.Briefing.build(appContext, briefEmail(), briefAppPw(), briefIcal(), briefCity())
 
+    /** Speaks any text aloud in XARVIS's voice (used by the daily briefing). */
+    fun speakAloud(text: String) = voice.speak(text)
+
+    /** Builds today's briefing, reads it aloud, and drops it in a notification. Runs on the daily alarm. */
+    suspend fun announceBriefing() {
+        val text = runCatching { buildBriefing() }.getOrNull()?.takeIf { it.isNotBlank() } ?: return
+        speakAloud(text)
+        com.xarvis.ai.brief.BriefingNotice.show(appContext, text)
+    }
+
     fun githubHasKey(): Boolean = searchKeys.has(com.xarvis.ai.llm.BrainKeys.GITHUB)
     fun saveGithubKey(key: String) { searchKeys.save(com.xarvis.ai.llm.BrainKeys.GITHUB, key) }
     fun clearGithubKey() { searchKeys.clear(com.xarvis.ai.llm.BrainKeys.GITHUB) }

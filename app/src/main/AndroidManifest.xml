@@ -9,6 +9,9 @@
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <!-- Fire the daily morning briefing at the exact minute Rex set. Auto-granted on Android 13;
+         if a phone withholds it, the briefing still fires, just not to the exact minute. -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <!-- Calls Rex asks for himself ("call Atiq") are placed directly. -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
@@ -163,6 +166,11 @@
             android:name=".service.XarvisService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <!-- The daily morning-briefing alarm. -->
+        <receiver
+            android:name=".brief.BriefingReceiver"
+            android:exported="false" />
 
         <receiver
             android:name=".service.BootReceiver"

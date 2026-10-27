@@ -16,6 +16,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -84,6 +85,32 @@ fun BriefingScreen(
                 save(em, pw, ic, ct); savedOk = true
                 scope.launch { busy = true; result = runCatching { buildBriefing() }.getOrElse { "Error: ${it.message}" }; busy = false }
             }) { Text("Test now") }
+        }
+
+        HorizontalDivider(Modifier.padding(vertical = 14.dp), color = XarvisMuted.copy(alpha = 0.3f))
+        var autoOn by remember { mutableStateOf(com.xarvis.ai.brief.BriefingSchedule.isEnabled(ctx)) }
+        var bh by remember { mutableStateOf(com.xarvis.ai.brief.BriefingSchedule.hour(ctx)) }
+        var bm by remember { mutableStateOf(com.xarvis.ai.brief.BriefingSchedule.minute(ctx)) }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Read it to me every day", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    if (autoOn) "Spoken aloud daily at ${com.xarvis.ai.brief.BriefingSchedule.label(bh, bm)}" else "Off — tap to turn on",
+                    style = MaterialTheme.typography.bodySmall, color = XarvisMuted,
+                )
+            }
+            Switch(checked = autoOn, onCheckedChange = {
+                autoOn = it
+                com.xarvis.ai.brief.BriefingSchedule.set(ctx, it, bh, bm)
+            })
+        }
+        if (autoOn) {
+            TextButton(onClick = {
+                android.app.TimePickerDialog(ctx, { _, h, m ->
+                    bh = h; bm = m
+                    com.xarvis.ai.brief.BriefingSchedule.set(ctx, true, h, m)
+                }, bh, bm, false).show()
+            }) { Text("Change time", color = XarvisCyan) }
         }
 
         if (result.isNotEmpty()) {

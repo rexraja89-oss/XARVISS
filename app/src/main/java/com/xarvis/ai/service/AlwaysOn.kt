@@ -21,7 +21,10 @@ object AlwaysOn {
 /** Restarts the background service after the phone reboots or XARVIS is updated. */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action in STARTS && AlwaysOn.isEnabled(context)) XarvisService.start(context)
+        if (intent.action !in STARTS) return
+        if (AlwaysOn.isEnabled(context)) XarvisService.start(context)
+        // Alarms are cleared on reboot (and on app update), so re-arm the daily briefing.
+        com.xarvis.ai.brief.BriefingSchedule.schedule(context)
     }
 
     private companion object {

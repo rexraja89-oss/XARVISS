@@ -11,5 +11,6 @@ class XarvisApp : Application() {
         super.onCreate()
         core // Start the link server and model load with the process, not the first screen.
         if (AlwaysOn.isEnabled(this)) XarvisService.start(this)
+        com.xarvis.ai.brief.BriefingSchedule.schedule(this) // (re)arm the daily briefing alarm
     }
 }
