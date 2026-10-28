@@ -46,6 +46,8 @@ sealed interface Step {
     data class Call(val target: String, val direct: Boolean = false) : Step
     /** Place a call to [contact] inside [app] (e.g. imo) using the XARVIS Hands helper app. */
     data class AppCall(val app: String, val contact: String, val video: Boolean = false) : Step
+    /** Dial an emergency service (police/ambulance/fire) directly and handsfree. [label] e.g. "the police". */
+    data class EmergencyCall(val number: String, val label: String) : Step
     data class WhatsApp(val target: String, val text: String?) : Step
     data class Sms(val target: String, val text: String) : Step
     data class Flashlight(val on: Boolean) : Step
@@ -318,6 +320,8 @@ class WorkflowEngine(
         is Step.Wifi -> phone.wifi(step.on)
         is Step.Call -> phone.call(step.target, step.direct)
         is Step.AppCall -> appCall(step)
+        is Step.EmergencyCall -> phone.callNumber(step.number, step.label, handsfree = true)
+            .let { it.copy(message = "Stay calm, sir. ${it.message}") }
         is Step.ShowMap -> try {
             val uri = step.place?.let { "geo:0,0?q=${Uri.encode(it)}" } ?: "geo:0,0"
             appContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

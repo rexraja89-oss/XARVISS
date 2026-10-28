@@ -53,6 +53,32 @@ class PhoneActions(context: Context) {
         )
     }
 
+    /**
+     * Dials a literal number (e.g. an emergency service) directly, and tries to put it on handsfree.
+     * Used for emergencies, so it places the call without an "Ask me" card. Bluetooth headsets are
+     * routed to automatically by the system; the speaker is best-effort (Rex may need one tap).
+     */
+    suspend fun callNumber(number: String, label: String, handsfree: Boolean): StepResult {
+        val digits = number.filter { it.isDigit() || it == '+' }
+        if (digits.isBlank()) return StepResult(false, "I don't have a number to call for $label.")
+        if (!PermissionGate.has(appContext, CALL)) PermissionGate.request(CALL)
+        val canCall = PermissionGate.has(appContext, CALL)
+        val intent = Intent(if (canCall) Intent.ACTION_CALL else Intent.ACTION_DIAL, Uri.fromParts("tel", digits, null))
+        val started = start(intent, "")
+        if (!started.success) return started
+        val where = if (handsfree) {
+            kotlinx.coroutines.delay(1200) // let the call begin before routing audio
+            runCatching { CallAudio.routeHandsfree(appContext) }.getOrDefault("")
+        } else ""
+        return StepResult(true, buildString {
+            append(if (canCall) "Calling $label now ($digits)." else "I've opened the dialer for $label ($digits) — tap the call button.")
+            when {
+                where.isNotEmpty() -> append(" You're on $where.")
+                handsfree -> append(" Put it on speaker or your earpiece if it doesn't switch on its own.")
+            }
+        })
+    }
+
     suspend fun whatsApp(target: String, text: String?): StepResult {
         val who = resolve(target).let { it as? Resolved.Found ?: return (it as Resolved.Problem).result }
         val phone = international(who.number).filter { it.isDigit() }

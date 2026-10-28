@@ -98,6 +98,19 @@ class XarvisAgent(
         llm.reload(systemPrompt())
     }
 
+    /** The country the phone is in ("ae", "in"…), for emergency numbers. Network first, then SIM, then locale. */
+    private fun countryIso(): String? {
+        val tm = appContext.getSystemService(android.telephony.TelephonyManager::class.java)
+        return listOfNotNull(tm?.networkCountryIso, tm?.simCountryIso, java.util.Locale.getDefault().country)
+            .firstOrNull { it.isNotBlank() }
+    }
+
+    /** The message with a short note on Rex's emotional tone, so the brain answers like a human. */
+    private fun emotionalPrompt(message: String): String {
+        val hint = Emotion.promptHint(Emotion.detect(message))
+        return if (hint.isEmpty()) message else "$hint\n\n$message"
+    }
+
     /** Starts a fresh conversation, e.g. after memories change. */
     suspend fun refreshPrompt() {
         loadHistory()
@@ -111,10 +124,11 @@ class XarvisAgent(
         // For a health question, give the brain Rex's health record as context (health commands handle themselves).
         healthContextThisTurn = if (HEALTH_Q.containsMatchIn(message)) runCatching { healthRecord() }.getOrDefault("") else ""
         val response =
-            RemindCommands.parse(message)?.let { run(listOf(it)) }
+            Emergency.detect(message, countryIso())?.let { run(listOf(it)) }
+                ?: RemindCommands.parse(message)?.let { run(listOf(it)) }
                 ?: HealthCommands.parse(message)?.let { run(listOf(it)) }
                 ?: LinkCommands.parse(message, link.pairingInProgress)?.let { run(listOf(it)) }
-                ?: askGemma(message, onPartial)
+                ?: askGemma(message, onPartial, emotionalPrompt(message))
         memory.logInteraction(message, response.text, chatId)
         return response
     }

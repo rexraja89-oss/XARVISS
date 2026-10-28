@@ -237,6 +237,13 @@ class XarvisCore(context: Context) {
      * Handles a message, with a [photo] or a [document] if Rex attached one (an empty question
      * means "describe it" / "summarise it").
      */
+    /** The country the phone is in ("ae", "in"…), for emergency-call detection. */
+    private fun deviceCountry(): String? {
+        val tm = appContext.getSystemService(android.telephony.TelephonyManager::class.java)
+        return listOfNotNull(tm?.networkCountryIso, tm?.simCountryIso, java.util.Locale.getDefault().country)
+            .firstOrNull { it.isNotBlank() }
+    }
+
     fun submit(command: String, photo: Uri? = null, document: Uri? = null, spoken: Boolean = false) {
         val text = command.trim()
         if ((text.isEmpty() && photo == null && document == null) || _state.value.isProcessing) return
@@ -276,7 +283,13 @@ class XarvisCore(context: Context) {
                 Reply("Something went wrong: ${e.message}")
             }
             updateMessage(answer.id) { it.copy(text = reply.text, files = reply.files, via = reply.via) }
-            if ((spoken || _state.value.speakReplies) && !reply.text.endsWith("(stopped)")) voice.speak(reply.text)
+            // Emotion-aware voice: calmer when Rex is in trouble, brighter when he's happy. An
+            // emergency is always spoken (he may not be looking at the screen).
+            val isEmergency = com.xarvis.ai.agent.Emergency.detect(text, deviceCountry()) != null
+            val tone = if (isEmergency) com.xarvis.ai.agent.Emotion.Tone.DISTRESS else com.xarvis.ai.agent.Emotion.detect(text)
+            if ((spoken || _state.value.speakReplies || isEmergency) && !reply.text.endsWith("(stopped)")) {
+                voice.speak(reply.text, com.xarvis.ai.agent.Emotion.pitchScale(tone), com.xarvis.ai.agent.Emotion.rateScale(tone))
+            }
             // Also after STOP, which has cancelled this coroutine.
             withContext(NonCancellable) {
                 val memories = runCatching { memory.factCount() }.getOrDefault(_state.value.memoryCount)

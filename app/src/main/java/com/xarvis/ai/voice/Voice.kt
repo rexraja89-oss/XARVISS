@@ -70,8 +70,12 @@ class Voice(context: Context) {
         return male.firstOrNull(::installed) ?: male.firstOrNull() ?: hi.firstOrNull(::installed) ?: hi.firstOrNull()
     }
 
-    /** Says [text] (replacing anything still being said), in Hindi when the reply is Hindi or Hinglish. */
-    fun speak(text: String) {
+    /**
+     * Says [text] (replacing anything still being said), in Hindi when the reply is Hindi or Hinglish.
+     * [pitchScale]/[rateScale] tilt the voice to match Rex's mood (calmer when he's in trouble,
+     * brighter when he's happy); 1.0 is XARVIS's normal voice.
+     */
+    fun speak(text: String, pitchScale: Float = 1f, rateScale: Float = 1f) {
         val inHindi = isHindi(speakable(text))
         val clean = sayName(speakable(text), inHindi).let { if (inHindi) HindiScript.forSpeech(it) else it }
         if (clean.isBlank()) return
@@ -86,12 +90,12 @@ class Voice(context: Context) {
         if (inHindi) {
             hindi?.let { tts.voice = it } ?: tts.setLanguage(Locale("hi", "IN"))
             // The Hindi voice sounds most natural at its own pitch and speed.
-            tts.setPitch(HINDI_PITCH)
-            tts.setSpeechRate(HINDI_RATE)
+            tts.setPitch(HINDI_PITCH * pitchScale)
+            tts.setSpeechRate(HINDI_RATE * rateScale)
         } else {
             english?.let { tts.voice = it } ?: tts.setLanguage(Locale.UK)
-            tts.setPitch(PITCH)
-            tts.setSpeechRate(RATE)
+            tts.setPitch(PITCH * pitchScale)
+            tts.setSpeechRate(RATE * rateScale)
         }
         // Long replies go in chunks: the engine has a per-call length limit.
         clean.chunked(3500).forEachIndexed { i, part ->

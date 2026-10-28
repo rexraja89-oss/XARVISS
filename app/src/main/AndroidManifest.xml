@@ -15,6 +15,8 @@
     <!-- Calls Rex asks for himself ("call Atiq") are placed directly. -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Put an emergency / requested call on speaker or a Bluetooth headset (handsfree). Normal permission. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- "Hey Jarvis". Only RECORD_AUDIO: together with FOREGROUND_SERVICE_MICROPHONE the S22
          refuses to install XARVIS ("package appears to be invalid"; found with test builds), and
          that permission is only checked from Android 14, so the S22 (Android 13) doesn't need it.
