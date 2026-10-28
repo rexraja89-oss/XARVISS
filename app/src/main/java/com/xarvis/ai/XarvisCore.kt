@@ -466,6 +466,19 @@ class XarvisCore(context: Context) {
         com.xarvis.ai.brief.BriefingNotice.show(appContext, text)
     }
 
+    /** Proactive tick: speak any due reminders + nudges (calendar heads-up, low battery). */
+    suspend fun runProactive() {
+        val lines = ArrayList<String>()
+        var hasReminder = false
+        com.xarvis.ai.remind.Reminders.takeDue(appContext).forEach { hasReminder = true; lines += "Reminder, sir: ${it.text}." }
+        com.xarvis.ai.remind.Reminders.reschedule(appContext)
+        lines += runCatching { com.xarvis.ai.remind.Nudges.check(appContext, briefIcal()) }.getOrDefault(emptyList())
+        if (lines.isEmpty()) return
+        val msg = lines.joinToString("  ")
+        speakAloud(msg)
+        com.xarvis.ai.remind.ProactiveNotice.show(appContext, if (hasReminder) "Reminder" else "XARVIS", msg)
+    }
+
     fun githubHasKey(): Boolean = searchKeys.has(com.xarvis.ai.llm.BrainKeys.GITHUB)
     fun saveGithubKey(key: String) { searchKeys.save(com.xarvis.ai.llm.BrainKeys.GITHUB, key) }
     fun clearGithubKey() { searchKeys.clear(com.xarvis.ai.llm.BrainKeys.GITHUB) }

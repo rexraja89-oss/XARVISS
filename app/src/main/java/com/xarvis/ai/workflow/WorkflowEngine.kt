@@ -94,6 +94,14 @@ sealed interface Step {
     /** Show files XARVIS made earlier whose names match [query], to open or share again. */
     data class ShowFiles(val query: String) : Step
 
+    // Proactive: spoken reminders XARVIS reads back at the chosen time.
+    /** Set a spoken reminder at [atMillis]; [text] is what to say, [whenLabel] is for the confirmation. */
+    data class Remind(val atMillis: Long, val text: String, val whenLabel: String) : Step
+    /** List the reminders currently set. */
+    data object ListReminders : Step
+    /** Cancel reminders matching [query] (blank cancels all). */
+    data class CancelReminders(val query: String) : Step
+
     // Linking phones (exact commands)
     data object ListDevices : Step
     data class PairWith(val target: String) : Step
@@ -333,6 +341,24 @@ class WorkflowEngine(
         }
 
         Step.ListDevices -> StepResult(true, link.describeDevices())
+        is Step.Remind -> {
+            com.xarvis.ai.remind.Reminders.add(appContext, step.atMillis, step.text)
+            StepResult(true, "Done, sir — I'll remind you ${step.whenLabel}: ${step.text}.")
+        }
+        Step.ListReminders -> {
+            val list = com.xarvis.ai.remind.Reminders.all(appContext)
+            if (list.isEmpty()) StepResult(true, "You have no reminders set, sir.")
+            else StepResult(true, "Your reminders:\n" + list.joinToString("\n") { "• ${com.xarvis.ai.remind.Reminders.describe(it)}" })
+        }
+        is Step.CancelReminders -> {
+            val n = com.xarvis.ai.remind.Reminders.cancel(appContext, step.query)
+            StepResult(true, when {
+                n == 0 && step.query.isBlank() -> "You had no reminders to cancel, sir."
+                n == 0 -> "I didn't find a reminder matching \"${step.query}\", sir."
+                else -> "Cleared $n reminder${if (n == 1) "" else "s"}, sir."
+            })
+        }
+
         is Step.PairWith -> linkStep { link.startPairing(step.target) }
         is Step.PairCode -> linkStep { link.finishPairing(step.code) }
         is Step.Unlink -> withPeer(step.device) {

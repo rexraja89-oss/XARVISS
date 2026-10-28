@@ -172,6 +172,11 @@
             android:name=".brief.BriefingReceiver"
             android:exported="false" />
 
+        <!-- Spoken reminders + proactive nudges (calendar heads-up, low battery). -->
+        <receiver
+            android:name=".remind.ProactiveReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".service.BootReceiver"
             android:exported="true">

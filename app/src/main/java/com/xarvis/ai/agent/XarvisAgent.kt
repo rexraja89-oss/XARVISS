@@ -111,7 +111,8 @@ class XarvisAgent(
         // For a health question, give the brain Rex's health record as context (health commands handle themselves).
         healthContextThisTurn = if (HEALTH_Q.containsMatchIn(message)) runCatching { healthRecord() }.getOrDefault("") else ""
         val response =
-            HealthCommands.parse(message)?.let { run(listOf(it)) }
+            RemindCommands.parse(message)?.let { run(listOf(it)) }
+                ?: HealthCommands.parse(message)?.let { run(listOf(it)) }
                 ?: LinkCommands.parse(message, link.pairingInProgress)?.let { run(listOf(it)) }
                 ?: askGemma(message, onPartial)
         memory.logInteraction(message, response.text, chatId)

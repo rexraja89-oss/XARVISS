@@ -43,15 +43,16 @@ class XarvisService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (intent?.action == ACTION_BRIEF) {
-            val briefCore = (application as XarvisApp).core
+        if (intent?.action == ACTION_BRIEF || intent?.action == ACTION_PROACTIVE) {
+            val bgCore = (application as XarvisApp).core
+            val action = intent?.action
             ServiceCompat.startForeground(
-                this, NOTIFICATION_ID, buildNotification(briefCore.state.value),
+                this, NOTIFICATION_ID, buildNotification(bgCore.state.value),
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
             )
             scope.launch {
-                runCatching { briefCore.announceBriefing() }
-                // If XARVIS isn't meant to stay resident, stand down once the briefing is done.
+                runCatching { if (action == ACTION_BRIEF) bgCore.announceBriefing() else bgCore.runProactive() }
+                // If XARVIS isn't meant to stay resident, stand down once the work is done.
                 if (!AlwaysOn.isEnabled(this@XarvisService)) {
                     ServiceCompat.stopForeground(this@XarvisService, ServiceCompat.STOP_FOREGROUND_REMOVE)
                     stopSelf()
@@ -118,6 +119,7 @@ class XarvisService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val ACTION_STOP = "com.xarvis.ai.STOP"
         private const val ACTION_BRIEF = "com.xarvis.ai.BRIEF"
+        private const val ACTION_PROACTIVE = "com.xarvis.ai.PROACTIVE"
 
         /** Run the daily briefing now (read it aloud + notification), off the alarm. */
         fun briefNow(context: Context) {
@@ -127,6 +129,17 @@ class XarvisService : Service() {
                 )
             } catch (e: Exception) {
                 Log.w(TAG, "Couldn't start the briefing service now", e)
+            }
+        }
+
+        /** Run a proactive tick now (due reminders + nudges), off a proactive alarm. */
+        fun proactive(context: Context) {
+            try {
+                ContextCompat.startForegroundService(
+                    context, Intent(context, XarvisService::class.java).setAction(ACTION_PROACTIVE),
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Couldn't start the proactive service now", e)
             }
         }
 

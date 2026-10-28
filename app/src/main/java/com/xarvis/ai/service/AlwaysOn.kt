@@ -23,8 +23,10 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action !in STARTS) return
         if (AlwaysOn.isEnabled(context)) XarvisService.start(context)
-        // Alarms are cleared on reboot (and on app update), so re-arm the daily briefing.
+        // Alarms are cleared on reboot (and on app update), so re-arm everything scheduled.
         com.xarvis.ai.brief.BriefingSchedule.schedule(context)
+        com.xarvis.ai.remind.Reminders.reschedule(context)
+        com.xarvis.ai.remind.Nudges.schedulePoll(context)
     }
 
     private companion object {
