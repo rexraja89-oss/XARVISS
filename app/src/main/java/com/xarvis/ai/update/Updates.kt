@@ -25,19 +25,45 @@ object Updates {
 
     /** The newest version on GitHub ("1.0.46") if it's newer than this one; null if not, or offline. */
     suspend fun newerVersion(): String? = withContext(Dispatchers.IO) {
-        runCatching {
-            val c = URL(LATEST).openConnection() as HttpURLConnection
-            c.connectTimeout = 8_000
-            c.readTimeout = 10_000
-            c.setRequestProperty("Accept", "application/vnd.github+json")
-            val tag = try {
-                JSONObject(c.inputStream.bufferedReader().use { it.readText() }).getString("tag_name")
-            } finally {
-                c.disconnect()
-            }
-            tag.removePrefix("v").takeIf { isNewer(it, BuildConfig.VERSION_NAME) }
-        }.getOrNull()
+        val tag = runCatching { tagFromApi() }.getOrNull() ?: runCatching { tagFromWebsite() }.getOrNull()
+        tag?.removePrefix("v")?.takeIf { isNewer(it, BuildConfig.VERSION_NAME) }
     }
+
+    private fun tagFromApi(): String {
+        val c = URL(LATEST).openConnection() as HttpURLConnection
+        c.connectTimeout = 8_000
+        c.readTimeout = 10_000
+        c.setRequestProperty("Accept", "application/vnd.github+json")
+        return try {
+            JSONObject(c.inputStream.bufferedReader().use { it.readText() }).getString("tag_name")
+        } finally {
+            c.disconnect()
+        }
+    }
+
+    /**
+     * GitHub's API allows only 60 unsigned requests an hour per internet connection, and both phones
+     * (plus the Hands/Eyes apps) share Rex's Wi-Fi — once over, it refuses silently and the UPDATE button
+     * never appeared. The website isn't limited that way: /releases/latest redirects to /releases/tag/vX.
+     */
+    private fun tagFromWebsite(): String? {
+        val c = URL(WEB_LATEST).openConnection() as HttpURLConnection
+        c.instanceFollowRedirects = false
+        c.connectTimeout = 8_000
+        c.readTimeout = 10_000
+        return try {
+            c.responseCode
+            tagFromRedirect(c.getHeaderField("Location"))
+        } finally {
+            c.disconnect()
+        }
+    }
+
+    /** ".../releases/tag/v1.0.189" → "v1.0.189". */
+    fun tagFromRedirect(location: String?): String? =
+        location?.substringAfter("/releases/tag/", "")?.substringBefore('?')?.takeIf { it.isNotBlank() }
+
+    private const val WEB_LATEST = "https://github.com/rexraja89-oss/XARVISS/releases/latest"
 
     /** "1.0.46" is newer than "1.0.45"; tags that aren't plain versions ("test-perms") never are. */
     fun isNewer(candidate: String, current: String): Boolean {
