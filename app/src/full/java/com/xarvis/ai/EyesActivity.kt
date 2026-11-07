@@ -74,6 +74,14 @@ class EyesActivity : ComponentActivity() {
     /** "take a photo": count down and shoot once the camera is ready (set from the launch intent). */
     private var snapPending = false
     @Volatile private var snapping = false
+    /** "who is this": recognise the face once the camera is ready (set from the launch intent). */
+    private var whoPending = false
+
+    // ---- face recognition (taught faces stay on this phone only) ----
+    private val faceStore by lazy { com.xarvis.ai.faces.FaceStore(this) }
+    @Volatile private var faceEngine: com.xarvis.ai.faces.FaceEngine? = null
+    private fun engine(): com.xarvis.ai.faces.FaceEngine =
+        faceEngine ?: synchronized(this) { faceEngine ?: com.xarvis.ai.faces.FaceEngine(this).also { faceEngine = it } }
     @Volatile private var opening = false
 
     private var busy = false
@@ -90,6 +98,9 @@ class EyesActivity : ComponentActivity() {
     private val askCamera = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         render()
         if (granted && texture.isAvailable) openCamera()
+    }
+    private val pickFaces = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(20)) { uris ->
+        if (uris.isNotEmpty()) askNameThenLearn(uris)
     }
     private val listen = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val heard = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
@@ -159,6 +170,15 @@ class EyesActivity : ComponentActivity() {
         col.addView(speak)
 
         // ---- the answer ----
+        col.addView(header("FACES — RECOGNISE PEOPLE YOU'VE TAUGHT ME"))
+        col.addView(button("👤  Who is this?") { look(WHO) })
+        col.addView(row(
+            button("➕ Teach a face") {
+                pickFaces.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            button("👥 Faces I know") { showKnownFaces() },
+        ))
+
         col.addView(header("WHAT XARVIS SAYS"))
         thumb = ImageView(this).apply { visibility = View.GONE; adjustViewBounds = true }
         col.addView(thumb, LinearLayout.LayoutParams((120 * d).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -171,6 +191,7 @@ class EyesActivity : ComponentActivity() {
 
         setContentView(ScrollView(this).apply { addView(col) })
         snapPending = intent.getBooleanExtra(EXTRA_SNAP, false)
+        whoPending = intent.getBooleanExtra(EXTRA_WHO, false)
         if (intent.getBooleanExtra(EXTRA_FRONT, false)) backCamera = false
         if (!hasCameraPermission()) askCamera.launch(Manifest.permission.CAMERA)
     }
@@ -297,6 +318,9 @@ class EyesActivity : ComponentActivity() {
                     if (snapPending) {
                         snapPending = false
                         runOnUiThread { countdown(3) }
+                    } else if (whoPending) {
+                        whoPending = false
+                        runOnUiThread { ui.postDelayed({ look(WHO) }, 1200) } // a moment to point it at them
                     }
                 }
                 override fun onConfigureFailed(s: CameraCaptureSession) {
@@ -418,6 +442,7 @@ class EyesActivity : ComponentActivity() {
             runOnUiThread { busy = false; showAnswer("Couldn't read the photo. Try again.") }
             return
         }
+        if (question == WHO) { recognise(bitmap); return }
         // The screen is locked to portrait, so the photo needs the sensor's own rotation.
         val prepared = prepare(bitmap, sensorOrientation)
         runOnUiThread { send(prepared, question) }
@@ -530,10 +555,95 @@ class EyesActivity : ComponentActivity() {
         }
     }
 
+    // ---- faces ----
+
+    /** Camera thread: find every face in the photo and say who they are (no AI chat involved). */
+    private fun recognise(photo: Bitmap) {
+        val upright = Bitmap.createBitmap(photo, 0, 0, photo.width, photo.height, Matrix().apply { postRotate(sensorOrientation.toFloat()) }, true)
+        val known = faceStore.all()
+        val text = if (known.isEmpty()) {
+            "I don't know anyone's face yet, sir. Tap \"Teach a face\" and pick a few photos of them first."
+        } else {
+            runCatching {
+                com.xarvis.ai.faces.FaceMath.describe(engine().faces(upright).map { com.xarvis.ai.faces.FaceMath.bestMatch(it.print, known) })
+            }.getOrElse { "Face recognition failed: ${it.message ?: it.javaClass.simpleName}" }
+        }
+        val small = Bitmap.createScaledBitmap(upright, upright.width / 4, upright.height / 4, true)
+        runOnUiThread {
+            thumb.setImageBitmap(small); thumb.visibility = View.VISIBLE
+            busy = false
+            showAnswer(text)
+            if (speak.isChecked) (application as XarvisApp).core.speakAloud(text)
+        }
+    }
+
+    /** After picking photos to teach a face: ask whose face it is, then learn it from each photo. */
+    private fun askNameThenLearn(uris: List<android.net.Uri>) {
+        val box = EditText(this).apply { hint = "Their name"; setSingleLine() }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Whose face is this? (${uris.size} photo${if (uris.size == 1) "" else "s"})")
+            .setMessage("Pick photos where only they are clearly visible, facing the camera. Their faceprint stays on this phone only.")
+            .setView(box)
+            .setPositiveButton("Learn") { _, _ ->
+                val name = box.text.toString().trim()
+                if (name.isEmpty()) Toast.makeText(this, "Type their name first.", Toast.LENGTH_SHORT).show() else learn(name, uris)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun learn(name: String, uris: List<android.net.Uri>) {
+        answer.text = "🧠 Learning $name's face from ${uris.size} photos…"
+        Thread {
+            val prints = ArrayList<FloatArray>()
+            var skipped = 0
+            for (u in uris) {
+                val photo = com.xarvis.ai.faces.FaceEngine.loadUpright(this, u)
+                val print = photo?.let { runCatching { engine().mainFace(it) }.getOrNull() }
+                if (print != null) prints += print else skipped++
+            }
+            if (prints.isNotEmpty()) faceStore.add(name, prints)
+            val msg = when {
+                prints.isEmpty() -> "I couldn't find one clear face in those photos, sir. Try photos where only $name is visible, facing the camera."
+                skipped == 0 -> "✓ Learned $name's face from all ${prints.size} photos. Point the camera at $name and tap \"Who is this?\"."
+                else -> "✓ Learned $name's face from ${prints.size} of ${uris.size} photos (skipped $skipped with no clear single face). Point the camera at $name and tap \"Who is this?\"."
+            }
+            runOnUiThread { showAnswer(msg) }
+        }.start()
+    }
+
+    private fun showKnownFaces() {
+        val names = faceStore.all().keys.toList()
+        if (names.isEmpty()) {
+            Toast.makeText(this, "No faces yet. Tap \"Teach a face\" first.", Toast.LENGTH_LONG).show()
+            return
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Faces I know (tap one to forget it)")
+            .setItems(faceStore.names().toTypedArray()) { _, which ->
+                val who = names[which]
+                android.app.AlertDialog.Builder(this)
+                    .setMessage("Forget $who's face?")
+                    .setPositiveButton("Forget") { _, _ -> faceStore.forget(who); showAnswer("Forgotten $who's face.") }
+                    .setNegativeButton("Keep", null)
+                    .show()
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    override fun onDestroy() {
+        runCatching { faceEngine?.close() }
+        super.onDestroy()
+    }
+
     companion object {
         /** Launch extras: shoot a photo straight away (with a countdown), and with the front camera. */
         const val EXTRA_SNAP = "snap"
         const val EXTRA_FRONT = "front"
+        /** Launch extra: "who is this?" — recognise the face as soon as the camera is ready. */
+        const val EXTRA_WHO = "who"
+        private const val WHO = "\u0000who"
 
         private const val SEE = "Describe what you see in this photo, briefly and clearly, as if telling me what's in front of me."
         private const val READ = "Read out all the text you can see in this photo, exactly as written. If it isn't English, translate it too."

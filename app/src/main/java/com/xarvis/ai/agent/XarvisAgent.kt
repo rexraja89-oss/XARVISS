@@ -130,6 +130,7 @@ class XarvisAgent(
                 ?: LinkCommands.parse(message, link.pairingInProgress)?.let { run(listOf(it)) }
                 ?: (if (OPEN_EYES.matches(message.trim().trimEnd('.', '!', '?'))) run(listOf(Step.OpenEyes)) else null)
                 ?: photoCommand(message)?.let { run(listOf(it)) }
+                ?: (if (WHO_IS_THIS.matches(message.trim().trimEnd('.', '!', '?'))) run(listOf(Step.WhoIsThis)) else null)
                 ?: askGemma(message, onPartial, emotionalPrompt(message))
         memory.logInteraction(message, response.text, chatId)
         return response
@@ -622,6 +623,10 @@ class XarvisAgent(
                 """(?:open\s+(?:the\s+|my\s+)?(?:rear\s+|back\s+|front\s+|selfie\s+)?camera(?:\s+app)?(?:\s+and|\s+to|,)?\s+)?""" +
                 """(?:take|click|capture|snap|shoot)\s+(?:a\s+|my\s+|me\s+a\s+|one\s+|the\s+)?(?:quick\s+)?(?:photo|picture|pic|selfie|snap|shot)""" +
                 """(?:\s+(?:with|using|on|from)\s+(?:the\s+)?(?:rear|back|front|selfie)(?:\s+camera)?)?(?:\s+please)?$""",
+        )
+        /** "who is this?", "do you recognise her?": recognise the face in front of the camera. */
+        internal val WHO_IS_THIS = Regex(
+            """(?i)^(?:(?:hey\s+)?[xj]arvis[,\s]+)?(?:who(?:'s|\s+is)\s+(?:this|that|she|he|in front of me|this person)|do you (?:recognise|recognize|know)\s+(?:her|him|this person|them|who this is|who that is))$""",
         )
         private val FRONT_CAMERA = Regex("""(?i)\b(?:selfie|front)\b""")
 

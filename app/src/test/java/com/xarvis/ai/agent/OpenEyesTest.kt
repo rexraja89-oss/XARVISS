@@ -34,3 +34,15 @@ class PhotoCommandTest {
         org.junit.Assert.assertNull(XarvisAgent.photoCommand("rear camera price for my car"))
     }
 }
+
+class WhoIsThisTest {
+    @Test fun asksWhoItIs() {
+        listOf("who is this", "Who's this?", "hey jarvis, who is this", "do you recognise her", "do you recognize this person", "who is in front of me")
+            .forEach { org.junit.Assert.assertTrue(it, XarvisAgent.WHO_IS_THIS.matches(it.trimEnd('?'))) }
+    }
+
+    @Test fun otherQuestionsDont() {
+        listOf("who is the president of india", "who is this song by", "do you know python")
+            .forEach { org.junit.Assert.assertFalse(it, XarvisAgent.WHO_IS_THIS.matches(it)) }
+    }
+}

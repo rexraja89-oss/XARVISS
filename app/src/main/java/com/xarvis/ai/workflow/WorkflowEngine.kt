@@ -48,6 +48,8 @@ sealed interface Step {
     data class AppCall(val app: String, val contact: String, val video: Boolean = false) : Step
     /** Open XARVIS Eyes (the camera that asks Gemma what it sees): built in on the S22, else the separate app. */
     data object OpenEyes : Step
+    /** "Who is this?": open Eyes and recognise the face in front of the camera (faces Rex taught it). */
+    data object WhoIsThis : Step
     /** Dial an emergency service (police/ambulance/fire) directly and handsfree. [label] e.g. "the police". */
     data class EmergencyCall(val number: String, val label: String) : Step
     data class WhatsApp(val target: String, val text: String?) : Step
@@ -336,6 +338,16 @@ class WorkflowEngine(
         is Step.Call -> phone.call(step.target, step.direct)
         is Step.AppCall -> appCall(step)
         Step.OpenEyes -> openEyes()
+        Step.WhoIsThis -> {
+            val eyes = Intent().setClassName(appContext, "com.xarvis.ai.EyesActivity")
+                .putExtra("who", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (eyes.resolveActivity(appContext.packageManager) != null) {
+                appContext.startActivity(eyes)
+                StepResult(true, backgroundNote("XARVIS Eyes", eyes) ?: "Let me have a look, sir — point the camera at their face.")
+            } else {
+                StepResult(false, "Face recognition needs XARVIS Eyes, which isn't on this phone.")
+            }
+        }
         is Step.EmergencyCall -> phone.callNumber(step.number, step.label, handsfree = true)
             .let { it.copy(message = "Stay calm, sir. ${it.message}") }
         is Step.ShowMap -> try {
