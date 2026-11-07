@@ -267,7 +267,7 @@ class XarvisCore(context: Context) {
                         updateMessage(question.id) { it.copy(imagePath = file.path) }
                         // "who is this?" about a photo: XARVIS's own face recognition (faces Rex taught it in
                         // Eyes), never the chat brain — Gemma can't recognise faces and once invented an answer.
-                        if (com.xarvis.ai.agent.XarvisAgent.WHO_IS_THIS.matches(text.trim().trimEnd('.', '!', '?'))) {
+                        if (com.xarvis.ai.agent.XarvisAgent.whoCommand(text) != null) {
                             onPartial("Checking the faces I know…")
                             Reply(whoInPhoto(file))
                         } else {

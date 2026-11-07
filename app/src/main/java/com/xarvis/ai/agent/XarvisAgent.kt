@@ -130,7 +130,7 @@ class XarvisAgent(
                 ?: LinkCommands.parse(message, link.pairingInProgress)?.let { run(listOf(it)) }
                 ?: (if (OPEN_EYES.matches(message.trim().trimEnd('.', '!', '?'))) run(listOf(Step.OpenEyes)) else null)
                 ?: photoCommand(message)?.let { run(listOf(it)) }
-                ?: (if (WHO_IS_THIS.matches(message.trim().trimEnd('.', '!', '?'))) run(listOf(Step.WhoIsThis)) else null)
+                ?: whoCommand(message)?.let { run(listOf(it)) }
                 ?: askGemma(message, onPartial, emotionalPrompt(message))
         memory.logInteraction(message, response.text, chatId)
         return response
@@ -628,6 +628,28 @@ class XarvisAgent(
         internal val WHO_IS_THIS = Regex(
             """(?i)^(?:(?:hey\s+)?[xj]arvis[,\s]+)?(?:who(?:'s|\s+is)\s+(?:this|that|she|he|in front of me|this person|in (?:this|the) (?:photo|picture|pic|image))|whose face is (?:this|that)|do you (?:recognise|recognize|know)\s+(?:her|him|this person|them|this face|who this is|who that is))$""",
         )
+        /** "who am I", "see who I am", "do you recognise me": recognise Rex himself (front camera by default). */
+        private val WHO_AM_I = Regex(
+            """(?i)^(?:(?:hey\s+)?[xj]arvis[,\s]+)?(?:(?:can you|could you|please)\s+)?(?:(?:see|tell me|check|find out|guess)\s+)?(?:who\s+am\s+i|who\s+i\s+am|(?:do you\s+)?(?:recognise|recognize|know)\s+me)$""",
+        )
+        private val WITH_CAMERA = Regex("""(?i)\s+(?:by|with|using|through|from|on|via)\s+(?:the\s+|my\s+|your\s+)?(front|selfie|back|rear)?\s*camera$""")
+
+        /**
+         * "who is this", "who am I", optionally "… with/by the front camera": recognise a face with XARVIS's
+         * own face recognition. Null for anything else. ("see who I am by front camera" once just took a selfie.)
+         */
+        internal fun whoCommand(message: String): Step.WhoIsThis? {
+            val t = message.trim().trimEnd('.', '!', '?')
+            val cam = WITH_CAMERA.find(t)
+            val core = if (cam != null) t.substring(0, cam.range.first) else t
+            val lens = cam?.groupValues?.get(1)?.lowercase().orEmpty()
+            return when {
+                WHO_AM_I.matches(core) -> Step.WhoIsThis(front = lens != "back" && lens != "rear")
+                WHO_IS_THIS.matches(core) -> Step.WhoIsThis(front = lens == "front" || lens == "selfie")
+                else -> null
+            }
+        }
+
         private val FRONT_CAMERA = Regex("""(?i)\b(?:selfie|front)\b""")
 
         internal fun photoCommand(message: String): Step.TakePhoto? {
