@@ -20,5 +20,11 @@ class ProductResearchTest {
         assertNull(XarvisAgent.wantsProductResearch("what's the weather in Dubai"))
         assertNull(XarvisAgent.wantsProductResearch("remind me to call Atiq at 6pm"))
         assertNull(XarvisAgent.wantsProductResearch("hello xarvis"))
+        // The real misfires: photo/camera commands are not shopping.
+        assertNull(XarvisAgent.wantsProductResearch("hey xarvis take photo with front camera and show me here in benco screen."))
+        assertNull(XarvisAgent.wantsProductResearch("open rear camera and take a photo"))
+        assertNull(XarvisAgent.wantsProductResearch("take a photo with my galaxy"))
+        // …but a real question still is.
+        assertEquals("best camera phones under 40000", XarvisAgent.wantsProductResearch("best camera phones under 40000"))
     }
 }

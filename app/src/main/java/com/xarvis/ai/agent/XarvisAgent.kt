@@ -675,9 +675,20 @@ class XarvisAgent(
             """(?i)\b(iphone|galaxy|samsung|motorola|moto|redmi|realme|oneplus|vivo|oppo|xiaomi|poco|nothing|pixel|infinix|tecno|honor|nokia|asus|rog|macbook|ipad|dell|hp|lenovo|acer|msi|cybertruck|playstation|ps5|xbox)\b""",
         )
 
+        private val PICTURE_WORD = Regex("""(?i)pictures?|photos?|images?|pics?""")
+        private val DEVICE_ACTION = Regex("""(?i)\b(?:take|click|capture|snap|shoot|call|dial|open|launch|send|share|remind|set|turn|switch|play|record)\b""")
+        private val SHOPPING_WORD = Regex("""(?i)\b(?:price|prices|cost|buy|compare|comparison|cheap(?:est)?|budget|specs?|specifications?|review|best|which|under\s*\d|below\s*\d|mid[- ]?range|flagship)\b""")
+
         /** Rex's product query if his message is a shopping/product question, else null. */
         internal fun wantsProductResearch(message: String): String? {
-            if (!PRODUCT_SIGNALS.containsMatchIn(message) && !PRODUCT_BRANDS.containsMatchIn(message)) return null
+            // "photo"/"pictures" alone isn't shopping ("take a photo with the front camera" got a Benco
+            // phone spec sheet); it only counts next to a real shopping word or a brand.
+            val shopping = PRODUCT_SIGNALS.findAll(message).any { !PICTURE_WORD.matches(it.value) }
+            val brand = PRODUCT_BRANDS.containsMatchIn(message)
+            if (!shopping && !brand) return null
+            // An instruction to DO something on the phone ("take a photo on my galaxy", "call…", "open…")
+            // isn't a product question unless it also asks about price/specs/comparison.
+            if (DEVICE_ACTION.containsMatchIn(message) && !SHOPPING_WORD.containsMatchIn(message)) return null
             val query = message
                 .replace(Regex("""(?i)\b(show|me|please|can you|could you|with|proper|some|the|a|an|good|and|its|their|for|detail|details|comparison|compare|pictures?|photos?|images?|pics?)\b"""), " ")
                 .replace(Regex("""\s+"""), " ").trim()
