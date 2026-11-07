@@ -57,6 +57,24 @@ class UserIntentTest {
         )
     }
 
+    @Test fun rexsSpellingOfTheNameWins() {
+        // The brain rewrote "baarish" as "Barish" (from earlier chat), which matched nobody in imo.
+        assertEquals(
+            listOf(Step.AppCall("imo", "baarish")),
+            XarvisAgent.forUser("call baarish on imo", listOf(Step.Call("Barish"))),
+        )
+        // "call him" has no usable name: fall back to the brain's.
+        assertEquals(
+            listOf(Step.AppCall("imo", "Baarish")),
+            XarvisAgent.forUser("call him on imo", listOf(Step.Call("Baarish"))),
+        )
+        // A WhatsApp call doesn't also open a WhatsApp message.
+        assertEquals(
+            listOf(Step.AppCall("whatsapp", "baarish")),
+            XarvisAgent.forUser("call baarish on whatsapp", listOf(Step.Call("Baarish"), Step.WhatsApp("Baarish", "hi"))),
+        )
+    }
+
     @Test fun whatsAppCallsGoThroughXarvisHands() {
         assertEquals(
             listOf(Step.AppCall("whatsapp", "baarish")),

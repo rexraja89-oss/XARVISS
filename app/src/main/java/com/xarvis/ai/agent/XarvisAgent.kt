@@ -778,8 +778,11 @@ class XarvisAgent(
             var added = false
             val out = ArrayList<Step>()
             for (s in steps) {
+                // A WhatsApp *message* step the brain added alongside a WhatsApp *call* is dropped too:
+                // it once said "placing the whatsapp call" and then opened a message instead.
                 val appStep = (s is Step.LaunchApp && nameMatchesApp(s.appName, app)) ||
                     (s is Step.FindInApp && nameMatchesApp(s.app, app)) ||
+                    (s is Step.WhatsApp && app == "whatsapp") ||
                     s is Step.Call || s is Step.FindContact
                 if (appStep) {
                     if (!added) { out.add(Step.AppCall(app, contact, video)); added = true }
@@ -789,20 +792,28 @@ class XarvisAgent(
             return out
         }
 
-        /** The contact to call: from the brain's step if it has one, else parsed from the message. */
+        /**
+         * The contact to call: the name as Rex typed it when his message has one (a brain once
+         * "corrected" his "baarish" to "Barish", which matched nobody), else the brain's step.
+         */
         private fun contactToCall(message: String, steps: List<Step>, app: String): String? {
-            steps.firstNotNullOfOrNull {
+            (CALL_NAME_HI.find(message)?.groupValues?.getOrNull(1)
+                ?: CALL_NAME_EN.find(message)?.groupValues?.getOrNull(1))
+                ?.let { cleanContact(it) }
+                ?.takeIf { it.lowercase() !in PRONOUNS }
+                ?.let { return it }
+            return steps.firstNotNullOfOrNull {
                 when (it) {
                     is Step.Call -> it.target
                     is Step.FindContact -> it.name
                     is Step.FindInApp -> if (nameMatchesApp(it.app, app)) it.query else null
+                    is Step.WhatsApp -> it.target
                     else -> null
                 }
-            }?.let { return cleanContact(it) }
-            return (CALL_NAME_HI.find(message)?.groupValues?.getOrNull(1)
-                ?: CALL_NAME_EN.find(message)?.groupValues?.getOrNull(1))
-                ?.let { cleanContact(it) }
+            }?.let { cleanContact(it) }
         }
+
+        private val PRONOUNS = setOf("him", "her", "them", "me", "it", "us", "back", "again", "now")
 
         private fun cleanContact(raw: String): String? {
             val s = raw.trim()

@@ -484,6 +484,17 @@ class WorkflowEngine(
                     "For now, say \"call ${step.contact}\" for a normal phone call.",
             )
         }
+        // Installed isn't enough: after Hands is reinstalled/updated, Android switches its Accessibility
+        // service off (and greys it out). XARVIS used to say "placing the call" into nothing.
+        if (!handsSwitchedOn()) {
+            return StepResult(
+                false,
+                "XARVIS Hands is installed on this phone, but its Accessibility switch is off, so I can't tap inside ${step.app}. " +
+                    "Turn it on: Settings → Accessibility → Installed apps → XARVIS Hands → On. If it's greyed out, tap it once, " +
+                    "then Settings → Apps → XARVIS Hands → ⋮ → Allow restricted settings, and try again. " +
+                    "Or say \"call ${step.contact}\" for a normal phone call.",
+            )
+        }
         appContext.sendBroadcast(
             Intent(HANDS_ACTION).apply {
                 setPackage(HANDS_PKG)
@@ -493,8 +504,20 @@ class WorkflowEngine(
             },
         )
         val kind = if (step.video) "video call" else "call"
-        return StepResult(true, "On it, sir — placing the ${step.app} $kind to ${step.contact}.")
+        // Honest wording: Hands does the tapping and doesn't report back yet, so don't claim it's done.
+        return StepResult(
+            true,
+            "I've asked XARVIS Hands to ${kind} ${step.contact} in ${step.app}, sir. Watch the screen; " +
+                "if nothing happens, open XARVIS Hands to see its log.",
+        )
     }
+
+    /** Whether the XARVIS Hands Accessibility service is switched on (any app can read this list). */
+    private fun handsSwitchedOn(): Boolean = runCatching {
+        android.provider.Settings.Secure.getString(
+            appContext.contentResolver, android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+        ).orEmpty().contains("$HANDS_PKG/", ignoreCase = true)
+    }.getOrDefault(true)
 
     /** This phone's contacts first; if nobody matches, the linked phones' contacts. */
     private suspend fun findContact(name: String): StepResult {

@@ -27,6 +27,16 @@ class ContactsDirectoryTest {
         assertEquals(0, ContactsDirectory.score("Sara", words))
     }
 
+    @Test fun otherSpellingsOfTheSameNameMatch() {
+        // The real failure: "Barish" (as the brain wrote it) found nobody; the contact is "Baarish".
+        assertTrue(ContactsDirectory.score("Baarish", listOf("barish")) > 0)
+        assertTrue(ContactsDirectory.score("Shaheed Khan", listOf("shahid")) > 0)
+        assertTrue(ContactsDirectory.score("Rizvan", listOf("rizwan")) > 0)
+        // An exact spelling still beats a variant.
+        assertTrue(ContactsDirectory.score("Barish", listOf("barish")) > ContactsDirectory.score("Baarish", listOf("barish")))
+        assertEquals(0, ContactsDirectory.score("Bashir", listOf("barish")))
+    }
+
     @Test fun moreMatchingWordsScoreHigher() {
         val words = listOf("ali", "khan")
         assertTrue(ContactsDirectory.score("Ali Khan", words) > ContactsDirectory.score("Ali Raza", words))

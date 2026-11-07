@@ -82,16 +82,28 @@ class ContactsDirectory(context: Context) {
             .filter { it.length >= 2 && it !in STOP }
             .distinct()
 
-        /** 2 points per word that is a whole word of [name], 1 per word that starts one; 0 means no match. */
+        /**
+         * 2 points per word that is a whole word of [name], 1 per word that starts one or is the same
+         * name spelled another way ("Barish"/"Baarish", "Shahid"/"Shaheed"); 0 means no match.
+         */
         fun score(name: String, words: List<String>): Int {
             val parts = name.lowercase().split(WORD_SPLIT).filter { it.isNotEmpty() }
             return words.sumOf { w ->
                 when {
                     parts.any { it == w } -> 2
                     w.length >= 3 && parts.any { it.startsWith(w) } -> 1
+                    w.length >= 3 && parts.any { sameSound(it, w) } -> 1
                     else -> 0
                 }.toInt()
             }
         }
+
+        /** Names written in English letters vary: double letters, ee/i, oo/u, w/v, ph/f, z/j. */
+        fun sameSound(a: String, b: String): Boolean = a.length >= 3 && loose(a) == loose(b)
+
+        private fun loose(s: String): String = s.lowercase()
+            .replace("ee", "i").replace("oo", "u").replace("ph", "f")
+            .replace('w', 'v').replace('z', 'j')
+            .replace(Regex("""(.)\1+"""), "$1")
     }
 }
