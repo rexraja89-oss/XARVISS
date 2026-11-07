@@ -71,6 +71,9 @@ class EyesActivity : ComponentActivity() {
     private var hasFlash = false
     private var backCamera = true
     private var torchOn = false
+    /** "take a photo": count down and shoot once the camera is ready (set from the launch intent). */
+    private var snapPending = false
+    @Volatile private var snapping = false
     @Volatile private var opening = false
 
     private var busy = false
@@ -138,6 +141,7 @@ class EyesActivity : ComponentActivity() {
 
         // ---- ask ----
         col.addView(header("ASK XARVIS ABOUT WHAT THE CAMERA SEES"))
+        col.addView(button("📸  Take a photo (saves to Gallery)") { countdown(3) })
         col.addView(button("👁  What do you see?") { look(SEE) })
         col.addView(button("📖  Read the text") { look(READ) })
         col.addView(button("❓  What is this?") { look(WHAT) })
@@ -166,6 +170,8 @@ class EyesActivity : ComponentActivity() {
         col.addView(answer)
 
         setContentView(ScrollView(this).apply { addView(col) })
+        snapPending = intent.getBooleanExtra(EXTRA_SNAP, false)
+        if (intent.getBooleanExtra(EXTRA_FRONT, false)) backCamera = false
         if (!hasCameraPermission()) askCamera.launch(Manifest.permission.CAMERA)
     }
 
@@ -225,13 +231,14 @@ class EyesActivity : ComponentActivity() {
         sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
         hasFlash = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
         val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return
-        // A 4:3 preview no bigger than 1440 px, and a JPEG no bigger than ~2 MP (Gemma gets 1024 px anyway).
+        // A 4:3 preview no bigger than 1440 px, and a JPEG up to ~12 MP: full quality for photos saved to the
+        // Gallery; for Gemma's questions it's decoded small and shrunk to 1024 px anyway.
         previewSize = map.getOutputSizes(SurfaceTexture::class.java)
             .filter { it.width <= 1440 && it.width * 3 == it.height * 4 }
             .maxByOrNull { it.width * it.height }
             ?: map.getOutputSizes(SurfaceTexture::class.java).minByOrNull { kotlin.math.abs(it.width - 1280) } ?: Size(1280, 960)
         val jpegSize = map.getOutputSizes(ImageFormat.JPEG)
-            .filter { maxOf(it.width, it.height) <= 1920 }
+            .filter { maxOf(it.width, it.height) <= 4032 }
             .maxByOrNull { it.width * it.height }
             ?: map.getOutputSizes(ImageFormat.JPEG).minByOrNull { it.width * it.height } ?: Size(1280, 960)
         reader = ImageReader.newInstance(jpegSize.width, jpegSize.height, ImageFormat.JPEG, 2).apply {
@@ -243,7 +250,7 @@ class EyesActivity : ComponentActivity() {
                 } finally {
                     image.close()
                 }
-                onPhoto(bytes)
+                if (snapping) onSnap(bytes) else onPhoto(bytes)
             }, handler)
         }
         runOnUiThread { fitPreview() }
@@ -287,6 +294,10 @@ class EyesActivity : ComponentActivity() {
                     if (device == null) return
                     session = s
                     applyPreview()
+                    if (snapPending) {
+                        snapPending = false
+                        runOnUiThread { countdown(3) }
+                    }
                 }
                 override fun onConfigureFailed(s: CameraCaptureSession) {
                     runOnUiThread { status.text = "✗ The camera preview couldn't start." }
@@ -397,7 +408,12 @@ class EyesActivity : ComponentActivity() {
     private fun onPhoto(jpeg: ByteArray) {
         val question = pendingQuestion ?: return
         pendingQuestion = null
-        val bitmap = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
+        // Decode it small (the JPEG can be ~12 MP; Gemma only needs 1024 px).
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, bounds)
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 1024) sample *= 2
+        val bitmap = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, BitmapFactory.Options().apply { inSampleSize = sample })
         if (bitmap == null) {
             runOnUiThread { busy = false; showAnswer("Couldn't read the photo. Try again.") }
             return
@@ -450,9 +466,77 @@ class EyesActivity : ComponentActivity() {
         answer.text = text
     }
 
-    private companion object {
-        const val SEE = "Describe what you see in this photo, briefly and clearly, as if telling me what's in front of me."
-        const val READ = "Read out all the text you can see in this photo, exactly as written. If it isn't English, translate it too."
-        const val WHAT = "What is the main thing in this photo? Identify it and tell me something useful about it."
+    // ---- "take a photo": XARVIS shoots it itself ----
+
+    /** 3…2…1 on screen (and spoken at the start), so Rex can aim, then the shot. */
+    private fun countdown(n: Int) {
+        if (!hasCameraPermission()) { askCamera.launch(Manifest.permission.CAMERA); return }
+        if (busy || snapping) return
+        if (n == 3) (application as XarvisApp).core.speakAloud("Smile, sir.")
+        if (n > 0) {
+            answer.text = "📸 Taking the photo in $n…"
+            ui.postDelayed({ countdown(n - 1) }, 1000)
+            return
+        }
+        snap()
+    }
+
+    private fun snap() {
+        val cam = device
+        val s = session
+        val still = reader?.surface
+        if (cam == null || s == null || still == null) {
+            snapPending = true // the camera is still starting: shoot as soon as it's ready
+            answer.text = "📸 Waiting for the camera…"
+            return
+        }
+        snapping = true
+        answer.text = "📸 Click!"
+        try {
+            val req = cam.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                addTarget(still)
+                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                set(CaptureRequest.FLASH_MODE, if (torchOn) CaptureRequest.FLASH_MODE_TORCH else CaptureRequest.FLASH_MODE_OFF)
+                set(CaptureRequest.JPEG_QUALITY, 95.toByte())
+                // The screen is portrait, so the picture is upright at the sensor's own rotation.
+                set(CaptureRequest.JPEG_ORIENTATION, sensorOrientation)
+            }
+            s.capture(req.build(), null, cameraHandler)
+        } catch (e: Exception) {
+            snapping = false
+            showAnswer("Couldn't take the photo: ${e.message}")
+        }
+    }
+
+    /** Camera thread: the full-quality photo arrived — save it to the Gallery and show it. */
+    private fun onSnap(jpeg: ByteArray) {
+        snapping = false
+        val uri = com.xarvis.ai.files.CameraShots.saveTaken(this, jpeg)
+        val preview = runCatching {
+            val small = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, BitmapFactory.Options().apply { inSampleSize = 8 })
+            val exif = androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(jpeg))
+            val turn = exif.rotationDegrees
+            if (turn == 0) small else Bitmap.createBitmap(small, 0, 0, small.width, small.height, Matrix().apply { postRotate(turn.toFloat()) }, true)
+        }.getOrNull()
+        runOnUiThread {
+            preview?.let { thumb.setImageBitmap(it); thumb.visibility = View.VISIBLE }
+            if (uri != null) {
+                showAnswer("✓ Photo saved to your Gallery (Pictures/XARVIS). Tap \"Take a photo\" for another, or ask me about what the camera sees.")
+                (application as XarvisApp).core.speakAloud("Done, sir. Photo saved.")
+            } else {
+                showAnswer("I took the photo but couldn't save it to the Gallery.")
+            }
+        }
+    }
+
+    companion object {
+        /** Launch extras: shoot a photo straight away (with a countdown), and with the front camera. */
+        const val EXTRA_SNAP = "snap"
+        const val EXTRA_FRONT = "front"
+
+        private const val SEE = "Describe what you see in this photo, briefly and clearly, as if telling me what's in front of me."
+        private const val READ = "Read out all the text you can see in this photo, exactly as written. If it isn't English, translate it too."
+        private const val WHAT = "What is the main thing in this photo? Identify it and tell me something useful about it."
     }
 }

@@ -54,6 +54,16 @@ object CameraShots {
         runCatching { context.contentResolver.delete(uri, null, null) }
     }
 
+    /** Saves a photo XARVIS took itself (XARVIS Eyes, "take a photo") into Pictures/XARVIS. */
+    fun saveTaken(context: Context, jpeg: ByteArray): Uri? {
+        val uri = create(context) ?: return null
+        return runCatching {
+            context.contentResolver.openOutputStream(uri)?.use { it.write(jpeg) } ?: error("no stream")
+            finish(context, uri)
+            uri
+        }.getOrElse { discard(context, uri); null }
+    }
+
     /** Saves a photo received from a linked phone into Pictures/XARVIS, and returns a card for it. */
     fun saveReceived(context: Context, name: String, bytes: ByteArray, fromDevice: String): SavedFile? = runCatching {
         val values = ContentValues().apply {

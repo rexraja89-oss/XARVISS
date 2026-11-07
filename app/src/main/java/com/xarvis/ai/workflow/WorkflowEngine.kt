@@ -248,9 +248,22 @@ class WorkflowEngine(
         is Step.Recall -> StepResult(true, "") // done by the agent before the reply is shown
         is Step.SearchPhone -> StepResult(true, "") // done by the agent before the reply is shown
         is Step.RemoteGallery -> StepResult(true, "") // done by the agent before the reply is shown
-        is Step.TakePhoto ->
-            if (takePhoto(step.selfie)) StepResult(true, "Camera ready${if (step.selfie) " (front)" else ""}: tap the shutter, then ✓. The photo comes back here and into your Gallery (Pictures/XARVIS).")
-            else StepResult(false, "Open XARVIS on screen first, then ask me to take the photo.")
+        is Step.TakePhoto -> {
+            // XARVIS's own camera (built-in Eyes, S22): it counts down and shoots by itself — Rex asked
+            // for XARVIS to press the shutter, not just open the camera app.
+            val eyes = Intent().setClassName(appContext, "com.xarvis.ai.EyesActivity")
+                .putExtra("snap", true).putExtra("front", step.selfie)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (eyes.resolveActivity(appContext.packageManager) != null) {
+                appContext.startActivity(eyes)
+                StepResult(true, backgroundNote("XARVIS Eyes", eyes)
+                    ?: "Smile, sir — taking it in 3 seconds${if (step.selfie) " with the front camera" else ""}. It goes into your Gallery (Pictures/XARVIS).")
+            } else if (takePhoto(step.selfie)) {
+                StepResult(true, "Camera ready${if (step.selfie) " (front)" else ""}: tap the shutter, then ✓. The photo comes back here and into your Gallery (Pictures/XARVIS).")
+            } else {
+                StepResult(false, "Open XARVIS on screen first, then ask me to take the photo.")
+            }
+        }
         is Step.Jobs -> {
             val site = JobSites.pick(step.site)
             val app = device.findApp(site.appName)
