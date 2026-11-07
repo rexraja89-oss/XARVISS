@@ -8,14 +8,6 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application>
-        <!-- XARVIS Eyes: camera view; one photo at a time goes to Gemma, nothing is saved. -->
-        <activity
-            android:name=".EyesActivity"
-            android:exported="false"
-            android:label="XARVIS Eyes"
-            android:screenOrientation="portrait"
-            android:theme="@android:style/Theme.DeviceDefault.Light" />
-
         <!-- XARVIS Hands: taps inside other apps (imo/WhatsApp calls) when Rex asks. Exported is
              required for Settings to list it; only the system can bind it (BIND_ACCESSIBILITY_SERVICE). -->
         <service
