@@ -59,6 +59,11 @@ class MainActivity : Activity() {
         col.addView(TextView(this).apply {
             text = "XARVIS Hands"; textSize = 24f; setTextColor(Color.parseColor("#0B6E8C"))
         })
+        // The installed version, so Rex can see at a glance which build is on the phone.
+        val version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "?"
+        col.addView(TextView(this).apply {
+            text = "Version v$version"; textSize = 13f; setTextColor(Color.parseColor("#888888"))
+        })
 
         // ---- in-app update button (hidden until a newer Hands is found on GitHub) ----
         updateBtn = Button(this).apply {
