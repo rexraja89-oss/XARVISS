@@ -74,6 +74,8 @@ class EyesActivity : ComponentActivity() {
     /** "take a photo": count down and shoot once the camera is ready (set from the launch intent). */
     private var snapPending = false
     @Volatile private var snapping = false
+    /** The linked phone (the benco) this photo is for, when it asked over the link; null for Rex's own. */
+    @Volatile private var remoteFor: String? = null
     /** "who is this": recognise the face once the camera is ready (set from the launch intent). */
     private var whoPending = false
 
@@ -191,6 +193,8 @@ class EyesActivity : ComponentActivity() {
 
         setContentView(ScrollView(this).apply { addView(col) })
         snapPending = intent.getBooleanExtra(EXTRA_SNAP, false)
+        remoteFor = intent.getStringExtra(EXTRA_REMOTE)?.takeIf { snapPending }
+        remoteFor?.let { answer.text = "📸 $it asked for a photo — taking it as soon as the camera is ready." }
         whoPending = intent.getBooleanExtra(EXTRA_WHO, false)
         if (intent.getBooleanExtra(EXTRA_FRONT, false)) backCamera = false
         if (!hasCameraPermission()) askCamera.launch(Manifest.permission.CAMERA)
@@ -538,6 +542,16 @@ class EyesActivity : ComponentActivity() {
     private fun onSnap(jpeg: ByteArray) {
         snapping = false
         val uri = com.xarvis.ai.files.CameraShots.saveTaken(this, jpeg)
+        remoteFor?.let { asker ->
+            remoteFor = null
+            com.xarvis.ai.workflow.RemoteSnap.deliver(com.xarvis.ai.workflow.RemoteSnap.Shot(uri, jpeg))
+            runOnUiThread {
+                showAnswer("✓ Sent to $asker's screen${if (uri != null) " (and saved in your Gallery)" else ""}.")
+                (application as XarvisApp).core.speakAloud("Done, sir. Sent.")
+                ui.postDelayed({ finish() }, 2000)
+            }
+            return
+        }
         val preview = runCatching {
             val small = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, BitmapFactory.Options().apply { inSampleSize = 8 })
             val exif = androidx.exifinterface.media.ExifInterface(java.io.ByteArrayInputStream(jpeg))
@@ -633,6 +647,8 @@ class EyesActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        // Closed before the linked phone's photo was taken: tell it now rather than after its timeout.
+        if (remoteFor != null) com.xarvis.ai.workflow.RemoteSnap.deliver(null)
         runCatching { faceEngine?.close() }
         super.onDestroy()
     }
@@ -643,6 +659,8 @@ class EyesActivity : ComponentActivity() {
         const val EXTRA_FRONT = "front"
         /** Launch extra: "who is this?" — recognise the face as soon as the camera is ready. */
         const val EXTRA_WHO = "who"
+        /** Launch extra: the linked phone's name, when the photo is for it (sent back over the link). */
+        const val EXTRA_REMOTE = "remote"
         private const val WHO = "\u0000who"
 
         private const val SEE = "Describe what you see in this photo, briefly and clearly, as if telling me what's in front of me."

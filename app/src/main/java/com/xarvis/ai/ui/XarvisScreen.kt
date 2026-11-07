@@ -285,10 +285,10 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 onBriefing = { context.startActivity(Intent(context, com.xarvis.ai.BriefingActivity::class.java)) },
                 onEyes = {
                     // Built in on the S22 build; the benco has no camera (or uses the separate Eyes app).
-                    val builtIn = Intent().setClassName(context, "com.xarvis.ai.EyesActivity")
+                    val builtIn = Intent().setClassName(context, com.xarvis.ai.workflow.EYES_SCREEN)
                     val external = context.packageManager.getLaunchIntentForPackage("com.xarvis.eyes")
                     when {
-                        builtIn.resolveActivity(context.packageManager) != null -> context.startActivity(builtIn)
+                        com.xarvis.ai.workflow.hasScreen(context, com.xarvis.ai.workflow.EYES_SCREEN) -> context.startActivity(builtIn)
                         external != null -> context.startActivity(external)
                         else -> android.widget.Toast.makeText(context, "XARVIS Eyes isn't on this phone (it needs a camera).", android.widget.Toast.LENGTH_LONG).show()
                     }

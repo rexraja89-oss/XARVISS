@@ -160,6 +160,38 @@ class XarvisCore(context: Context) {
         override suspend fun memoryAdd(content: String, timestamp: Long) = memorySync.receiveFact(content, timestamp)
         override suspend fun memoryClear(timestamp: Long) = memorySync.receiveClear(timestamp)
         override suspend fun findContacts(name: String): List<String> = contacts.find(name).orEmpty()
+
+        override suspend fun snapPhoto(front: Boolean, from: String): ByteArray {
+            val screen = com.xarvis.ai.workflow.EYES_SCREEN
+            if (!com.xarvis.ai.workflow.hasScreen(appContext, screen)) {
+                throw com.xarvis.ai.net.LinkException("this phone has no XARVIS camera either")
+            }
+            val eyes = android.content.Intent().setClassName(appContext, screen)
+                .putExtra("snap", true).putExtra("front", front).putExtra("remote", from)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            val request = com.xarvis.ai.workflow.RemoteSnap.begin()
+            // Android only lets XARVIS open the camera while it's on screen; otherwise Rex taps the notification here.
+            val onScreen = withContext(Dispatchers.Main) {
+                if (com.xarvis.ai.workflow.LaunchNotice.inForeground()) {
+                    appContext.startActivity(eyes); true
+                } else {
+                    com.xarvis.ai.workflow.LaunchNotice.show(appContext, "XARVIS Eyes", eyes); false
+                }
+            }
+            post("📸 $from asked for a photo with my ${if (front) "front" else "back"} camera" +
+                if (onScreen) " — taking it now." else ": tap \"Tap to open XARVIS Eyes\" to take it.")
+            val shot = kotlinx.coroutines.withTimeoutOrNull(if (onScreen) SNAP_ON_SCREEN_MS else SNAP_TAP_WAIT_MS) { request.await() }
+            if (shot == null) {
+                com.xarvis.ai.workflow.RemoteSnap.cancel(request)
+                throw com.xarvis.ai.net.LinkException(
+                    if (onScreen) "the photo wasn't taken (XARVIS Eyes was closed, or its camera didn't start)."
+                    else "XARVIS isn't open on its screen, so Android won't let me start its camera. Open XARVIS there " +
+                        "(or tap \"Tap to open XARVIS Eyes\" on it) and ask again.",
+                )
+            }
+            // A full photo is several MB: send a smaller copy (the full one stays in this phone's Gallery).
+            return shot.uri?.let { PhotoPrep.downscaledJpeg(appContext, it, SNAP_SEND_SIDE, 88) } ?: shot.jpeg
+        }
     })
 
     private val memorySync: MemorySync = MemorySync(memory, link) {
@@ -665,6 +697,10 @@ class XarvisCore(context: Context) {
         const val MEMORY_SYNC_START_DELAY_MS = 5_000L
         const val MEMORY_SYNC_INTERVAL_MS = 5 * 60_000L
         const val UPDATE_CHECK_INTERVAL_MS = 30 * 60_000L
+        /** A linked phone's photo: the 3-second countdown and shot, or Rex walking over to tap the notification. */
+        const val SNAP_ON_SCREEN_MS = 30_000L
+        const val SNAP_TAP_WAIT_MS = 60_000L
+        const val SNAP_SEND_SIDE = 1600
         /** JARVIS-style opening lines (Rex asked); shown one per session, in order, then looping. */
         val GREETINGS = listOf(
             "Good evening, sir. XARVIS is ready for your service. Tell me, sir — what are we breaking today?",

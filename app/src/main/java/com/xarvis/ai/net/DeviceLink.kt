@@ -88,6 +88,12 @@ class DeviceLink(context: Context, private val handler: Handler) {
 
         /** This phone's contacts matching [name], for a linked phone's "find contact". */
         suspend fun findContacts(name: String): List<String>
+
+        /**
+         * Takes a photo with this phone's camera for linked phone [from] (it has none) and returns it as a
+         * JPEG; throws with a plain reason when it can't.
+         */
+        suspend fun snapPhoto(front: Boolean, from: String): ByteArray
     }
 
     private val appContext = context.applicationContext
@@ -241,6 +247,10 @@ class DeviceLink(context: Context, private val handler: Handler) {
             o.getString("name") to unb64(o.getString("jpg"))
         }
     }
+
+    /** A photo taken just now with [peer]'s camera (front or back), as a JPEG. */
+    suspend fun remoteSnap(peer: Peer, front: Boolean): ByteArray =
+        unb64(request(peer, "snap", JSONObject().put("front", front), timeoutMs = SNAP_READ_TIMEOUT_MS).getString("jpg"))
 
     suspend fun remoteContacts(peer: Peer, name: String): List<String> =
         request(peer, "contacts", JSONObject().put("name", name), timeoutMs = CONTACTS_READ_TIMEOUT_MS)
@@ -466,6 +476,8 @@ class DeviceLink(context: Context, private val handler: Handler) {
             }
             "memory_get" -> reply.put("memory", handler.memorySnapshot())
             "contacts" -> reply.put("lines", JSONArray(handler.findContacts(req.getString("name"))))
+            // Failures throw; serve() sends their message back, which the asking phone shows Rex.
+            "snap" -> reply.put("jpg", b64(handler.snapPhoto(req.optBoolean("front"), peer.name)))
             "memory_add" -> {
                 handler.memoryAdd(req.getString("c"), req.getLong("t"))
                 reply.put("ok", true)
@@ -692,6 +704,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
         private const val CHAT_READ_TIMEOUT_MS = 180_000
         private const val CONTACTS_READ_TIMEOUT_MS = 90_000 // may wait for a permission answer on that phone
         private const val GALLERY_READ_TIMEOUT_MS = 60_000 // sending several downscaled photos takes a moment
+        private const val SNAP_READ_TIMEOUT_MS = 90_000 // the other phone may wait up to a minute for Rex to tap its notification
         private const val PAIRING_TIMEOUT_MS = 5 * 60_000L
         private const val MAX_CLOCK_SKEW_MS = 5 * 60_000L
         private const val NETWORK_SETTLE_MS = 3_000L

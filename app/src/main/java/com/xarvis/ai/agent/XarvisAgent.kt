@@ -121,6 +121,7 @@ class XarvisAgent(
     suspend fun handle(message: String, onPartial: (String) -> Unit = {}): Reply {
         forceLocalThisTurn = false
         productThisTurn = false
+        engine.progress = onPartial
         // For a health question, give the brain Rex's health record as context (health commands handle themselves).
         healthContextThisTurn = if (HEALTH_Q.containsMatchIn(message)) runCatching { healthRecord() }.getOrDefault("") else ""
         val response =
@@ -129,7 +130,7 @@ class XarvisAgent(
                 ?: HealthCommands.parse(message)?.let { run(listOf(it)) }
                 ?: LinkCommands.parse(message, link.pairingInProgress)?.let { run(listOf(it)) }
                 ?: (if (OPEN_EYES.matches(message.trim().trimEnd('.', '!', '?'))) run(listOf(Step.OpenEyes)) else null)
-                ?: photoCommand(message)?.let { run(listOf(it)) }
+                ?: photoCommand(message, deviceWords())?.let { run(listOf(it)) }
                 ?: whoCommand(message)?.let { run(listOf(it)) }
                 ?: askGemma(message, onPartial, emotionalPrompt(message))
         memory.logInteraction(message, response.text, chatId)
@@ -497,9 +498,16 @@ class XarvisAgent(
         val searched = foundFiles.toList().also { foundFiles.clear() }
         if (steps.isEmpty()) return Reply(text.ifEmpty { "…" }, searched, via = lastVia)
         val results = run(steps)
-        val reply = if (text.isEmpty()) results else results.copy(text = "$text\n${results.text}")
+        // Gemma tends to claim the photo is already taken ("I have taken a photo…") before the camera has
+        // even opened; for camera steps the step's own message says what really happened.
+        val said = if (steps.any { it is Step.TakePhoto || it is Step.WhoIsThis }) "" else text
+        val reply = if (said.isEmpty()) results else results.copy(text = "$said\n${results.text}")
         return reply.copy(files = searched + reply.files, via = lastVia)
     }
+
+    /** Words of this phone's and the linked phones' names ("benco", "v91s"…), which Rex may say in a command. */
+    private fun deviceWords(): Set<String> = (listOf(link.deviceName) + link.pairedPeers().map { it.name })
+        .flatMap { it.lowercase().split(Regex("""[^a-z0-9]+""")) }.filter { it.isNotBlank() }.toSet()
 
     private suspend fun run(steps: List<Step>): Reply {
         val results = engine.execute(steps)
@@ -664,9 +672,30 @@ class XarvisAgent(
 
         private val FRONT_CAMERA = Regex("""(?i)\b(?:selfie|front)\b""")
 
-        internal fun photoCommand(message: String): Step.TakePhoto? {
-            val t = message.trim().trimEnd('.', '!', '?')
-            if (!PHOTO_COMMAND.matches(t)) return null
+        /** "take a photo" / "click a selfie" anywhere in the sentence (the rest must be [PHOTO_FILLER]). */
+        private val PHOTO_CORE = Regex(
+            """(?i)\b(?:take|click|capture|snap|shoot)\s+(?:a\s+|my\s+|me\s+a\s+|one\s+|the\s+)?(?:quick\s+)?(?:photo|picture|pic|selfie|snap|shot)s?\b""",
+        )
+        /** Words that may surround a photo command without changing it ("…and show me here in benco screen"). */
+        private val PHOTO_FILLER = setOf(
+            "hey", "xarvis", "jarvis", "please", "pls", "can", "could", "would", "you", "now", "quickly", "just", "ok", "okay",
+            "open", "the", "my", "your", "rear", "back", "front", "selfie", "camera", "cam", "app", "and", "to", "with",
+            "using", "on", "from", "by", "via", "of", "me", "it", "show", "send", "display", "here", "in", "this", "that",
+            "screen", "phone", "mobile", "device", "chat", "for", "then", "a", "benco", "s22", "galaxy", "ultra", "samsung",
+        )
+
+        /**
+         * "take a photo", "take photo with front camera and show me here in benco screen": straight to the camera
+         * (on the benco, the linked S22's). [deviceWords]: the linked phones' names, which may be said too.
+         * Questions about photos ("how do I take a good photo") have other words and go to the brain.
+         */
+        internal fun photoCommand(message: String, deviceWords: Set<String> = emptySet()): Step.TakePhoto? {
+            val t = message.lowercase().trim().trimEnd('.', '!', '?')
+            if (!PHOTO_COMMAND.matches(t)) {
+                val m = PHOTO_CORE.find(t) ?: return null
+                val rest = t.removeRange(m.range).split(Regex("""[^a-z0-9']+""")).filter { it.isNotBlank() }
+                if (rest.any { it !in PHOTO_FILLER && it !in deviceWords }) return null
+            }
             return Step.TakePhoto(selfie = FRONT_CAMERA.containsMatchIn(t))
         }
 

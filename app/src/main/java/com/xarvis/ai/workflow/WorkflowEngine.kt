@@ -136,6 +136,9 @@ class WorkflowEngine(
     /** Opens the camera from the screen (set by XarvisCore; only the screen can get the photo back). */
     var takePhoto: (Boolean) -> Boolean = { false }
 
+    /** "Working on it" lines for the chat while a slow step runs (set by the agent for each message). */
+    var progress: (String) -> Unit = {}
+
     private val appContext = context.applicationContext
     // The XARVIS Hands helper app (separate app, Accessibility) that taps inside other apps for us.
     private val HANDS_PKG = "com.xarvis.hands"
@@ -253,17 +256,20 @@ class WorkflowEngine(
         is Step.TakePhoto -> {
             // XARVIS's own camera (built-in Eyes, S22): it counts down and shoots by itself — Rex asked
             // for XARVIS to press the shutter, not just open the camera app.
-            val eyes = Intent().setClassName(appContext, "com.xarvis.ai.EyesActivity")
+            val eyes = Intent().setClassName(appContext, EYES_SCREEN)
                 .putExtra("snap", true).putExtra("front", step.selfie)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            if (eyes.resolveActivity(appContext.packageManager) != null) {
-                appContext.startActivity(eyes)
-                StepResult(true, backgroundNote("XARVIS Eyes", eyes)
-                    ?: "Smile, sir — taking it in 3 seconds${if (step.selfie) " with the front camera" else ""}. It goes into your Gallery (Pictures/XARVIS).")
-            } else if (takePhoto(step.selfie)) {
-                StepResult(true, "Camera ready${if (step.selfie) " (front)" else ""}: tap the shutter, then ✓. The photo comes back here and into your Gallery (Pictures/XARVIS).")
-            } else {
-                StepResult(false, "Open XARVIS on screen first, then ask me to take the photo.")
+            when {
+                hasScreen(appContext, EYES_SCREEN) -> {
+                    appContext.startActivity(eyes)
+                    StepResult(true, backgroundNote("XARVIS Eyes", eyes)
+                        ?: "Smile, sir — taking it in 3 seconds${if (step.selfie) " with the front camera" else ""}. It goes into your Gallery (Pictures/XARVIS).")
+                }
+                // The benco has no camera: the linked S22's Eyes takes it and sends it back to this screen.
+                !hasCamera() -> remoteSnap(step.selfie)
+                takePhoto(step.selfie) ->
+                    StepResult(true, "Camera ready${if (step.selfie) " (front)" else ""}: tap the shutter, then ✓. The photo comes back here and into your Gallery (Pictures/XARVIS).")
+                else -> StepResult(false, "Open XARVIS on screen first, then ask me to take the photo.")
             }
         }
         is Step.Jobs -> {
@@ -339,14 +345,14 @@ class WorkflowEngine(
         is Step.AppCall -> appCall(step)
         Step.OpenEyes -> openEyes()
         is Step.WhoIsThis -> {
-            val eyes = Intent().setClassName(appContext, "com.xarvis.ai.EyesActivity")
+            val eyes = Intent().setClassName(appContext, EYES_SCREEN)
                 .putExtra("who", true).putExtra("front", step.front).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            if (eyes.resolveActivity(appContext.packageManager) != null) {
+            if (hasScreen(appContext, EYES_SCREEN)) {
                 appContext.startActivity(eyes)
                 StepResult(true, backgroundNote("XARVIS Eyes", eyes)
                     ?: if (step.front) "Let me have a look at you, sir — face the screen." else "Let me have a look, sir — point the camera at their face.")
             } else {
-                StepResult(false, "Face recognition needs XARVIS Eyes, which isn't on this phone.")
+                StepResult(false, "Face recognition runs on the S22 (it has the camera and the faces you taught it), sir — ask me there.")
             }
         }
         is Step.EmergencyCall -> phone.callNumber(step.number, step.label, handsfree = true)
@@ -529,8 +535,8 @@ class WorkflowEngine(
 
     /** XARVIS Eyes: the built-in screen (S22 build), else the separate Eyes app if it's installed. */
     private fun openEyes(): StepResult {
-        val builtIn = Intent().setClassName(appContext, "com.xarvis.ai.EyesActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        if (builtIn.resolveActivity(appContext.packageManager) != null) {
+        val builtIn = Intent().setClassName(appContext, EYES_SCREEN).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (hasScreen(appContext, EYES_SCREEN)) {
             appContext.startActivity(builtIn)
             return StepResult(true, backgroundNote("XARVIS Eyes", builtIn) ?: "Opening my eyes, sir. Point the camera and ask.")
         }
@@ -612,6 +618,38 @@ class WorkflowEngine(
         StepResult(false, "Device link failed: ${e.message ?: e.javaClass.simpleName}")
     }
 
+    private fun hasCamera(): Boolean =
+        appContext.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY)
+
+    /**
+     * This phone has no camera (the benco): the linked phone's XARVIS Eyes takes the photo and sends it
+     * over the link, and it shows here in the chat. Android only lets the S22 open its camera while
+     * XARVIS is on its screen; otherwise it shows "Tap to open XARVIS Eyes" there and waits for the tap.
+     */
+    private suspend fun remoteSnap(front: Boolean): StepResult {
+        val peers = link.pairedPeers()
+        if (peers.isEmpty()) return StepResult(
+            false, "This phone has no camera, sir, and it isn't linked to one that has. Type \"devices\" to check.",
+        )
+        val lens = if (front) "front" else "back"
+        var problem = ""
+        for (peer in peers) {
+            progress("📸 Asking ${peer.name} to take it with its $lens camera… (if XARVIS isn't open on it, tap the notification there)")
+            val jpeg = try {
+                link.remoteSnap(peer, front)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                problem = "${peer.name}: ${e.message ?: e.javaClass.simpleName}"
+                continue
+            }
+            val name = "XARVIS-" + java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(Date()) + ".jpg"
+            val saved = com.xarvis.ai.files.CameraShots.saveReceived(appContext, name, jpeg, DeviceLink.shortName(peer.name))
+                ?: return StepResult(false, "${peer.name} took the photo (it's in its Gallery), but I couldn't save it on this phone.")
+            return StepResult(true, "Here it is, sir — taken just now with ${peer.name}'s $lens camera (it's in its Gallery too).", listOf(saved))
+        }
+        return StepResult(false, "This phone has no camera, so I asked the linked phone, but it couldn't take it. $problem")
+    }
+
     private suspend fun withPeer(name: String, block: suspend (Peer) -> StepResult): StepResult {
         val peer = link.findPeer(name)
             ?: return StepResult(false, "I'm not linked to a device called \"$name\". Type \"devices\" to see linked devices.")
@@ -622,3 +660,14 @@ class WorkflowEngine(
         }
     }
 }
+
+/** XARVIS Eyes, built into the S22 build only. */
+const val EYES_SCREEN = "com.xarvis.ai.EyesActivity"
+
+/**
+ * Whether this build has the screen [className]. Intent.resolveActivity can't tell: for an intent naming
+ * a class it just hands the name back, so the benco "found" Eyes and then crashed opening it.
+ */
+fun hasScreen(context: Context, className: String): Boolean = runCatching {
+    context.packageManager.getActivityInfo(android.content.ComponentName(context, className), 0)
+}.isSuccess

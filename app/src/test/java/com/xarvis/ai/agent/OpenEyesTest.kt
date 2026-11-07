@@ -28,10 +28,21 @@ class PhotoCommandTest {
         org.junit.Assert.assertEquals(front, XarvisAgent.photoCommand("take a photo with the front camera"))
     }
 
+    @Test fun longerRequestsToo() {
+        val rear = com.xarvis.ai.workflow.Step.TakePhoto(selfie = false)
+        val front = com.xarvis.ai.workflow.Step.TakePhoto(selfie = true)
+        // Typed on the benco (it has no camera): this once went to Gemma, which claimed it had taken the photo.
+        org.junit.Assert.assertEquals(front, XarvisAgent.photoCommand("hey xarvis take photo with front camera and show me here in benco screen."))
+        org.junit.Assert.assertEquals(rear, XarvisAgent.photoCommand("take a picture and send it to me"))
+        org.junit.Assert.assertEquals(rear, XarvisAgent.photoCommand("click a photo from the v91s", setOf("v91s", "plus")))
+    }
+
     @Test fun questionsAboutPhotosDont() {
         org.junit.Assert.assertNull(XarvisAgent.photoCommand("how do I take a good photo of the moon"))
         org.junit.Assert.assertNull(XarvisAgent.photoCommand("which phone takes the best photo"))
         org.junit.Assert.assertNull(XarvisAgent.photoCommand("rear camera price for my car"))
+        org.junit.Assert.assertNull(XarvisAgent.photoCommand("take a photo of the moon tonight"))
+        org.junit.Assert.assertNull(XarvisAgent.photoCommand("remind me to take a photo at 5"))
     }
 }
 
