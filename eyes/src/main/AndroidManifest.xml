@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- The one sensitive permission: the camera, used only while this screen is open. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- For the in-app "check for a newer Eyes" update button. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Lets Eyes and the main XARVIS app talk to each other and nobody else: a signature permission
+         defined by the main app, so only Rex's own same-key apps hold it. -->
+    <uses-permission android:name="com.xarvis.ai.permission.EYES" />
+
+    <!-- So Eyes can see (and send photos to) the main XARVIS app; Android 11+ hides other apps. -->
+    <queries>
+        <package android:name="com.xarvis.ai" />
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.DeviceDefault.Light">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="portrait"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- XARVIS's answer comes back here. Only an app holding the EYES signature permission (the
+             main XARVIS app) can send it. -->
+        <receiver
+            android:name=".AnswerReceiver"
+            android:exported="true"
+            android:permission="com.xarvis.ai.permission.EYES">
+            <intent-filter>
+                <action android:name="com.xarvis.eyes.action.ANSWER" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

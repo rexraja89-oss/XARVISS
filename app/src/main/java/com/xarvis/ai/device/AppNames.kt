@@ -29,6 +29,7 @@ object AppNames {
         listOf("camscanner", "cam scanner") to listOf("camscanner", "com.intsig.camscanner"),
         listOf("google cloud", "gcloud", "cloud console") to listOf("googlecloud", "cloudconsole", "com.google.android.apps.cloudconsole"),
         listOf("linkedin", "linked in") to listOf("linkedin", "com.linkedin.android"),
+        listOf("eyes", "xarvis eyes", "jarvis eyes", "your eyes", "camera eyes") to listOf("xarviseyes", "com.xarvis.eyes"),
         listOf("naukri", "naukri gulf", "naukrigulf") to listOf("naukri", "naukrigulf"),
         listOf("github", "git hub") to listOf("github", "com.github.android"),
         listOf("capcut", "cap cut") to listOf("capcut", "com.lemon.lvoverseas"),

@@ -128,6 +128,7 @@ class XarvisAgent(
                 ?: RemindCommands.parse(message)?.let { run(listOf(it)) }
                 ?: HealthCommands.parse(message)?.let { run(listOf(it)) }
                 ?: LinkCommands.parse(message, link.pairingInProgress)?.let { run(listOf(it)) }
+                ?: (if (OPEN_EYES.matches(message.trim().trimEnd('.', '!', '?'))) run(listOf(Step.LaunchApp("XARVIS Eyes"))) else null)
                 ?: askGemma(message, onPartial, emotionalPrompt(message))
         memory.logInteraction(message, response.text, chatId)
         return response
@@ -609,6 +610,11 @@ class XarvisAgent(
 
         private const val MAX_FACT_CHARS = 3000
         private const val BRAIN_LOAD_WAIT_MS = 180_000L
+
+        /** "look", "open your eyes", "XARVIS Eyes": open the separate XARVIS Eyes camera app. */
+        internal val OPEN_EYES = Regex(
+            """(?i)^(?:(?:hey\s+)?(?:x|j)arvis[,\s]+)?(?:look|take a look|use your eyes|open (?:your |xarvis |jarvis )?eyes|(?:x|j)arvis eyes)$""",
+        )
         private const val REMOTE_GALLERY_COUNT = 8
         /** File text sent to a linked phone's Gemma, whose context size isn't known here. */
         private const val REMOTE_DOCUMENT_CHARS = 8000

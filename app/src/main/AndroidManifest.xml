@@ -43,10 +43,19 @@
          imo call). Signature-level, so it's only granted between Rex's own same-key apps. -->
     <uses-permission android:name="com.xarvis.hands.permission.COMMAND" />
 
+    <!-- XARVIS Eyes (separate camera app) <-> XARVIS: a signature permission, so only Rex's own
+         same-key apps can send photos here or receive the answers. XARVIS defines it and holds it. -->
+    <permission
+        android:name="com.xarvis.ai.permission.EYES"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.xarvis.ai.permission.EYES" />
+
     <!-- Lets the agent find launchable apps for "open <app>" commands. -->
     <queries>
         <!-- The XARVIS Hands helper app, so XARVIS can send it commands. -->
         <package android:name="com.xarvis.hands" />
+        <!-- The XARVIS Eyes camera app, so XARVIS can send its answers back. -->
+        <package android:name="com.xarvis.eyes" />
         <!-- The phone's text-to-speech engine, for XARVIS's voice. -->
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
@@ -173,6 +182,16 @@
         <receiver
             android:name=".brief.BriefingReceiver"
             android:exported="false" />
+
+        <!-- XARVIS Eyes sends a photo + question here; Gemma looks and the answer goes back. -->
+        <receiver
+            android:name=".eyes.EyesReceiver"
+            android:exported="true"
+            android:permission="com.xarvis.ai.permission.EYES">
+            <intent-filter>
+                <action android:name="com.xarvis.ai.action.LOOK" />
+            </intent-filter>
+        </receiver>
 
         <!-- Spoken reminders + proactive nudges (calendar heads-up, low battery). -->
         <receiver

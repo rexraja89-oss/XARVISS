@@ -479,6 +479,33 @@ class XarvisCore(context: Context) {
         com.xarvis.ai.brief.BriefingNotice.show(appContext, text)
     }
 
+    /**
+     * XARVIS Eyes sent a photo ([file]) and a [question]: Gemma looks at it (on this phone, or the
+     * linked one), XARVIS says the answer aloud if [speak], and the answer goes back to Eyes ([id]
+     * matches it to the request). The photo is deleted afterwards.
+     */
+    fun eyesLook(file: java.io.File, question: String, speak: Boolean, id: Long) {
+        scope.launch {
+            val text = if (_state.value.isProcessing) {
+                "I'm busy with another request, sir. Ask me again in a moment."
+            } else {
+                runCatching { agent.handlePhoto(file.path, question).text }
+                    .getOrElse { "I couldn't look at that: ${it.message ?: it.javaClass.simpleName}" }
+                    .ifBlank { "I looked, sir, but I'm not sure what I'm seeing." }
+            }
+            runCatching { file.delete() }
+            if (speak) voice.speak(text)
+            runCatching {
+                appContext.sendBroadcast(
+                    android.content.Intent(com.xarvis.ai.eyes.EyesReceiver.ACTION_ANSWER)
+                        .setPackage(com.xarvis.ai.eyes.EyesReceiver.EYES_PKG)
+                        .putExtra("id", id).putExtra("text", text),
+                    com.xarvis.ai.eyes.EyesReceiver.PERMISSION,
+                )
+            }
+        }
+    }
+
     /** Proactive tick: speak any due reminders + nudges (calendar heads-up, low battery). */
     suspend fun runProactive() {
         val lines = ArrayList<String>()

@@ -65,6 +65,8 @@ jobs:
         cp app/build/outputs/apk/benco/debug/app-benco-debug.apk "out/XARVIS-benco-v1.0.${{ github.run_number }}.apk"
         # XARVIS Hands: the tiny Accessibility-only app (install test on the S22).
         cp hands/build/outputs/apk/debug/hands-debug.apk "out/XARVIS-Hands-v1.0.${{ github.run_number }}.apk"
+        # XARVIS Eyes: the small camera app.
+        cp eyes/build/outputs/apk/debug/eyes-debug.apk "out/XARVIS-Eyes-v1.0.${{ github.run_number }}.apk"
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
@@ -82,6 +84,7 @@ jobs:
         cp "XARVIS-v$v.apk" XARVIS.apk
         cp "XARVIS-benco-v$v.apk" XARVIS-benco.apk
         cp "XARVIS-Hands-v$v.apk" XARVIS-Hands.apk
-        gh release create "v$v" "XARVIS-v$v.apk" "XARVIS-benco-v$v.apk" "XARVIS-Hands-v$v.apk" XARVIS.apk XARVIS-benco.apk XARVIS-Hands.apk --repo "${{ github.repository }}" \
+        cp "XARVIS-Eyes-v$v.apk" XARVIS-Eyes.apk
+        gh release create "v$v" "XARVIS-v$v.apk" "XARVIS-benco-v$v.apk" "XARVIS-Hands-v$v.apk" "XARVIS-Eyes-v$v.apk" XARVIS.apk XARVIS-benco.apk XARVIS-Hands.apk XARVIS-Eyes.apk --repo "${{ github.repository }}" \
           --target "${{ github.sha }}" --title "XARVIS v$v" --latest \
-          --notes "S22: XARVIS.apk. Benco: XARVIS-benco.apk (no permission to place calls; the benco rejects it). XARVIS-Hands.apk is the tiny Accessibility-only app (install test). Always newest: https://github.com/${{ github.repository }}/releases/latest/download/XARVIS.apk , .../XARVIS-benco.apk and .../XARVIS-Hands.apk"
+          --notes "S22: XARVIS.apk. Benco: XARVIS-benco.apk (no permission to place calls; the benco rejects it). XARVIS-Hands.apk is the tiny Accessibility app; XARVIS-Eyes.apk is the camera app. Always newest: https://github.com/${{ github.repository }}/releases/latest/download/XARVIS.apk , .../XARVIS-benco.apk, .../XARVIS-Hands.apk and .../XARVIS-Eyes.apk"
