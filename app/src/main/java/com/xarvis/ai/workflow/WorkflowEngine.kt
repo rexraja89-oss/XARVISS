@@ -229,7 +229,7 @@ class WorkflowEngine(
             } else {
                 try {
                     appContext.startActivity(intent)
-                    StepResult(true, "Opening ${app.label}.")
+                    StepResult(true, backgroundNote(app.label, intent) ?: "Opening ${app.label}.")
                 } catch (e: ActivityNotFoundException) {
                     StepResult(false, "${app.label} couldn't be opened.")
                 }
@@ -440,20 +440,32 @@ class WorkflowEngine(
     /** Opens [url], in [pkg]'s app when it's given and can, otherwise wherever Android sends it. */
     private fun openUrl(url: String, pkg: String?, success: String): StepResult {
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val label = Uri.parse(url).host ?: "the link"
         if (pkg != null) {
             try {
-                appContext.startActivity(Intent(intent).setPackage(pkg))
-                return StepResult(true, success)
+                val inApp = Intent(intent).setPackage(pkg)
+                appContext.startActivity(inApp)
+                return StepResult(true, backgroundNote(label, inApp) ?: success)
             } catch (e: ActivityNotFoundException) {
                 // that app doesn't open these links; use the browser
             }
         }
         return try {
             appContext.startActivity(intent)
-            StepResult(true, success)
+            StepResult(true, backgroundNote(label, intent) ?: success)
         } catch (e: ActivityNotFoundException) {
             StepResult(false, "There's no web browser on this phone.")
         }
+    }
+
+    /**
+     * When no XARVIS screen is in front, Android silently ignores the launch we just tried, so also
+     * post a "Tap to open" notification and say so. Null when XARVIS is in front (the launch works).
+     */
+    private fun backgroundNote(label: String, intent: Intent): String? {
+        if (LaunchNotice.inForeground()) return null
+        LaunchNotice.show(appContext, label, intent)
+        return "Android doesn't let me open $label while I'm in the background, sir — tap the \"Tap to open $label\" notification."
     }
 
     /**
