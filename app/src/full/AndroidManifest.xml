@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- S22 build only: XARVIS Hands and XARVIS Eyes built into the main app. The S22 accepted this in
+     Nov 2026 (install test release test-allinone-v1.0.184); in Oct 2026 it had refused an
+     Accessibility service in the main app. The benco build stays without them. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- XARVIS Eyes: the live camera (☰ → XARVIS Eyes, or "look"). Asked for the first time it's used. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <application>
+        <!-- XARVIS Eyes: camera view; one photo at a time goes to Gemma, nothing is saved. -->
+        <activity
+            android:name=".EyesActivity"
+            android:exported="false"
+            android:label="XARVIS Eyes"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.DeviceDefault.Light" />
+
+        <!-- XARVIS Hands: taps inside other apps (imo/WhatsApp calls) when Rex asks. Exported is
+             required for Settings to list it; only the system can bind it (BIND_ACCESSIBILITY_SERVICE). -->
+        <service
+            android:name=".hands.XarvisHandsService"
+            android:exported="true"
+            android:label="XARVIS Hands"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/xarvis_accessibility_config" />
+        </service>
+    </application>
+</manifest>

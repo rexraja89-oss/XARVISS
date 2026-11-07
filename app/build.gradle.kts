@@ -100,6 +100,10 @@ dependencies {
     "fullImplementation"("org.tensorflow:tensorflow-lite:2.17.0")
     // Offline speech engine for Rex's own voice; CI downloads the AAR into app/libs (see build.yml).
     "fullImplementation"(files("libs/sherpa-onnx-1.13.8.aar"))
+    // XARVIS Eyes (built into the S22 build): CameraX for the live view and the photo.
+    "fullImplementation"("androidx.camera:camera-camera2:1.4.2")
+    "fullImplementation"("androidx.camera:camera-lifecycle:1.4.2")
+    "fullImplementation"("androidx.camera:camera-view:1.4.2")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303") // the real org.json; Android's is a stub in unit tests

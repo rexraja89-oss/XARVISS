@@ -200,7 +200,7 @@ fun SettingsMenu(
     wakeWord: Boolean, onWakeWord: (Boolean) -> Unit, onAssistantSettings: () -> Unit, onRecordVoice: () -> Unit,
     onLoadVoice: () -> Unit, ownVoices: () -> String?, ownVoiceOn: () -> Boolean, onOwnVoice: (Boolean) -> Unit,
     onPermissions: () -> Unit, onActivityLog: () -> Unit, onFolders: () -> Unit, onXarvisCode: () -> Unit, onGameMod: () -> Unit,
-    onHelp: () -> Unit, onBriefing: () -> Unit,
+    onHelp: () -> Unit, onBriefing: () -> Unit, onEyes: () -> Unit, onHands: () -> Unit,
     smartBrain: Boolean, smartDownload: ModelDownload, hasModel: Boolean, onSmartBrain: (Boolean) -> Unit,
     modelDownload: ModelDownload, onDownloadModel: () -> Unit,
     cloudEnabled: Boolean, hasCloudKey: () -> Boolean, onCloud: (Boolean) -> Unit, onSaveKey: (String) -> Unit, onClearKey: () -> Unit,
@@ -220,6 +220,14 @@ fun SettingsMenu(
             Column(Modifier.fillMaxWidth().clickable(onClick = onBriefing).padding(horizontal = 20.dp, vertical = 10.dp)) {
                 Text("🌅 Morning briefing ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
                 Text("Connect Gmail + Calendar for a daily briefing.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+            }
+            Column(Modifier.fillMaxWidth().clickable(onClick = onEyes).padding(horizontal = 20.dp, vertical = 10.dp)) {
+                Text("👁 XARVIS Eyes ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+                Text("Point the camera and ask what I see. Or just say \"look\".", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+            }
+            Column(Modifier.fillMaxWidth().clickable(onClick = onHands).padding(horizontal = 20.dp, vertical = 10.dp)) {
+                Text("🤲 XARVIS Hands ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+                Text("Lets me tap inside apps, like an imo or WhatsApp call. Switch it on here.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
             }
             HorizontalDivider(Modifier.padding(vertical = 4.dp), color = XarvisMuted.copy(alpha = 0.3f))
             Text(

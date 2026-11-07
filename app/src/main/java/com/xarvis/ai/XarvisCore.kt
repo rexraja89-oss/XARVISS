@@ -485,6 +485,24 @@ class XarvisCore(context: Context) {
      * matches it to the request). The photo is deleted afterwards.
      */
     fun eyesLook(file: java.io.File, question: String, speak: Boolean, id: Long) {
+        lookAt(file, question, speak) { text ->
+            runCatching {
+                appContext.sendBroadcast(
+                    android.content.Intent(com.xarvis.ai.eyes.EyesReceiver.ACTION_ANSWER)
+                        .setPackage(com.xarvis.ai.eyes.EyesReceiver.EYES_PKG)
+                        .putExtra("id", id).putExtra("text", text),
+                    com.xarvis.ai.eyes.EyesReceiver.PERMISSION,
+                )
+            }
+        }
+    }
+
+    /**
+     * Gemma looks at the photo [file] and answers [question]; spoken if [speak]; the answer goes to
+     * [onAnswer] (on the main thread). Runs in XARVIS's own scope, so leaving the Eyes screen doesn't
+     * cancel it. Used by the built-in XARVIS Eyes (S22) and the separate Eyes app. Deletes the photo.
+     */
+    fun lookAt(file: java.io.File, question: String, speak: Boolean, onAnswer: (String) -> Unit) {
         scope.launch {
             val text = if (_state.value.isProcessing) {
                 "I'm busy with another request, sir. Ask me again in a moment."
@@ -495,14 +513,7 @@ class XarvisCore(context: Context) {
             }
             runCatching { file.delete() }
             if (speak) voice.speak(text)
-            runCatching {
-                appContext.sendBroadcast(
-                    android.content.Intent(com.xarvis.ai.eyes.EyesReceiver.ACTION_ANSWER)
-                        .setPackage(com.xarvis.ai.eyes.EyesReceiver.EYES_PKG)
-                        .putExtra("id", id).putExtra("text", text),
-                    com.xarvis.ai.eyes.EyesReceiver.PERMISSION,
-                )
-            }
+            onAnswer(text)
         }
     }
 

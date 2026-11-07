@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- XARVIS Hands (built in): reads the screen and taps, only for a task Rex asked for (e.g. a call
+     inside imo). Same settings as the separate XARVIS Hands app, which worked on the S22. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeAllMask"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/xarvis_hands_description"
+    android:notificationTimeout="100" />

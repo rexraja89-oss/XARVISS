@@ -136,16 +136,26 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
             com.xarvis.ai.files.CameraShots.discard(context, uri)
         }
     }
+    // The S22 build declares the camera permission (for XARVIS Eyes). Once an app declares it, Android
+    // refuses its "take a photo" camera shortcut until the permission is granted, so ask first.
+    var cameraAfterPermission by remember { mutableStateOf<Boolean?>(null) }
+    val askCamera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val selfie = cameraAfterPermission
+        cameraAfterPermission = null
+        if (granted && selfie != null) openCameraNow(context, selfie, { shot = it }, takePhoto)
+        else if (!granted) android.widget.Toast.makeText(context, "Taking a photo needs the camera permission.", android.widget.Toast.LENGTH_LONG).show()
+    }
     fun openCamera(selfie: Boolean) {
-        val uri = com.xarvis.ai.files.CameraShots.create(context) ?: return
-        shot = uri
-        try {
-            takePhoto.launch(com.xarvis.ai.files.CameraShots.intent(uri, selfie))
-        } catch (e: Exception) {
-            shot = null
-            com.xarvis.ai.files.CameraShots.discard(context, uri)
-            android.widget.Toast.makeText(context, "No camera app answered.", android.widget.Toast.LENGTH_LONG).show()
+        val declared = runCatching {
+            context.packageManager.getPackageInfo(context.packageName, android.content.pm.PackageManager.GET_PERMISSIONS)
+                .requestedPermissions.orEmpty().contains(Manifest.permission.CAMERA)
+        }.getOrDefault(false)
+        if (declared && !PermissionGate.has(context, Manifest.permission.CAMERA)) {
+            cameraAfterPermission = selfie
+            askCamera.launch(Manifest.permission.CAMERA)
+            return
         }
+        openCameraNow(context, selfie, { shot = it }, takePhoto)
     }
     LaunchedEffect(state.camera) {
         state.camera?.let { request ->
@@ -273,6 +283,17 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 onGameMod = { context.startActivity(Intent(context, com.xarvis.ai.GameModActivity::class.java)) },
                 onHelp = { context.startActivity(Intent(context, com.xarvis.ai.HelpActivity::class.java)) },
                 onBriefing = { context.startActivity(Intent(context, com.xarvis.ai.BriefingActivity::class.java)) },
+                onEyes = {
+                    // Built in on the S22 build; the benco has no camera (or uses the separate Eyes app).
+                    val builtIn = Intent().setClassName(context, "com.xarvis.ai.EyesActivity")
+                    val external = context.packageManager.getLaunchIntentForPackage("com.xarvis.eyes")
+                    when {
+                        builtIn.resolveActivity(context.packageManager) != null -> context.startActivity(builtIn)
+                        external != null -> context.startActivity(external)
+                        else -> android.widget.Toast.makeText(context, "XARVIS Eyes isn't on this phone (it needs a camera).", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                },
+                onHands = { context.startActivity(Intent(context, com.xarvis.ai.HandsActivity::class.java)) },
                 onActivityLog = {
                     context.startActivity(Intent(context, com.xarvis.ai.PolicyActivity::class.java).putExtra(com.xarvis.ai.PolicyActivity.EXTRA_LOG, true))
                 },
@@ -752,3 +773,21 @@ internal val InputHeight = 56.dp
 
 /** Chat bubbles: capsules. */
 private val BubbleShape = RoundedCornerShape(28.dp)
+
+/** "Take a photo": the phone's camera app shoots straight into Pictures/XARVIS ([setShot] keeps the Uri). */
+private fun openCameraNow(
+    context: android.content.Context,
+    selfie: Boolean,
+    setShot: (Uri?) -> Unit,
+    launcher: androidx.activity.result.ActivityResultLauncher<Intent>,
+) {
+    val uri = com.xarvis.ai.files.CameraShots.create(context) ?: return
+    setShot(uri)
+    try {
+        launcher.launch(com.xarvis.ai.files.CameraShots.intent(uri, selfie))
+    } catch (e: Exception) {
+        setShot(null)
+        com.xarvis.ai.files.CameraShots.discard(context, uri)
+        android.widget.Toast.makeText(context, "No camera app answered.", android.widget.Toast.LENGTH_LONG).show()
+    }
+}

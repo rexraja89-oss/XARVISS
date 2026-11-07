@@ -46,6 +46,8 @@ sealed interface Step {
     data class Call(val target: String, val direct: Boolean = false) : Step
     /** Place a call to [contact] inside [app] (e.g. imo) using the XARVIS Hands helper app. */
     data class AppCall(val app: String, val contact: String, val video: Boolean = false) : Step
+    /** Open XARVIS Eyes (the camera that asks Gemma what it sees): built in on the S22, else the separate app. */
+    data object OpenEyes : Step
     /** Dial an emergency service (police/ambulance/fire) directly and handsfree. [label] e.g. "the police". */
     data class EmergencyCall(val number: String, val label: String) : Step
     data class WhatsApp(val target: String, val text: String?) : Step
@@ -320,6 +322,7 @@ class WorkflowEngine(
         is Step.Wifi -> phone.wifi(step.on)
         is Step.Call -> phone.call(step.target, step.direct)
         is Step.AppCall -> appCall(step)
+        Step.OpenEyes -> openEyes()
         is Step.EmergencyCall -> phone.callNumber(step.number, step.label, handsfree = true)
             .let { it.copy(message = "Stay calm, sir. ${it.message}") }
         is Step.ShowMap -> try {
@@ -474,6 +477,49 @@ class WorkflowEngine(
      * it). Hands opens the app, finds the contact and taps the call button; we only send the request.
      */
     private fun appCall(step: Step.AppCall): StepResult {
+        val kindWord = if (step.video) "video-call" else "call"
+        // 1. Hands built into XARVIS (the S22 build), when it's switched on.
+        com.xarvis.ai.hands.HandsBridge.service?.let { hands ->
+            hands.startCallInApp(step.app, step.contact, step.video)
+            return StepResult(
+                true,
+                "I'm going to $kindWord ${step.contact} in ${step.app} now, sir — I'll tap through it, watch the screen. " +
+                    "If I can't find them, ☰ → XARVIS Hands shows what I saw.",
+            )
+        }
+        // 2. Built in but switched off: remember the call (it runs as soon as Hands is on) and say how.
+        if (com.xarvis.ai.hands.HandsBridge.builtIn && !externalHandsOn()) {
+            com.xarvis.ai.hands.HandsBridge.pendingCall = Triple(step.app, step.contact, step.video)
+            return StepResult(
+                false,
+                "XARVIS Hands is switched off, so I can't tap inside ${step.app} yet. Switch it on: ☰ → XARVIS Hands → " +
+                    "\"Open Accessibility settings\" → Installed apps → XARVIS Hands → On. I'll place the call to ${step.contact} " +
+                    "as soon as it's on. Or say \"call ${step.contact}\" for a normal phone call.",
+            )
+        }
+        // 3. The separate XARVIS Hands app (the benco).
+        return externalAppCall(step)
+    }
+
+    /** XARVIS Eyes: the built-in screen (S22 build), else the separate Eyes app if it's installed. */
+    private fun openEyes(): StepResult {
+        val builtIn = Intent().setClassName(appContext, "com.xarvis.ai.EyesActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (builtIn.resolveActivity(appContext.packageManager) != null) {
+            appContext.startActivity(builtIn)
+            return StepResult(true, backgroundNote("XARVIS Eyes", builtIn) ?: "Opening my eyes, sir. Point the camera and ask.")
+        }
+        val external = appContext.packageManager.getLaunchIntentForPackage("com.xarvis.eyes")
+            ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            ?: return StepResult(false, "This phone has no XARVIS Eyes (it needs a camera).")
+        appContext.startActivity(external)
+        return StepResult(true, backgroundNote("XARVIS Eyes", external) ?: "Opening XARVIS Eyes, sir.")
+    }
+
+    /** Whether the separate XARVIS Hands app is installed and switched on. */
+    private fun externalHandsOn(): Boolean =
+        runCatching { appContext.packageManager.getPackageInfo(HANDS_PKG, 0) }.isSuccess && handsSwitchedOn()
+
+    private fun externalAppCall(step: Step.AppCall): StepResult {
         val installed = try {
             appContext.packageManager.getPackageInfo(HANDS_PKG, 0); true
         } catch (e: Exception) { false }

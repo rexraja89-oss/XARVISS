@@ -157,6 +157,13 @@
             android:name=".HelpActivity"
             android:exported="false" />
 
+        <!-- ☰ → XARVIS Hands: status, switch-on steps, a call test and the live log. -->
+        <activity
+            android:name=".HandsActivity"
+            android:exported="false"
+            android:label="XARVIS Hands"
+            android:theme="@android:style/Theme.DeviceDefault.Light" />
+
         <!-- ☰ → Morning briefing: Gmail + Calendar briefing. -->
         <activity
             android:name=".BriefingActivity"
