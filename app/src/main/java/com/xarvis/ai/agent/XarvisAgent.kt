@@ -129,6 +129,7 @@ class XarvisAgent(
                 ?: HealthCommands.parse(message)?.let { run(listOf(it)) }
                 ?: LinkCommands.parse(message, link.pairingInProgress)?.let { run(listOf(it)) }
                 ?: (if (OPEN_EYES.matches(message.trim().trimEnd('.', '!', '?'))) run(listOf(Step.OpenEyes)) else null)
+                ?: photoCommand(message)?.let { run(listOf(it)) }
                 ?: askGemma(message, onPartial, emotionalPrompt(message))
         memory.logInteraction(message, response.text, chatId)
         return response
@@ -610,6 +611,25 @@ class XarvisAgent(
 
         private const val MAX_FACT_CHARS = 3000
         private const val BRAIN_LOAD_WAIT_MS = 180_000L
+
+        /**
+         * "take a photo", "open rear camera and take a photo", "take a selfie": straight to the camera.
+         * Left to the brain, "rear camera" once set off product research and got a summary of Hitchcock's
+         * Rear Window instead. Only a plain command matches — "how do I take a good photo" doesn't.
+         */
+        private val PHOTO_COMMAND = Regex(
+            """(?i)^(?:(?:hey\s+)?[xj]arvis[,\s]+)?(?:please\s+|can you\s+|could you\s+)?""" +
+                """(?:open\s+(?:the\s+|my\s+)?(?:rear\s+|back\s+|front\s+|selfie\s+)?camera(?:\s+app)?(?:\s+and|\s+to|,)?\s+)?""" +
+                """(?:take|click|capture|snap|shoot)\s+(?:a\s+|my\s+|me\s+a\s+|one\s+|the\s+)?(?:quick\s+)?(?:photo|picture|pic|selfie|snap|shot)""" +
+                """(?:\s+(?:with|using|on|from)\s+(?:the\s+)?(?:rear|back|front|selfie)(?:\s+camera)?)?(?:\s+please)?$""",
+        )
+        private val FRONT_CAMERA = Regex("""(?i)\b(?:selfie|front)\b""")
+
+        internal fun photoCommand(message: String): Step.TakePhoto? {
+            val t = message.trim().trimEnd('.', '!', '?')
+            if (!PHOTO_COMMAND.matches(t)) return null
+            return Step.TakePhoto(selfie = FRONT_CAMERA.containsMatchIn(t))
+        }
 
         /** "look", "open your eyes", "XARVIS Eyes": open the separate XARVIS Eyes camera app. */
         internal val OPEN_EYES = Regex(
