@@ -97,6 +97,12 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Long-press the XARVIS icon → "Talk to XARVIS" opens listening. This replaced the second
+                 "XARVIS Voice" icon (an activity-alias of this same app: uninstalling it from that icon
+                 once removed all of XARVIS). -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
 
         <!-- XARVIS Voice: opens listening, also over the lock screen. The phone's assistant
@@ -119,18 +125,6 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
-        <!-- Its own icon, so Samsung's side-button "Open app" can open it. -->
-        <activity-alias
-            android:name=".VoiceLauncher"
-            android:exported="true"
-            android:label="XARVIS Voice"
-            android:icon="@mipmap/ic_launcher"
-            android:targetActivity=".VoiceActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity-alias>
 
         <!-- ☰ → Search folders: the folders XARVIS may search. -->
         <activity

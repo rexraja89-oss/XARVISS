@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the XARVIS icon: "Talk to XARVIS" opens straight into listening (VoiceActivity). -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="talk"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_talk"
+        android:shortcutLongLabel="@string/shortcut_talk_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.xarvis.ai"
+            android:targetClass="com.xarvis.ai.VoiceActivity" />
+    </shortcut>
+</shortcuts>

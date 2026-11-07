@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">XARVIS</string>
+    <string name="shortcut_talk">Talk to XARVIS</string>
+    <string name="shortcut_talk_long">Talk to XARVIS (start listening)</string>
 </resources>
