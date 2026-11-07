@@ -265,7 +265,14 @@ class XarvisCore(context: Context) {
                     photo != null -> {
                         val file = PhotoPrep.prepare(appContext, photo)
                         updateMessage(question.id) { it.copy(imagePath = file.path) }
-                        agent.handlePhoto(file.path, text, onPartial)
+                        // "who is this?" about a photo: XARVIS's own face recognition (faces Rex taught it in
+                        // Eyes), never the chat brain — Gemma can't recognise faces and once invented an answer.
+                        if (com.xarvis.ai.agent.XarvisAgent.WHO_IS_THIS.matches(text.trim().trimEnd('.', '!', '?'))) {
+                            onPartial("Checking the faces I know…")
+                            Reply(whoInPhoto(file))
+                        } else {
+                            agent.handlePhoto(file.path, text, onPartial)
+                        }
                     }
                     document != null -> {
                         updateMessage(question.id) { it.copy(attachment = DocumentReader.displayName(appContext, document)) }
@@ -344,6 +351,18 @@ class XarvisCore(context: Context) {
 
     /** The reply being worked on, so STOP can cancel it. */
     private var replyJob: Job? = null
+
+    /** Who's in [file] (an upright chat photo), among the faces Rex taught XARVIS in Eyes. */
+    private suspend fun whoInPhoto(file: java.io.File): String = withContext(Dispatchers.Default) {
+        val engine = com.xarvis.ai.faces.FacePrintsProvider.create(appContext)
+            ?: return@withContext "Face recognition is on the S22's XARVIS, sir (☰ → XARVIS Eyes → \"Who is this?\")."
+        val known = com.xarvis.ai.faces.FaceStore(appContext).all()
+        if (known.isEmpty()) return@withContext "I don't know anyone's face yet, sir. Teach me in ☰ → XARVIS Eyes → \"Teach a face\"."
+        val photo = android.graphics.BitmapFactory.decodeFile(file.path) ?: return@withContext "I couldn't open that photo, sir."
+        runCatching {
+            com.xarvis.ai.faces.FaceMath.describe(engine.faces(photo).map { com.xarvis.ai.faces.FaceMath.bestMatch(it, known) })
+        }.getOrElse { "Face recognition failed: ${it.message ?: it.javaClass.simpleName}" }
+    }
 
     /** Set by the STOP button, so a cancelled reply can tell STOP apart from anything else. */
     @Volatile private var stopPressed = false

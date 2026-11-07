@@ -37,7 +37,7 @@ class PhotoCommandTest {
 
 class WhoIsThisTest {
     @Test fun asksWhoItIs() {
-        listOf("who is this", "Who's this?", "hey jarvis, who is this", "do you recognise her", "do you recognize this person", "who is in front of me")
+        listOf("who is this", "Who's this?", "hey jarvis, who is this", "do you recognise her", "do you recognize this person", "who is in front of me", "who is in this photo", "whose face is this")
             .forEach { org.junit.Assert.assertTrue(it, XarvisAgent.WHO_IS_THIS.matches(it.trimEnd('?'))) }
     }
 

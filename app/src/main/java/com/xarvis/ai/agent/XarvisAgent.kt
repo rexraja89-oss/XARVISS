@@ -626,7 +626,7 @@ class XarvisAgent(
         )
         /** "who is this?", "do you recognise her?": recognise the face in front of the camera. */
         internal val WHO_IS_THIS = Regex(
-            """(?i)^(?:(?:hey\s+)?[xj]arvis[,\s]+)?(?:who(?:'s|\s+is)\s+(?:this|that|she|he|in front of me|this person)|do you (?:recognise|recognize|know)\s+(?:her|him|this person|them|who this is|who that is))$""",
+            """(?i)^(?:(?:hey\s+)?[xj]arvis[,\s]+)?(?:who(?:'s|\s+is)\s+(?:this|that|she|he|in front of me|this person|in (?:this|the) (?:photo|picture|pic|image))|whose face is (?:this|that)|do you (?:recognise|recognize|know)\s+(?:her|him|this person|them|this face|who this is|who that is))$""",
         )
         private val FRONT_CAMERA = Regex("""(?i)\b(?:selfie|front)\b""")
 
@@ -647,8 +647,12 @@ class XarvisAgent(
         /** Whether Gemma's reply asks for a tool or writes a file. */
         internal fun usesTools(raw: String): Boolean = ToolCalls.parse(raw).isNotEmpty() || FileBlocks.split(raw).first.isNotEmpty()
 
+        // Never ask the brain to name people: it can't recognise faces and once called Rex's own selfie a
+        // notorious war photo. Faces are recognised by XARVIS's face recognition (FaceMath), not by Gemma.
         private const val PHOTO_HINT = "(Rex sent a photo. Look at it carefully and answer about it. " +
-            "Recognise famous things (films, places, logos, people) from what you know. " +
+            "You may recognise famous places, landmarks, logos, products, artworks and film posters. " +
+            "NEVER say who a person in the photo is: don't name anyone, and don't match a face to a famous person " +
+            "or a famous photo — you can't recognise faces. Describe people instead (expression, clothes, setting). " +
             "If he wants facts you're unsure of, add a TOOL: lookup line with good words.)\n\n"
 
         private const val FOUND_PREFIX = "(Here is what XARVIS found. Use it to answer Rex's last question " +
