@@ -1,15 +1,30 @@
 package com.xarvis.ai
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.ImageFormat
+import android.graphics.Matrix
+import android.graphics.SurfaceTexture
 import android.graphics.Typeface
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraDevice
+import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
+import android.media.ImageReader
 import android.os.Bundle
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.speech.RecognizerIntent
+import android.util.Size
+import android.view.Surface
+import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -22,39 +37,45 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.Camera
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
-import androidx.camera.core.ImageProxy
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
+import java.io.ByteArrayOutputStream
 
 /**
  * XARVIS Eyes, built into XARVIS (S22 build; ☰ → XARVIS Eyes, or say "look"). Built in code like the
  * separate XARVIS Hands/Eyes screens: a live camera view and a few big buttons. Each button takes one
  * photo and Gemma looks at it ([XarvisCore.lookAt]); the answer shows here and is spoken if the switch
  * is on. The camera only runs while this screen is open, and the photo is deleted after Gemma looks.
+ *
+ * Uses Android's own camera API (Camera2) rather than the CameraX library: with CameraX in it the S22
+ * refused to install XARVIS ("package appears to be invalid", install test test-eyes-v1.0.186), while
+ * the same build without it installed. Camera2 adds nothing to the package.
  */
 class EyesActivity : ComponentActivity() {
 
     private lateinit var status: TextView
-    private lateinit var previewView: PreviewView
+    private lateinit var texture: TextureView
     private lateinit var answer: TextView
     private lateinit var thumb: ImageView
     private lateinit var questionBox: EditText
     private lateinit var speak: CheckBox
     private lateinit var lightBtn: Button
 
-    private var provider: ProcessCameraProvider? = null
-    private var camera: Camera? = null
-    private var capture: ImageCapture? = null
-    private var lens = CameraSelector.LENS_FACING_BACK
+    // ---- camera state (Camera2), all used on the camera thread except where noted ----
+    private var cameraThread: HandlerThread? = null
+    private var cameraHandler: Handler? = null
+    private var device: CameraDevice? = null
+    private var session: CameraCaptureSession? = null
+    private var reader: ImageReader? = null
+    private var previewRequest: CaptureRequest.Builder? = null
+    private var previewSize = Size(1440, 1080)
+    private var sensorOrientation = 90
+    private var hasFlash = false
+    private var backCamera = true
     private var torchOn = false
+    @Volatile private var opening = false
 
     private var busy = false
     private var waitingFor = 0L
+    private var pendingQuestion: String? = null
     private val ui = Handler(Looper.getMainLooper())
     private val giveUp = Runnable {
         if (busy) {
@@ -64,7 +85,8 @@ class EyesActivity : ComponentActivity() {
     }
 
     private val askCamera = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) startCamera() else render()
+        render()
+        if (granted && texture.isAvailable) openCamera()
     }
     private val listen = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val heard = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
@@ -102,12 +124,15 @@ class EyesActivity : ComponentActivity() {
         col.addView(status)
 
         // ---- the live camera ----
-        previewView = PreviewView(this).apply {
-            implementationMode = PreviewView.ImplementationMode.COMPATIBLE // works inside a scrolling screen
-            scaleType = PreviewView.ScaleType.FILL_CENTER
-            setBackgroundColor(Color.BLACK)
+        texture = TextureView(this).apply {
+            surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) { openCamera() }
+                override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) { fitPreview() }
+                override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean = true
+                override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
+            }
         }
-        col.addView(previewView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (380 * d).toInt()))
+        col.addView(texture, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (380 * d).toInt()))
         lightBtn = button("🔦 Light") { toggleLight() }
         col.addView(row(button("⟲ Flip camera") { flip() }, lightBtn))
 
@@ -141,74 +166,183 @@ class EyesActivity : ComponentActivity() {
         col.addView(answer)
 
         setContentView(ScrollView(this).apply { addView(col) })
-
-        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) startCamera()
-        else askCamera.launch(Manifest.permission.CAMERA)
+        if (!hasCameraPermission()) askCamera.launch(Manifest.permission.CAMERA)
     }
 
     override fun onResume() {
         super.onResume()
         render()
+        startThread()
+        if (texture.isAvailable) openCamera()
     }
 
     override fun onPause() {
+        closeCamera()
+        stopThread()
         super.onPause()
-        if (torchOn) toggleLight()
     }
 
+    private fun hasCameraPermission() =
+        checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+
     private fun render() {
-        val cam = checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-        val (msg, ok) = if (cam) "✓ Ready — point the camera and ask" to true
+        val (msg, ok) = if (hasCameraPermission()) "✓ Ready — point the camera and ask" to true
         else "✗ Camera permission needed — tap \"What do you see?\" to allow it" to false
         status.text = msg
         status.setTextColor(Color.parseColor(if (ok) "#1B8A3A" else "#B00020"))
     }
 
-    // ---- camera ----
+    // ---- camera (Camera2) ----
 
-    private fun startCamera() {
-        val future = ProcessCameraProvider.getInstance(this)
-        future.addListener({
-            provider = runCatching { future.get() }.getOrNull()
-            bindCamera()
-        }, mainExecutor)
+    private fun startThread() {
+        if (cameraThread != null) return
+        cameraThread = HandlerThread("xarvis-eyes").also { it.start() }
+        cameraHandler = Handler(cameraThread!!.looper)
     }
 
-    private fun bindCamera() {
-        val p = provider ?: return
-        val selector = CameraSelector.Builder().requireLensFacing(lens).build()
-        if (!runCatching { p.hasCamera(selector) }.getOrDefault(false)) {
-            status.text = "✗ This phone has no ${if (lens == CameraSelector.LENS_FACING_BACK) "back" else "front"} camera"
+    private fun stopThread() {
+        cameraThread?.quitSafely()
+        runCatching { cameraThread?.join(500) }
+        cameraThread = null
+        cameraHandler = null
+    }
+
+    /** Opens the chosen camera into the preview, with an ImageReader ready for one JPEG at a time. */
+    @SuppressLint("MissingPermission") // checked just below
+    private fun openCamera() {
+        if (!hasCameraPermission() || device != null || opening) return
+        val handler = cameraHandler ?: return
+        val manager = getSystemService(CameraManager::class.java) ?: return
+        val facing = if (backCamera) CameraCharacteristics.LENS_FACING_BACK else CameraCharacteristics.LENS_FACING_FRONT
+        val id = runCatching {
+            manager.cameraIdList.firstOrNull { manager.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == facing }
+        }.getOrNull()
+        if (id == null) {
+            status.text = "✗ This phone has no ${if (backCamera) "back" else "front"} camera"
             return
         }
-        val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
-        val shot = ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build()
+        val chars = manager.getCameraCharacteristics(id)
+        sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+        hasFlash = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+        val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return
+        // A 4:3 preview no bigger than 1440 px, and a JPEG no bigger than ~2 MP (Gemma gets 1024 px anyway).
+        previewSize = map.getOutputSizes(SurfaceTexture::class.java)
+            .filter { it.width <= 1440 && it.width * 3 == it.height * 4 }
+            .maxByOrNull { it.width * it.height }
+            ?: map.getOutputSizes(SurfaceTexture::class.java).minByOrNull { kotlin.math.abs(it.width - 1280) } ?: Size(1280, 960)
+        val jpegSize = map.getOutputSizes(ImageFormat.JPEG)
+            .filter { maxOf(it.width, it.height) <= 1920 }
+            .maxByOrNull { it.width * it.height }
+            ?: map.getOutputSizes(ImageFormat.JPEG).minByOrNull { it.width * it.height } ?: Size(1280, 960)
+        reader = ImageReader.newInstance(jpegSize.width, jpegSize.height, ImageFormat.JPEG, 2).apply {
+            setOnImageAvailableListener({ r ->
+                val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
+                val bytes = try {
+                    val buf = image.planes[0].buffer
+                    ByteArray(buf.remaining()).also { buf.get(it) }
+                } finally {
+                    image.close()
+                }
+                onPhoto(bytes)
+            }, handler)
+        }
+        runOnUiThread { fitPreview() }
+        opening = true
         try {
-            p.unbindAll()
-            camera = p.bindToLifecycle(this, selector, preview, shot)
-            capture = shot
-            torchOn = false
-            lightBtn.text = "🔦 Light"
+            manager.openCamera(id, object : CameraDevice.StateCallback() {
+                override fun onOpened(camera: CameraDevice) {
+                    opening = false
+                    device = camera
+                    startPreview()
+                }
+                override fun onDisconnected(camera: CameraDevice) { opening = false; camera.close(); device = null }
+                override fun onError(camera: CameraDevice, error: Int) {
+                    opening = false
+                    camera.close(); device = null
+                    runOnUiThread { status.text = "✗ The camera couldn't start (error $error). Close other camera apps and reopen." }
+                }
+            }, handler)
         } catch (e: Exception) {
+            opening = false
             status.text = "✗ Couldn't start the camera: ${e.message}"
         }
-        render()
+    }
+
+    @Suppress("DEPRECATION") // createCaptureSession(List, …) is fine back to Android 9 (minSdk 28)
+    private fun startPreview() {
+        val cam = device ?: return
+        val st = texture.surfaceTexture ?: return
+        st.setDefaultBufferSize(previewSize.width, previewSize.height)
+        val preview = Surface(st)
+        val still = reader?.surface ?: return
+        try {
+            val builder = cam.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+                addTarget(preview)
+                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+            }
+            previewRequest = builder
+            cam.createCaptureSession(listOf(preview, still), object : CameraCaptureSession.StateCallback() {
+                override fun onConfigured(s: CameraCaptureSession) {
+                    if (device == null) return
+                    session = s
+                    applyPreview()
+                }
+                override fun onConfigureFailed(s: CameraCaptureSession) {
+                    runOnUiThread { status.text = "✗ The camera preview couldn't start." }
+                }
+            }, cameraHandler)
+        } catch (e: Exception) {
+            runOnUiThread { status.text = "✗ Couldn't start the preview: ${e.message}" }
+        }
+    }
+
+    /** (Re)starts the live preview with the light on or off. */
+    private fun applyPreview() {
+        val s = session ?: return
+        val b = previewRequest ?: return
+        b.set(CaptureRequest.FLASH_MODE, if (torchOn) CaptureRequest.FLASH_MODE_TORCH else CaptureRequest.FLASH_MODE_OFF)
+        runCatching { s.setRepeatingRequest(b.build(), null, cameraHandler) }
+    }
+
+    /** The preview arrives sideways-sized (landscape buffer); scale it to fill the portrait view without stretching. */
+    private fun fitPreview() {
+        val vw = texture.width.toFloat()
+        val vh = texture.height.toFloat()
+        if (vw == 0f || vh == 0f) return
+        val content = previewSize.height.toFloat() / previewSize.width // width/height of the upright picture
+        val view = vw / vh
+        val m = Matrix()
+        if (content > view) m.setScale(content / view, 1f, vw / 2, vh / 2)
+        else m.setScale(1f, view / content, vw / 2, vh / 2)
+        texture.setTransform(m)
+    }
+
+    private fun closeCamera() {
+        runCatching { session?.close() }
+        session = null
+        runCatching { device?.close() }
+        device = null
+        runCatching { reader?.close() }
+        reader = null
+        torchOn = false
+        lightBtn.text = "🔦 Light"
     }
 
     private fun flip() {
-        lens = if (lens == CameraSelector.LENS_FACING_BACK) CameraSelector.LENS_FACING_FRONT else CameraSelector.LENS_FACING_BACK
-        bindCamera()
+        backCamera = !backCamera
+        closeCamera()
+        if (texture.isAvailable) openCamera()
     }
 
     private fun toggleLight() {
-        val cam = camera ?: return
-        if (!cam.cameraInfo.hasFlashUnit()) {
+        if (!hasFlash) {
             Toast.makeText(this, "No light on this camera.", Toast.LENGTH_SHORT).show()
             return
         }
         torchOn = !torchOn
-        cam.cameraControl.enableTorch(torchOn)
         lightBtn.text = if (torchOn) "🔦 Light off" else "🔦 Light"
+        cameraHandler?.post { applyPreview() }
     }
 
     // ---- asking ----
@@ -226,38 +360,51 @@ class EyesActivity : ComponentActivity() {
 
     /** Takes one photo and asks XARVIS [question] about it. */
     private fun look(question: String) {
-        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+        if (!hasCameraPermission()) {
             askCamera.launch(Manifest.permission.CAMERA)
             return
         }
-        render()
         if (busy) {
             Toast.makeText(this, "Still waiting for XARVIS's answer…", Toast.LENGTH_SHORT).show()
             return
         }
-        val shot = capture ?: run {
+        val cam = device
+        val s = session
+        val still = reader?.surface
+        if (cam == null || s == null || still == null) {
             Toast.makeText(this, "The camera isn't ready yet.", Toast.LENGTH_SHORT).show()
             return
         }
         busy = true
+        pendingQuestion = question
         answer.text = "📸 Taking the photo…"
-        shot.takePicture(mainExecutor, object : ImageCapture.OnImageCapturedCallback() {
-            override fun onCaptureSuccess(image: ImageProxy) {
-                val bitmap = runCatching { image.toBitmap() }.getOrNull()
-                val rotation = image.imageInfo.rotationDegrees
-                image.close()
-                if (bitmap == null) { busy = false; showAnswer("Couldn't read the photo. Try again."); return }
-                Thread {
-                    val jpeg = prepare(bitmap, rotation)
-                    runOnUiThread { send(jpeg, question) }
-                }.start()
+        try {
+            val req = cam.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                addTarget(still)
+                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                set(CaptureRequest.FLASH_MODE, if (torchOn) CaptureRequest.FLASH_MODE_TORCH else CaptureRequest.FLASH_MODE_OFF)
+                set(CaptureRequest.JPEG_QUALITY, 90.toByte())
             }
+            s.capture(req.build(), null, cameraHandler)
+        } catch (e: Exception) {
+            busy = false
+            showAnswer("Couldn't take the photo: ${e.message}")
+        }
+    }
 
-            override fun onError(e: ImageCaptureException) {
-                busy = false
-                showAnswer("Couldn't take the photo: ${e.message}")
-            }
-        })
+    /** Camera thread: the JPEG arrived — turn it upright, shrink it, and hand it to XARVIS. */
+    private fun onPhoto(jpeg: ByteArray) {
+        val question = pendingQuestion ?: return
+        pendingQuestion = null
+        val bitmap = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
+        if (bitmap == null) {
+            runOnUiThread { busy = false; showAnswer("Couldn't read the photo. Try again.") }
+            return
+        }
+        // The screen is locked to portrait, so the photo needs the sensor's own rotation.
+        val prepared = prepare(bitmap, sensorOrientation)
+        runOnUiThread { send(prepared, question) }
     }
 
     private fun send(jpeg: ByteArray, question: String) {
@@ -283,12 +430,12 @@ class EyesActivity : ComponentActivity() {
     }
 
     /** Upright, at most 1024 px, as a JPEG for Gemma. */
-    private fun prepare(photo: android.graphics.Bitmap, rotationDegrees: Int): ByteArray {
+    private fun prepare(photo: Bitmap, rotationDegrees: Int): ByteArray {
         val scale = minOf(1f, 1024f / maxOf(photo.width, photo.height))
-        val m = android.graphics.Matrix().apply { postScale(scale, scale); postRotate(rotationDegrees.toFloat()) }
-        val upright = android.graphics.Bitmap.createBitmap(photo, 0, 0, photo.width, photo.height, m, true)
-        val out = java.io.ByteArrayOutputStream()
-        upright.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out)
+        val m = Matrix().apply { postScale(scale, scale); postRotate(rotationDegrees.toFloat()) }
+        val upright = Bitmap.createBitmap(photo, 0, 0, photo.width, photo.height, m, true)
+        val out = ByteArrayOutputStream()
+        upright.compress(Bitmap.CompressFormat.JPEG, 85, out)
         return out.toByteArray()
     }
 
