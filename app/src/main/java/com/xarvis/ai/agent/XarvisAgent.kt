@@ -624,30 +624,42 @@ class XarvisAgent(
                 """(?:take|click|capture|snap|shoot)\s+(?:a\s+|my\s+|me\s+a\s+|one\s+|the\s+)?(?:quick\s+)?(?:photo|picture|pic|selfie|snap|shot)""" +
                 """(?:\s+(?:with|using|on|from)\s+(?:the\s+)?(?:rear|back|front|selfie)(?:\s+camera)?)?(?:\s+please)?$""",
         )
-        /** "who is this?", "do you recognise her?": recognise the face in front of the camera. */
-        internal val WHO_IS_THIS = Regex(
-            """(?i)^(?:(?:hey\s+)?[xj]arvis[,\s]+)?(?:who(?:'s|\s+is)\s+(?:this|that|she|he|in front of me|this person|in (?:this|the) (?:photo|picture|pic|image))|whose face is (?:this|that)|do you (?:recognise|recognize|know)\s+(?:her|him|this person|them|this face|who this is|who that is))$""",
+        // "who am I" in any order ("who I am check with front camera"), and "who is this/she/he".
+        private val WHO_SELF = Regex("""(?i)\bwho\s+(?:am\s+i|i\s+am)\b|\b(?:recogni[sz]e|identify)\s+me\b|\bdo\s+you\s+know\s+me\b""")
+        private val WHO_OTHER = Regex(
+            """(?i)\bwho(?:'s|\s+is)\s+(?:this person|this|that|she|he|in front of me|in (?:this|the) (?:photo|picture|pic|image))\b|""" +
+                """\bwhose face(?:\s+is\s+(?:this|that))?\b|\b(?:recogni[sz]e|identify)\s+(?:her|him|them|this person|this face)\b|""" +
+                """\bdo\s+you\s+(?:know|recogni[sz]e)\s+(?:her|him|them|this person|this face|who this is|who that is)\b""",
         )
-        /** "who am I", "see who I am", "do you recognise me": recognise Rex himself (front camera by default). */
-        private val WHO_AM_I = Regex(
-            """(?i)^(?:(?:hey\s+)?[xj]arvis[,\s]+)?(?:(?:can you|could you|please)\s+)?(?:(?:see|tell me|check|find out|guess)\s+)?(?:who\s+am\s+i|who\s+i\s+am|(?:do you\s+)?(?:recognise|recognize|know)\s+me)$""",
+        /** Words that may surround a who-question without changing it ("check", "with the front camera"…). */
+        private val WHO_FILLER = setOf(
+            "hey", "xarvis", "jarvis", "please", "pls", "can", "could", "would", "do", "you", "check", "see", "tell", "me",
+            "find", "out", "guess", "now", "quickly", "and", "with", "by", "using", "through", "from", "on", "via",
+            "the", "my", "your", "front", "back", "rear", "selfie", "camera", "cam", "for", "just", "ok", "okay",
+            "let", "lets", "let's", "look", "is", "it", "who",
         )
-        private val WITH_CAMERA = Regex("""(?i)\s+(?:by|with|using|through|from|on|via)\s+(?:the\s+|my\s+|your\s+)?(front|selfie|back|rear)?\s*camera$""")
+        // "in front of me" is about a person standing there (back camera), not the front camera.
+        private val SAYS_FRONT = Regex("""(?i)\bselfie\b|(?<!in\s)\bfront\b(?!\s+of\b)""")
+        private val SAYS_BACK = Regex("""(?i)\b(?:back|rear)\b""")
 
         /**
-         * "who is this", "who am I", optionally "… with/by the front camera": recognise a face with XARVIS's
-         * own face recognition. Null for anything else. ("see who I am by front camera" once just took a selfie.)
+         * "who is this", "who am I" — in any word order, with harmless extra words — recognised with XARVIS's own
+         * face recognition (front camera for "who am I" or when Rex says front/selfie). Null for anything else,
+         * including other who-questions ("who am I talking to", "who is this song by"). Exact sentence patterns
+         * kept missing Rex's phrasing, so this reads the meaning instead.
          */
         internal fun whoCommand(message: String): Step.WhoIsThis? {
-            val t = message.trim().trimEnd('.', '!', '?')
-            val cam = WITH_CAMERA.find(t)
-            val core = if (cam != null) t.substring(0, cam.range.first) else t
-            val lens = cam?.groupValues?.get(1)?.lowercase().orEmpty()
-            return when {
-                WHO_AM_I.matches(core) -> Step.WhoIsThis(front = lens != "back" && lens != "rear")
-                WHO_IS_THIS.matches(core) -> Step.WhoIsThis(front = lens == "front" || lens == "selfie")
-                else -> null
+            val t = message.lowercase().trim()
+            val self = WHO_SELF.find(t)
+            val m = self ?: WHO_OTHER.find(t) ?: return null
+            val rest = t.removeRange(m.range).split(Regex("""[^a-z']+""")).filter { it.isNotBlank() }
+            if (rest.any { it !in WHO_FILLER }) return null
+            val front = when {
+                SAYS_FRONT.containsMatchIn(t) -> true
+                SAYS_BACK.containsMatchIn(t) -> false
+                else -> self != null
             }
+            return Step.WhoIsThis(front)
         }
 
         private val FRONT_CAMERA = Regex("""(?i)\b(?:selfie|front)\b""")
@@ -907,9 +919,15 @@ class XarvisAgent(
         private val USER_WANTS_PHOTO = Regex("""(?i)\b(?:take|click|capture|khinch\w*|kheench\w*|le\s+lo)\b.*\b(?:photo|picture|pic|selfie|snap)\b|\bselfie\b""")
 
         private fun photosFor(message: String, steps: List<Step>): List<Step> {
-            if (!USER_WANTS_PHOTO.containsMatchIn(message)) return steps
+            val wantsPhoto = USER_WANTS_PHOTO.containsMatchIn(message)
             val selfie = Regex("""(?i)\b(?:selfie|front)\b""").containsMatchIn(message)
-            return steps.map { if (it is Step.LaunchApp && it.appName.contains("camera", true)) Step.TakePhoto(selfie) else it }
+            return steps.map {
+                when {
+                    wantsPhoto && it is Step.LaunchApp && it.appName.contains("camera", true) -> Step.TakePhoto(selfie)
+                    it is Step.TakePhoto && selfie && !it.selfie -> Step.TakePhoto(true) // Rex said front/selfie
+                    else -> it
+                }
+            }
         }
 
         private fun callsFor(message: String, steps: List<Step>): List<Step> {

@@ -38,12 +38,12 @@ class PhotoCommandTest {
 class WhoIsThisTest {
     @Test fun asksWhoItIs() {
         listOf("who is this", "Who's this?", "hey jarvis, who is this", "do you recognise her", "do you recognize this person", "who is in front of me", "who is in this photo", "whose face is this")
-            .forEach { org.junit.Assert.assertTrue(it, XarvisAgent.WHO_IS_THIS.matches(it.trimEnd('?'))) }
+            .forEach { org.junit.Assert.assertNotNull(it, XarvisAgent.whoCommand(it)) }
     }
 
     @Test fun otherQuestionsDont() {
         listOf("who is the president of india", "who is this song by", "do you know python")
-            .forEach { org.junit.Assert.assertFalse(it, XarvisAgent.WHO_IS_THIS.matches(it)) }
+            .forEach { org.junit.Assert.assertNull(it, XarvisAgent.whoCommand(it)) }
     }
 }
 
@@ -53,6 +53,7 @@ class WhoCommandTest {
     @Test fun recognisesRexWithTheFrontCamera() {
         val front = com.xarvis.ai.workflow.Step.WhoIsThis(front = true)
         org.junit.Assert.assertEquals(front, who("see who I am by front camera"))
+        org.junit.Assert.assertEquals(front, who("who I am check with front camera"))
         org.junit.Assert.assertEquals(front, who("who am I"))
         org.junit.Assert.assertEquals(front, who("do you recognise me?"))
         org.junit.Assert.assertEquals(front, who("hey jarvis, who is this with the front camera"))
@@ -63,6 +64,7 @@ class WhoCommandTest {
         org.junit.Assert.assertEquals(back, who("who is this"))
         org.junit.Assert.assertEquals(back, who("who is she"))
         org.junit.Assert.assertEquals(back, who("who am i with the back camera"))
+        org.junit.Assert.assertEquals(back, who("who is in front of me"))
     }
 
     @Test fun notAWhoQuestion() {
