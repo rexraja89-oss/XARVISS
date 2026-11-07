@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- INSTALL TEST (test-allinone): does the S22 accept XARVIS with Hands (Accessibility) and Eyes
+     (camera) inside the main app? On 5 Oct 2026 it refused an Accessibility service here. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.CAMERA" />
+    <application>
+        <service
+            android:name=".hands.XarvisHandsService"
+            android:exported="true"
+            android:label="XARVIS"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/xarvis_accessibility_config" />
+        </service>
+    </application>
+</manifest>
