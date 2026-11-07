@@ -258,6 +258,7 @@ class XarvisCore(context: Context) {
         }
         val onPartial = { partial: String -> replaceMessage(answer.id, partial) }
         replySpoken = spoken
+        stopPressed = false
         replyJob = scope.launch {
             val reply = try {
                 when {
@@ -274,9 +275,20 @@ class XarvisCore(context: Context) {
                     else -> agent.handle(text, onPartial)
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
-                // STOP: keep what XARVIS wrote so far.
                 val sofar = _state.value.messages.firstOrNull { it.id == answer.id }?.text.orEmpty()
-                Reply(if (sofar.isBlank()) "Stopped." else "$sofar\n\n(stopped)")
+                if (stopPressed) {
+                    // STOP: keep what XARVIS wrote so far.
+                    Reply(if (sofar.isBlank()) "Stopped." else "$sofar\n\n(stopped)")
+                } else {
+                    // Something else cancelled the reply. Rex saw a run of "Stopped." without touching
+                    // STOP (Nov 2026), so say so and show where it came from instead of hiding it.
+                    val active = coroutineContext[Job]?.isActive == true
+                    android.util.Log.e("XarvisCore", "Reply interrupted without STOP (job active=$active)", e)
+                    Reply(
+                        "Something interrupted me before I finished, sir — not your STOP. Please send a screenshot of this:\n" +
+                            interruptReport(e, active),
+                    )
+                }
             } catch (e: UnreadableFile) {
                 Reply(e.message ?: "I couldn't read that file.")
             } catch (e: Exception) {
@@ -333,8 +345,28 @@ class XarvisCore(context: Context) {
     /** The reply being worked on, so STOP can cancel it. */
     private var replyJob: Job? = null
 
+    /** Set by the STOP button, so a cancelled reply can tell STOP apart from anything else. */
+    @Volatile private var stopPressed = false
+
+    /** Where a cancellation that wasn't STOP came from: its type, message and XARVIS's own stack frames. */
+    private fun interruptReport(e: Throwable, jobActive: Boolean): String {
+        val lines = ArrayList<String>()
+        var t: Throwable? = e
+        var depth = 0
+        while (t != null && depth < 4) {
+            lines += "${t.javaClass.simpleName}: ${t.message ?: "-"}"
+            t.stackTrace.filter { it.className.startsWith("com.xarvis") }.take(5).forEach {
+                lines += "  at ${it.className.substringAfterLast('.')}.${it.methodName}:${it.lineNumber}"
+            }
+            t = t.cause.takeIf { it !== t }
+            depth++
+        }
+        return "[job still active: $jobActive]\n" + lines.joinToString("\n")
+    }
+
     /** The STOP button: XARVIS stops writing, and keeps what it wrote so far. */
     fun stop() {
+        stopPressed = true
         voice.stop()
         llm.stop()
         replyJob?.cancel()
