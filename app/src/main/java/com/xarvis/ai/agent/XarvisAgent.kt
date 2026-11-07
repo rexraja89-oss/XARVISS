@@ -245,6 +245,12 @@ class XarvisAgent(
                 onPartial("Cloud unavailable — using the phone brain…")
             }
         }
+        // The cloud couldn't answer and Gemma is still loading (we skipped waiting for the cloud's
+        // sake): wait for it now rather than give up.
+        if (!llm.isReady && llm.modelPresent()) {
+            onPartial("One moment, sir, my brain is still waking up…")
+            llm.awaitLoaded(BRAIN_LOAD_WAIT_MS)
+        }
         // This phone's Gemma, when it has one (the S22).
         if (llm.isReady) {
             lastVia = withNote("on-device", cloudNote)
@@ -519,7 +525,8 @@ class XarvisAgent(
 
     /** Just after a restart the model takes about a minute to load: wait for it rather than fail. */
     private suspend fun brainReady(onPartial: (String) -> Unit) {
-        if (llm.isReady || !llm.modelPresent()) return
+        // The cloud brain can answer right away, so don't keep Rex waiting while Gemma loads.
+        if (llm.isReady || !llm.modelPresent() || useCloud()) return
         onPartial("One moment, sir, my brain is still waking up…")
         llm.awaitLoaded(BRAIN_LOAD_WAIT_MS)
     }
