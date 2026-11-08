@@ -112,6 +112,15 @@ class DeviceLink(context: Context, private val handler: Handler) {
          * side closes. Call [accept] once with the stream's description before sending anything; throw to refuse.
          */
         suspend fun screenStream(from: String, req: JSONObject, channel: Channel, accept: (JSONObject) -> Unit)
+
+        /** A file sent from linked phone [from]: save it here and say so; returns the saved name. */
+        suspend fun receiveFile(from: String, name: String, mime: String, bytes: ByteArray): String
+
+        /** Text sent from linked phone [from] for this phone's clipboard. */
+        suspend fun receiveClip(from: String, text: String)
+
+        /** XARVIS acting on this phone for [from]: "open" an app, "read" the screen, "tap" a label, "type" text. */
+        suspend fun act(from: String, kind: String, arg: String): String
     }
 
     /** A linked phone's screen: the picture, and the size of the real screen it shows. */
@@ -405,6 +414,22 @@ class DeviceLink(context: Context, private val handler: Handler) {
         throw LinkException("${peer.name} isn't reachable (${failure?.message ?: "no answer"}).")
     }
 
+    /** Sends a file to [peer] (it lands in its Downloads › XARVIS); returns the name it was saved as. */
+    suspend fun sendFile(peer: Peer, name: String, mime: String, bytes: ByteArray): String =
+        request(
+            peer, "file", JSONObject().put("name", name).put("mime", mime).put("data", b64(bytes)),
+            timeoutMs = FILE_READ_TIMEOUT_MS,
+        ).optString("saved", name)
+
+    /** Puts [text] on [peer]'s clipboard. */
+    suspend fun sendClip(peer: Peer, text: String) {
+        request(peer, "clip", JSONObject().put("text", text))
+    }
+
+    /** XARVIS acting on [peer]: "open" (app), "read" (its screen), "tap" (label), "type" (text). Returns what happened. */
+    suspend fun remoteAct(peer: Peer, kind: String, arg: String = ""): String =
+        request(peer, "act", JSONObject().put("kind", kind).put("arg", arg), timeoutMs = SCREEN_READ_TIMEOUT_MS).getString("text")
+
     /** Remote control: [peer]'s screen right now, at most [maxSide] pixels on its long side. */
     suspend fun remoteScreen(peer: Peer, maxSide: Int): ScreenFrame {
         val r = request(peer, "screen", JSONObject().put("max", maxSide), timeoutMs = SCREEN_READ_TIMEOUT_MS)
@@ -644,6 +669,15 @@ class DeviceLink(context: Context, private val handler: Handler) {
                 }
                 return null
             }
+            "file" -> reply.put(
+                "saved",
+                handler.receiveFile(peer.name, req.getString("name"), req.optString("mime"), unb64(req.getString("data"))),
+            )
+            "clip" -> {
+                handler.receiveClip(peer.name, req.getString("text"))
+                reply.put("ok", true)
+            }
+            "act" -> reply.put("text", handler.act(peer.name, req.getString("kind"), req.optString("arg")))
             "screen_stop" -> {
                 handler.screenStop(peer.name)
                 reply.put("ok", true)
@@ -877,6 +911,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
         private const val SNAP_READ_TIMEOUT_MS = 90_000 // the other phone may wait up to a minute for Rex to tap its notification
         private const val SCREEN_READ_TIMEOUT_MS = 15_000 // one screen picture or one tap
         private const val STREAM_READ_TIMEOUT_MS = 20_000 // both sides send something at least every 2 s
+        private const val FILE_READ_TIMEOUT_MS = 180_000 // a file of up to 25 MB, over Tailscale on mobile data
         private const val PAIRING_TIMEOUT_MS = 5 * 60_000L
         private const val MAX_CLOCK_SKEW_MS = 5 * 60_000L
         private const val NETWORK_SETTLE_MS = 3_000L

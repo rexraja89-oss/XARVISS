@@ -157,6 +157,24 @@
             android:exported="false"
             android:label="XARVIS Hands"
             android:theme="@android:style/Theme.DeviceDefault.Light" />
+        <!-- Share → "Send to my other phone": files and text to the linked phone over the encrypted link. -->
+        <activity
+            android:name=".ShareToLinkedActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="Send to my other phone"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
         <!-- Remote control of the linked phone's screen (like TeamViewer), over the encrypted link. -->
         <activity
             android:name=".RemoteScreenActivity"

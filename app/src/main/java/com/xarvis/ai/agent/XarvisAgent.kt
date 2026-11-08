@@ -129,6 +129,7 @@ class XarvisAgent(
                 ?: RemindCommands.parse(message)?.let { run(listOf(it)) }
                 ?: HealthCommands.parse(message)?.let { run(listOf(it)) }
                 ?: LinkCommands.parse(message, link.pairingInProgress)?.let { run(listOf(it)) }
+                ?: OtherPhoneCommands.parse(message, otherPhoneWords())?.let { onOtherPhone(it, onPartial) }
                 ?: (if (OPEN_EYES.matches(message.trim().trimEnd('.', '!', '?'))) run(listOf(Step.OpenEyes)) else null)
                 ?: photoCommand(message, deviceWords())?.let { run(listOf(it)) }
                 ?: whoCommand(message)?.let { run(listOf(it)) }
@@ -509,6 +510,54 @@ class XarvisAgent(
         return reply.copy(files = searched + reply.files, via = lastVia)
     }
 
+    /** Words naming the OTHER phone ("galaxy", "s22", "ultra" on the benco), never this phone's own. */
+    private fun otherPhoneWords(): Set<String> {
+        fun words(name: String) = name.lowercase().split(Regex("""[^a-z0-9]+""")).filter { it.length >= 2 }
+        val mine = words(link.deviceName).toSet()
+        val theirs = link.pairedPeers().flatMap { words(it.name) } + listOf("s22", "galaxy", "ultra", "benco")
+        return theirs.filter { it !in mine && it !in NAME_FILLER }.toSet()
+    }
+
+    /**
+     * Do it ON the other phone, through its XARVIS Hands (it must allow remote control): open an app, tap,
+     * type, or read its screen and answer from it with the brain — kept on-device, it may be private chats.
+     */
+    private suspend fun onOtherPhone(cmd: OtherPhoneCommands.Cmd, onPartial: (String) -> Unit): Reply {
+        val peer = link.reachable().firstOrNull()?.first
+            ?: return Reply("I can't reach your other phone, sir. Make sure XARVIS is running on it with Tailscale on.")
+        forceLocalThisTurn = true
+        return try {
+            when (cmd) {
+                is OtherPhoneCommands.Open -> {
+                    onPartial("Opening ${cmd.app} on ${peer.name}…")
+                    val opened = link.remoteAct(peer, "open", cmd.app)
+                    val then = cmd.then ?: return Reply("$opened (on ${peer.name})", via = peer.name)
+                    kotlinx.coroutines.delay(OTHER_PHONE_APP_WAIT_MS) // let the app come up before looking at it
+                    when (val next = OtherPhoneCommands.followUp(then)) {
+                        is OtherPhoneCommands.Read -> readOtherPhone(peer, next.question, onPartial)
+                        else -> onOtherPhone(next, onPartial).let { it.copy(text = "$opened
+${it.text}") }
+                    }
+                }
+                is OtherPhoneCommands.Read -> readOtherPhone(peer, cmd.question, onPartial)
+                is OtherPhoneCommands.Tap -> Reply(link.remoteAct(peer, "tap", cmd.label), via = peer.name)
+                is OtherPhoneCommands.Type -> Reply(link.remoteAct(peer, "type", cmd.text), via = peer.name)
+            }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Reply("I couldn't do that on ${peer.name}: ${e.message ?: e.javaClass.simpleName}")
+        }
+    }
+
+    private suspend fun readOtherPhone(peer: Peer, question: String, onPartial: (String) -> Unit): Reply {
+        onPartial("Reading ${peer.name}'s screen…")
+        val screen = link.remoteAct(peer, "read")
+        val prompt = "(Below is the text on the screen of Rex's ${peer.name} right now, read by XARVIS Hands; the app's " +
+            "name is in [brackets] and the lines run top to bottom. Answer Rex from it only — if what he asks about isn't " +
+            "there, say what IS on the screen. Don't use any TOOL.)\n<<<\n$screen\n>>>\n\nRex: $question"
+        return askGemma(question, onPartial, prompt)
+    }
+
     /** Words of this phone's and the linked phones' names ("benco", "v91s"…), which Rex may say in a command. */
     private fun deviceWords(): Set<String> = (listOf(link.deviceName) + link.pairedPeers().map { it.name })
         .flatMap { it.lowercase().split(Regex("""[^a-z0-9]+""")) }.filter { it.isNotBlank() }.toSet()
@@ -645,6 +694,9 @@ class XarvisAgent(
         private const val MAX_FACT_CHARS = 3000
         private const val BRAIN_LOAD_WAIT_MS = 180_000L
         private const val LINKED_BRAIN_POLL_MS = 5_000L
+        private const val OTHER_PHONE_APP_WAIT_MS = 2_500L
+        /** Words in phone names too common to mean the phone ("plus", "pro"…). */
+        private val NAME_FILLER = setOf("plus", "pro", "max", "mini", "lite", "phone", "mobile", "the", "my", "sm")
 
         /**
          * "take a photo", "open rear camera and take a photo", "take a selfie": straight to the camera.

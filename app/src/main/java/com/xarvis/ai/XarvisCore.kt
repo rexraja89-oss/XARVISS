@@ -233,6 +233,28 @@ class XarvisCore(context: Context) {
             from: String, req: JSONObject, channel: DeviceLink.Channel, accept: (JSONObject) -> Unit,
         ) = com.xarvis.ai.hands.ScreenHost.stream(appContext, from, req, channel, accept)
 
+        override suspend fun receiveFile(from: String, name: String, mime: String, bytes: ByteArray): String {
+            val clean = name.replace(Regex("""[\\/:*?"<>|]"""), "_").take(120).ifBlank { "file" }
+            val saved = FileStore(appContext).saveBytes(
+                clean, mime.ifBlank { "application/octet-stream" }, bytes, "from-" + DeviceLink.shortName(from),
+            )
+            _state.update {
+                it.copy(messages = it.messages + ChatMessage(false, "📁 $from sent you ${saved.name} (Downloads › XARVIS).", files = listOf(saved)))
+            }
+            return saved.name
+        }
+
+        override suspend fun receiveClip(from: String, text: String) {
+            withContext(Dispatchers.Main) {
+                appContext.getSystemService(android.content.ClipboardManager::class.java)
+                    ?.setPrimaryClip(android.content.ClipData.newPlainText("From $from", text))
+            }
+            post("📋 From $from — it's on your clipboard now (long-press a text box → Paste):\n$text")
+        }
+
+        override suspend fun act(from: String, kind: String, arg: String): String =
+            withContext(Dispatchers.Main) { com.xarvis.ai.hands.ScreenHost.act(appContext, from, kind, arg) }
+
         override suspend fun facesInPhoto(jpeg: ByteArray): String {
             val file = java.io.File(appContext.cacheDir, "photos/faces-${System.currentTimeMillis()}.jpg")
             return try {

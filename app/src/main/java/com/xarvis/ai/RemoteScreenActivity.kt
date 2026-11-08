@@ -118,6 +118,7 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
             addView(stage, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
             addView(row(button("◀ Back") { key("back") }, button("⬤ Home") { key("home") }, button("▢ Apps") { key("recents") }, button("🔔") { key("notifications") }))
             addView(row(button("⌨ Type") { type() }, button("⚙ Quick") { key("quick") }, button("🔒 Lock") { key("lock") }, button("✖ End") { finish() }))
+            addView(row(button("📋 Paste to it") { pasteToIt() }, button("📋 Copy from it") { copyFromIt() }, button("📁 Send file") { pickFile() }))
         }
         setContentView(col)
         scope.launch { run() }
@@ -202,7 +203,11 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
                         }
                     }
                     StreamMsg.PONG -> if (payload.size == 8) rttMs = (System.nanoTime() - ByteBuffer.wrap(payload).long) / 1_000_000
-                    StreamMsg.INFO -> if (JSONObject(String(payload)).optString("switch") == "video") return "video"
+                    StreamMsg.INFO -> {
+                        val info = JSONObject(String(payload))
+                        if (info.optString("switch") == "video") return "video"
+                        if (info.has("clip")) runOnUiThread { gotClip(if (info.isNull("clip")) null else info.optString("clip")) }
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -400,6 +405,68 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
         }
     }
 
+    // ---- clipboard and files ----
+
+    /** This phone's clipboard → the other phone's clipboard and its selected text box. */
+    private fun pasteToIt() {
+        val clip = getSystemService(android.content.ClipboardManager::class.java)?.primaryClip
+        val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
+        if (text.isEmpty()) {
+            status.text = "⚠ Your clipboard here is empty: copy something first."
+            return
+        }
+        command(JSONObject().put("kind", "paste").put("text", text))
+        status.text = "📋 Pasted on ${peer?.name ?: "it"} (and put on its clipboard)."
+    }
+
+    /** The other phone's selected text → this phone's clipboard (arrives as an INFO message). */
+    private fun copyFromIt() {
+        if (mode == "poll") {
+            status.text = "⚠ Update XARVIS on ${peer?.name ?: "the other phone"} to copy from it."
+            return
+        }
+        send(StreamMsg.INPUT, JSONObject().put("kind", "copy").toString().toByteArray())
+    }
+
+    private fun gotClip(text: String?) {
+        if (text.isNullOrEmpty()) {
+            status.text = "⚠ Nothing to copy: tap a text box on its screen (or select some text) first."
+            return
+        }
+        getSystemService(android.content.ClipboardManager::class.java)
+            ?.setPrimaryClip(android.content.ClipData.newPlainText("From ${peer?.name ?: "linked phone"}", text))
+        status.text = "📋 Copied here: " + text.take(60) + if (text.length > 60) "…" else ""
+    }
+
+    private fun pickFile() {
+        val pick = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT)
+            .addCategory(android.content.Intent.CATEGORY_OPENABLE).setType("*/*")
+        runCatching { startActivityForResult(pick, PICK_FILE) }
+    }
+
+    @Deprecated("A plain Activity's result callback; this screen has no Compose")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        val uri = data?.data
+        if (requestCode != PICK_FILE || resultCode != RESULT_OK || uri == null) return
+        val p = peer ?: return
+        val name = com.xarvis.ai.files.DocumentReader.displayName(this, uri)
+        status.text = "📁 Sending $name to ${p.name}…"
+        scope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: error("couldn't read it")
+                    if (bytes.size > ShareToLinkedActivity.MAX_BYTES) error("it's over ${ShareToLinkedActivity.MAX_BYTES / 1_000_000} MB")
+                    link.sendFile(p, name, contentResolver.getType(uri) ?: "application/octet-stream", bytes)
+                }
+            }
+            status.text = result.fold(
+                { "📁 Sent: $it is in ${p.name}'s Downloads › XARVIS." },
+                { "⚠ Couldn't send $name: ${it.message ?: it.javaClass.simpleName}" },
+            )
+        }
+    }
+
     /** Off the main thread, in order. */
     private fun send(type: Int, payload: ByteArray = ByteArray(0)) {
         val ch = channel ?: return
@@ -499,6 +566,7 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
         private const val KBPS = 4000
         private const val MOVE_EVERY_MS = 12L
         private const val POLL_MAX_SIDE = 1100
+        private const val PICK_FILE = 7401
         private val STOPPERS = listOf("switched off", "STOP was pressed", "can't be controlled")
     }
 }
