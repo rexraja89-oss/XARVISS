@@ -11,6 +11,9 @@
     <permission
         android:name="com.xarvis.hands.permission.COMMAND"
         android:protectionLevel="signature" />
+    <!-- To send remote-control answers (screen pictures, read text) back to XARVIS, which only accepts them
+         from Rex's own same-key apps (XARVIS defines this signature permission). -->
+    <uses-permission android:name="com.xarvis.ai.permission.EYES" />
 
     <!-- So Hands can launch imo for "call <contact> in imo". Android 11+ hides other apps unless
          listed here; these are the imo package names. -->
@@ -20,6 +23,11 @@
         <package android:name="com.imo.android.imoimhd" />
         <package android:name="com.whatsapp" />
         <package android:name="com.whatsapp.w4b" />
+        <!-- Remote control: open any app XARVIS asks for ("open WhatsApp on my benco"). -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
     </queries>
 
     <application
@@ -67,6 +75,8 @@
             android:permission="com.xarvis.hands.permission.COMMAND">
             <intent-filter>
                 <action android:name="com.xarvis.hands.action.CALL_IN_APP" />
+                <!-- Remote control of this phone by Rex's other phone, through XARVIS (RemoteHands). -->
+                <action android:name="com.xarvis.hands.action.REMOTE" />
             </intent-filter>
         </receiver>
     </application>

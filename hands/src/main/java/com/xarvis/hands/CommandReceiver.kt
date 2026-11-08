@@ -15,6 +15,11 @@ import android.content.Intent
  */
 class CommandReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        // Remote control of this phone by Rex's other phone, sent by XARVIS on this phone.
+        if (intent.action == RemoteHands.ACTION) {
+            RemoteHands.handle(intent)
+            return
+        }
         if (intent.action != "com.xarvis.hands.action.CALL_IN_APP") return
         val contact = intent.getStringExtra("contact")?.trim().orEmpty()
         val app = intent.getStringExtra("app")?.trim().orEmpty().ifEmpty { "imo" }

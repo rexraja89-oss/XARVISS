@@ -176,7 +176,8 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
         } else {
             video.layoutParams = FrameLayout.LayoutParams(1, 1, Gravity.CENTER)
             picture.visibility = View.VISIBLE
-            smoothButton.visibility = View.VISIBLE
+            // The benco can't do live video (no screen sharing in its build): no "Make it smooth" there.
+            smoothButton.visibility = if (head.optBoolean("smoothable", true)) View.VISIBLE else View.GONE
         }
         status.text = "🖥 ${p.name} · connected"
         val next = withContext(Dispatchers.IO) { readLoop(p, ch) }
@@ -486,7 +487,7 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
                 val delay = if (rttMs >= 0) " · ${rttMs} ms delay" else ""
                 status.text = when (mode) {
                     "video" -> "⚡ ${p.name} · live · $fps fps$delay"
-                    "jpeg" -> "🖥 ${p.name} · $fps pictures/s$delay · tap ⚡ for live video"
+                    "jpeg" -> "🖥 ${p.name} · $fps pictures/s$delay" + if (smoothButton.visibility == View.VISIBLE) " · tap ⚡ for live video" else ""
                     else -> status.text
                 }
             }

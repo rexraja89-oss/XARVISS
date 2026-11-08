@@ -152,6 +152,11 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
         return true
     }
 
+    override fun openApp(packageName: String): Boolean {
+        val launch = packageManager.getLaunchIntentForPackage(packageName)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) ?: return false
+        return runCatching { startActivity(launch) }.isSuccess
+    }
+
     override fun selectedText(): String? {
         val field = findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return null
         if (field.isShowingHintText) return null

@@ -61,6 +61,20 @@ class HandsActivity : Activity() {
                 text = "On this phone Hands is the separate \"XARVIS Hands\" app. Open it from your app list."
                 textSize = 15f
             })
+            // Two-way remote control: the S22 may see and control this phone too, through the Hands app.
+            col.addView(header("REMOTE CONTROL — LIKE TEAMVIEWER"))
+            col.addView(android.widget.CheckBox(this).apply {
+                text = "🖥 Let my linked phone see and control this phone"
+                textSize = 16f
+                isChecked = com.xarvis.ai.hands.ScreenHost.allowed(this@HandsActivity)
+                setOnCheckedChangeListener { _, on -> com.xarvis.ai.hands.ScreenHost.setAllowed(this@HandsActivity, on) }
+            })
+            col.addView(TextView(this).apply {
+                text = "Needs the newest XARVIS Hands app, switched on. Its screen must be on when the other phone " +
+                    "connects; a red \"… is controlling this phone · STOP\" banner then shows and keeps it on. Pictures, a " +
+                    "few a second (live video is the S22's only)."
+                textSize = 13f; setTextColor(Color.parseColor("#666666"))
+            })
             setContentView(ScrollView(this).apply { addView(col) })
             return
         }

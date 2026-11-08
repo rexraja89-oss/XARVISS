@@ -68,9 +68,11 @@ object ScreenHost {
         val hands = hands(context)
         touch(context, from, hands)
         val shot = capture(hands) ?: run { delay(400); capture(hands) }
-            ?: throw LinkException("I couldn't capture its screen just now. Try again.")
-        screenW = shot.width
-        screenH = shot.height
+            ?: throw LinkException("I couldn't capture its screen just now (is its screen on?). Try again.")
+        // Touches are placed on the real screen; the picture may be smaller (the benco's Hands app sends it scaled).
+        val (realW, realH) = ScreenVideo.realSize(context)
+        screenW = realW
+        screenH = realH
         return withContext(Dispatchers.Default) {
             val scale = minOf(1f, maxSide.toFloat() / maxOf(shot.width, shot.height))
             val small = if (scale < 1f) {
@@ -80,7 +82,7 @@ object ScreenHost {
             }
             val out = ByteArrayOutputStream()
             small.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
-            Frame(out.toByteArray(), shot.width, shot.height)
+            Frame(out.toByteArray(), realW, realH)
         }
     }
 
@@ -134,7 +136,9 @@ object ScreenHost {
         }
         accept(
             JSONObject().put("ok", true).put("mode", if (video != null) "video" else "jpeg")
-                .put("w", w).put("h", h).put("vw", video?.width ?: 0).put("vh", video?.height ?: 0),
+                .put("w", w).put("h", h).put("vw", video?.width ?: 0).put("vh", video?.height ?: 0)
+                // Only the S22 build can do live video (screen sharing); the benco sends pictures.
+                .put("smoothable", com.xarvis.ai.workflow.hasScreen(context, "com.xarvis.ai.hands.ScreenConsentActivity")),
         )
         try {
             coroutineScope {
@@ -226,10 +230,8 @@ object ScreenHost {
             "open" -> {
                 val device = com.xarvis.ai.device.DeviceCapabilityManager(context)
                 val app = device.findApp(arg) ?: return "There's no app called \"$arg\" on it."
-                val launch = device.launchIntent(app) ?: return "${app.label} can't be opened from outside."
-                // Allowed from the background because XARVIS Hands (Accessibility) is on.
-                context.startActivity(launch)
-                "Opened ${app.label}."
+                // Through Hands: Android lets an Accessibility service start apps from the background.
+                if (hands.openApp(app.packageName)) "Opened ${app.label}." else "${app.label} can't be opened from outside."
             }
             "read" -> hands.screenText().ifBlank { "I couldn't read anything on its screen (is it locked or off?)." }
             "tap" -> if (hands.tapText(arg)) "Tapped \"$arg\"." else "I couldn't find \"$arg\" on its screen (or it looks like a payment / password, which I never tap)."
@@ -251,14 +253,15 @@ object ScreenHost {
     }
 
     private fun hands(context: Context): HandsBridge.Hands {
-        if (!HandsBridge.builtIn) throw LinkException("this phone can't be controlled yet — only the S22 can, for now.")
         if (!allowed(context)) throw LinkException(
             "remote control is switched off on it. On that phone: ☰ → XARVIS Hands → tick " +
                 "\"Let my linked phone see and control this phone\".",
         )
         if (System.currentTimeMillis() < stoppedUntil) throw LinkException("STOP was pressed on it. Try again in a minute.")
-        return HandsBridge.service ?: throw LinkException(
-            "XARVIS Hands is switched off on it (☰ → XARVIS Hands → Open Accessibility settings → XARVIS Hands → On).",
+        // The S22 has Hands inside XARVIS; the benco uses the separate XARVIS Hands app.
+        return HandsBridge.service ?: ExternalHands.get(context) ?: throw LinkException(
+            if (HandsBridge.builtIn) "XARVIS Hands is switched off on it (☰ → XARVIS Hands → Open Accessibility settings → XARVIS Hands → On)."
+            else "the XARVIS Hands app on it is off or missing: open XARVIS Hands there, switch it on, and update it to the newest version.",
         )
     }
 
@@ -298,9 +301,12 @@ object ScreenHost {
     private fun wakeScreen(context: Context) = synchronized(this) {
         if (wake?.isHeld == true) return@synchronized
         val power = context.getSystemService(PowerManager::class.java) ?: return@synchronized
-        wake = power.newWakeLock(
-            PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "xarvis:remote-control",
-        ).apply { acquire(WAKE_MAX_MS) }
+        // The benco build has no WAKE_LOCK permission (its banner keeps the screen on instead).
+        wake = runCatching {
+            power.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "xarvis:remote-control",
+            ).apply { acquire(WAKE_MAX_MS) }
+        }.getOrNull()
     }
 
     private suspend fun capture(hands: HandsBridge.Hands): Bitmap? = kotlinx.coroutines.withTimeoutOrNull(5_000) {

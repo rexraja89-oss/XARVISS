@@ -46,6 +46,8 @@ object HandsBridge {
         fun tapText(label: String): Boolean
         /** The selected text in the field with the cursor (or all of it); null if none. */
         fun selectedText(): String?
+        /** Opens the app [packageName] (Hands may start apps from the background; XARVIS itself may not). */
+        fun openApp(packageName: String): Boolean
     }
 
     /** Whether this build has Hands inside XARVIS (the S22's). */
