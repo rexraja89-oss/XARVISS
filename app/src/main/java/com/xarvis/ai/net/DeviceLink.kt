@@ -97,7 +97,19 @@ class DeviceLink(context: Context, private val handler: Handler) {
 
         /** Who is in a linked phone's photo, by this phone's face recognition ("That's Rex, sir — 87% match"). */
         suspend fun facesInPhoto(jpeg: ByteArray): String
+
+        /** Remote control: this screen for linked phone [from] — JPEG, plus the screen's real width and height. */
+        suspend fun screenFrame(from: String, maxSide: Int): Triple<ByteArray, Int, Int>
+
+        /** Remote control: a tap, swipe, key or text from linked phone [from] (see ScreenHost.input). */
+        suspend fun screenInput(from: String, cmd: JSONObject): Boolean
+
+        /** Remote control: [from] closed its view of this screen. */
+        fun screenStop(from: String)
     }
+
+    /** A linked phone's screen: the picture, and the size of the real screen it shows. */
+    class ScreenFrame(val jpeg: ByteArray, val width: Int, val height: Int)
 
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("link", Context.MODE_PRIVATE)
@@ -292,6 +304,20 @@ class DeviceLink(context: Context, private val handler: Handler) {
             }
         }
         return ok.map { (p, r) -> p to r.getOrThrow().optBoolean("llm") }
+    }
+
+    /** Remote control: [peer]'s screen right now, at most [maxSide] pixels on its long side. */
+    suspend fun remoteScreen(peer: Peer, maxSide: Int): ScreenFrame {
+        val r = request(peer, "screen", JSONObject().put("max", maxSide), timeoutMs = SCREEN_READ_TIMEOUT_MS)
+        return ScreenFrame(unb64(r.getString("jpg")), r.getInt("w"), r.getInt("h"))
+    }
+
+    /** Remote control: a tap/swipe/key/text on [peer] (see ScreenHost.input); whether it was done. */
+    suspend fun remoteInput(peer: Peer, cmd: JSONObject): Boolean =
+        request(peer, "input", JSONObject().put("cmd", cmd), timeoutMs = SCREEN_READ_TIMEOUT_MS).optBoolean("ok")
+
+    suspend fun remoteScreenStop(peer: Peer) {
+        request(peer, "screen_stop", timeoutMs = PING_TIMEOUT_MS)
     }
 
     /** Who is in [jpeg], by [peer]'s face recognition (the faces Rex taught XARVIS on that phone). */
@@ -506,6 +532,15 @@ class DeviceLink(context: Context, private val handler: Handler) {
             // Failures throw; serve() sends their message back, which the asking phone shows Rex.
             "snap" -> reply.put("jpg", b64(handler.snapPhoto(req.optBoolean("front"), peer.name)))
             "faces" -> reply.put("text", handler.facesInPhoto(unb64(req.getString("image"))))
+            "screen" -> {
+                val (jpg, w, h) = handler.screenFrame(peer.name, req.optInt("max", 1100).coerceIn(480, 2400))
+                reply.put("jpg", b64(jpg)).put("w", w).put("h", h)
+            }
+            "input" -> reply.put("ok", handler.screenInput(peer.name, req.getJSONObject("cmd")))
+            "screen_stop" -> {
+                handler.screenStop(peer.name)
+                reply.put("ok", true)
+            }
             "memory_add" -> {
                 handler.memoryAdd(req.getString("c"), req.getLong("t"))
                 reply.put("ok", true)
@@ -733,6 +768,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
         private const val CONTACTS_READ_TIMEOUT_MS = 90_000 // may wait for a permission answer on that phone
         private const val GALLERY_READ_TIMEOUT_MS = 60_000 // sending several downscaled photos takes a moment
         private const val SNAP_READ_TIMEOUT_MS = 90_000 // the other phone may wait up to a minute for Rex to tap its notification
+        private const val SCREEN_READ_TIMEOUT_MS = 15_000 // one screen picture or one tap
         private const val PAIRING_TIMEOUT_MS = 5 * 60_000L
         private const val MAX_CLOCK_SKEW_MS = 5 * 60_000L
         private const val NETWORK_SETTLE_MS = 3_000L

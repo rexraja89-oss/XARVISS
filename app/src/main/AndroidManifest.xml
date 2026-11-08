@@ -157,6 +157,13 @@
             android:exported="false"
             android:label="XARVIS Hands"
             android:theme="@android:style/Theme.DeviceDefault.Light" />
+        <!-- Remote control of the linked phone's screen (like TeamViewer), over the encrypted link. -->
+        <activity
+            android:name=".RemoteScreenActivity"
+            android:exported="false"
+            android:label="Control linked phone"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
 
         <!-- ☰ → Morning briefing: Gmail + Calendar briefing. -->
         <activity

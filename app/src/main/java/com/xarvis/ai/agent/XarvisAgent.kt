@@ -132,6 +132,10 @@ class XarvisAgent(
                 ?: (if (OPEN_EYES.matches(message.trim().trimEnd('.', '!', '?'))) run(listOf(Step.OpenEyes)) else null)
                 ?: photoCommand(message, deviceWords())?.let { run(listOf(it)) }
                 ?: whoCommand(message)?.let { run(listOf(it)) }
+                ?: (if (remoteCommand(message, deviceWords())) {
+                    val named = DeviceLink.namedIn(message, link.pairedPeers().map { it.name })
+                    run(listOf(Step.RemoteScreen(named)))
+                } else null)
                 ?: askGemma(message, onPartial, emotionalPrompt(message))
         memory.logInteraction(message, response.text, chatId)
         return response
@@ -718,6 +722,28 @@ class XarvisAgent(
                 if (rest.any { it !in PHOTO_FILLER && it !in deviceWords }) return null
             }
             return Step.TakePhoto(selfie = FRONT_CAMERA.containsMatchIn(t))
+        }
+
+        /** Words that may make up a remote-control request ("take full control of my other phone"). */
+        private val REMOTE_FILLER = setOf(
+            "hey", "xarvis", "jarvis", "please", "pls", "can", "could", "would", "you", "i", "want", "to", "let", "me", "now",
+            "just", "ok", "okay", "remote", "remotely", "control", "take", "full", "access", "of", "over", "the", "my", "its",
+            "other", "linked", "phone", "mobile", "device", "screen", "share", "sharing", "mirror", "show", "see", "view",
+            "open", "watch", "start", "on", "from", "here", "this", "with", "and", "a", "s22", "benco", "galaxy", "ultra", "samsung",
+        )
+
+        /**
+         * "control my S22", "remote control", "take full control of my other phone", "show S22 screen": the linked
+         * phone's screen to control (like TeamViewer). Every word must belong to such a request ([deviceWords]: the
+         * phones' names), so "control the volume" or "how do I control my phone" go elsewhere.
+         */
+        internal fun remoteCommand(message: String, deviceWords: Set<String> = emptySet()): Boolean {
+            val words = message.lowercase().split(Regex("""[^a-z0-9']+""")).map { it.removeSuffix("'s") }.filter { it.isNotBlank() }
+            if (words.isEmpty() || words.any { it !in REMOTE_FILLER && it !in deviceWords }) return false
+            val device = words.any { it in deviceWords || it in setOf("s22", "benco", "galaxy", "other", "linked") }
+            return "remote" in words || "remotely" in words || "mirror" in words ||
+                ("control" in words && (device || "phone" in words || "mobile" in words || "screen" in words)) ||
+                ("screen" in words && (device || "share" in words || "sharing" in words))
         }
 
         /** "look", "open your eyes", "XARVIS Eyes": open the separate XARVIS Eyes camera app. */

@@ -50,6 +50,8 @@ sealed interface Step {
     data object OpenEyes : Step
     /** "Who is this?" / "who am I?": open Eyes and recognise the face ([front]: the selfie camera). */
     data class WhoIsThis(val front: Boolean = false) : Step
+    /** "Control my S22": the linked phone's screen, live, to tap and swipe on (like TeamViewer). */
+    data class RemoteScreen(val device: String? = null) : Step
     /** Dial an emergency service (police/ambulance/fire) directly and handsfree. [label] e.g. "the police". */
     data class EmergencyCall(val number: String, val label: String) : Step
     data class WhatsApp(val target: String, val text: String?) : Step
@@ -354,6 +356,13 @@ class WorkflowEngine(
             } else {
                 StepResult(false, "This phone has no camera, sir. Attach a photo (tap +) and ask \"who is this?\" — the S22 will recognise the faces in it.")
             }
+        }
+        is Step.RemoteScreen -> {
+            val view = Intent().setClassName(appContext, "com.xarvis.ai.RemoteScreenActivity")
+                .putExtra("device", step.device).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            appContext.startActivity(view)
+            StepResult(true, backgroundNote("remote control", view)
+                ?: "Connecting to ${step.device ?: "your linked phone"}'s screen, sir. Touch to tap, drag to swipe; ✖ End when you're done.")
         }
         is Step.EmergencyCall -> phone.callNumber(step.number, step.label, handsfree = true)
             .let { it.copy(message = "Stay calm, sir. ${it.message}") }

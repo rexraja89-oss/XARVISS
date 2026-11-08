@@ -21,6 +21,18 @@ object HandsBridge {
     interface Hands {
         fun startCallInApp(app: String, contact: String, video: Boolean)
         fun cancelTask()
+
+        // ---- remote control by the linked phone (ScreenHost) ----
+        /** A picture of the whole screen (null if Android refused, e.g. asked again within a third of a second). */
+        fun screenshot(onFrame: (android.graphics.Bitmap?) -> Unit)
+        /** "tap" / "long" at ([x],[y]), or "swipe" to ([x2],[y2]) over [ms]; screen pixels. */
+        fun gesture(kind: String, x: Float, y: Float, x2: Float, y2: Float, ms: Long): Boolean
+        /** "back", "home", "recents", "notifications", "quick", "lock". */
+        fun globalAction(name: String): Boolean
+        /** Types [text] into the field that has the cursor (and presses Enter if [enter]). */
+        fun typeText(text: String, enter: Boolean): Boolean
+        /** The "being controlled by …" banner on this screen; null hides it. Its STOP calls [onStop]. */
+        fun controlBanner(by: String?, onStop: () -> Unit)
     }
 
     /** Whether this build has Hands inside XARVIS (the S22's). */

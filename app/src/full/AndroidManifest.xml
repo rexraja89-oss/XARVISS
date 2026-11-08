@@ -9,6 +9,8 @@
     <!-- Remote camera with the screen off: the benco's photo request wakes the S22 like an incoming call
          and opens Eyes over the lock screen (RemoteCameraNotice). Normal permission on Android 13. -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- Remote control by the linked phone (ScreenHost): wakes the screen and keeps it on while in use. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application>
         <!-- XARVIS Eyes: camera view; one photo at a time goes to Gemma, nothing is saved. -->

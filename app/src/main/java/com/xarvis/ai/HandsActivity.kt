@@ -79,6 +79,20 @@ class HandsActivity : Activity() {
             }
         })
 
+        col.addView(header("REMOTE CONTROL — LIKE TEAMVIEWER"))
+        col.addView(android.widget.CheckBox(this).apply {
+            text = "🖥 Let my linked phone see and control this phone"
+            textSize = 16f
+            isChecked = com.xarvis.ai.hands.ScreenHost.allowed(this@HandsActivity)
+            setOnCheckedChangeListener { _, on -> com.xarvis.ai.hands.ScreenHost.setAllowed(this@HandsActivity, on) }
+        })
+        col.addView(TextView(this).apply {
+            text = "Only your paired phone can, over XARVIS's encrypted link. While it does, a red \"… is controlling " +
+                "this phone · STOP\" banner shows here and the screen stays on; STOP ends it at once. Needs XARVIS Hands on. " +
+                "On the other phone: ☰ → Control linked phone, or say \"control my S22\"."
+            textSize = 13f; setTextColor(Color.parseColor("#666666"))
+        })
+
         col.addView(header("TEST — call a contact in an app"))
         val name = EditText(this).apply { hint = "contact name, e.g. baarish"; textSize = 16f }
         col.addView(name)

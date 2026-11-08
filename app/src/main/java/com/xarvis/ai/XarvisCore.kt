@@ -220,6 +220,15 @@ class XarvisCore(context: Context) {
             return shot.uri?.let { PhotoPrep.downscaledJpeg(appContext, it, SNAP_SEND_SIDE, 88) } ?: shot.jpeg
         }
 
+        override suspend fun screenFrame(from: String, maxSide: Int): Triple<ByteArray, Int, Int> =
+            com.xarvis.ai.hands.ScreenHost.frame(appContext, from, maxSide).let { Triple(it.jpeg, it.width, it.height) }
+
+        override suspend fun screenInput(from: String, cmd: JSONObject): Boolean = withContext(Dispatchers.Main) {
+            com.xarvis.ai.hands.ScreenHost.input(appContext, from, cmd)
+        }
+
+        override fun screenStop(from: String) = com.xarvis.ai.hands.ScreenHost.stop(from)
+
         override suspend fun facesInPhoto(jpeg: ByteArray): String {
             val file = java.io.File(appContext.cacheDir, "photos/faces-${System.currentTimeMillis()}.jpg")
             return try {
@@ -271,8 +280,15 @@ class XarvisCore(context: Context) {
     )
     val state: StateFlow<XarvisUiState> = _state.asStateFlow()
 
+    /** The link to the other phone, for the remote-control screen (RemoteScreenActivity). */
+    val deviceLink: DeviceLink get() = link
+
     init {
         link.start()
+        // Remote control of this phone by the linked one: say so in the chat too (the red banner shows meanwhile).
+        com.xarvis.ai.hands.ScreenHost.onSession = { by ->
+            post(if (by != null) "🖥 $by is now controlling this phone (STOP on the red banner ends it)." else "🖥 Remote control ended.")
+        }
         scope.launch {
             _state.update { it.copy(memoryCount = memory.factCount()) }
         }

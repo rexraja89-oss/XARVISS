@@ -40,6 +40,7 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
     override fun onInterrupt() {}
 
     override fun onDestroy() {
+        banner?.let { v -> runCatching { getSystemService(android.view.WindowManager::class.java)?.removeView(v) } }
         if (HandsBridge.service === this) HandsBridge.service = null
         super.onDestroy()
     }
@@ -53,6 +54,107 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
             .build()
         val ok = dispatchGesture(gesture, null, null)
         log("tap ($x, $y) -> dispatched=$ok")
+    }
+
+    // ---- Capability 3: remote control by the linked phone (ScreenHost drives these) ----
+
+    override fun screenshot(onFrame: (android.graphics.Bitmap?) -> Unit) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) shoot(onFrame) else onFrame(null)
+    }
+
+    @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.R)
+    private fun shoot(onFrame: (android.graphics.Bitmap?) -> Unit) {
+        takeScreenshot(android.view.Display.DEFAULT_DISPLAY, mainExecutor, object : AccessibilityService.TakeScreenshotCallback {
+            override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
+                val buffer = result.hardwareBuffer
+                val frame = runCatching {
+                    android.graphics.Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
+                        ?.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
+                }.getOrNull()
+                buffer.close()
+                onFrame(frame)
+            }
+
+            override fun onFailure(errorCode: Int) = onFrame(null)
+        })
+    }
+
+    override fun gesture(kind: String, x: Float, y: Float, x2: Float, y2: Float, ms: Long): Boolean {
+        val path = Path().apply {
+            moveTo(x, y)
+            if (kind == "swipe") lineTo(x2, y2)
+        }
+        val duration = when (kind) {
+            "tap" -> 60L
+            "long" -> 800L
+            else -> ms.coerceIn(80L, 3000L)
+        }
+        val stroke = GestureDescription.StrokeDescription(path, 0, duration)
+        return dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
+    }
+
+    override fun globalAction(name: String): Boolean {
+        val action = when (name) {
+            "back" -> AccessibilityService.GLOBAL_ACTION_BACK
+            "home" -> AccessibilityService.GLOBAL_ACTION_HOME
+            "recents" -> AccessibilityService.GLOBAL_ACTION_RECENTS
+            "notifications" -> AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS
+            "quick" -> AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS
+            "lock" -> AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN
+            else -> return false
+        }
+        return performGlobalAction(action)
+    }
+
+    override fun typeText(text: String, enter: Boolean): Boolean {
+        val field = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf { it.isEditable } ?: return false
+        val before = if (field.isShowingHintText) "" else field.text?.toString().orEmpty()
+        if (text.isNotEmpty()) {
+            val b = Bundle()
+            b.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, before + text)
+            if (!field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b)) return false
+        }
+        if (enter && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            field.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+        }
+        return true
+    }
+
+    private var banner: android.view.View? = null
+
+    override fun controlBanner(by: String?, onStop: () -> Unit) {
+        handler.post {
+            val wm = getSystemService(android.view.WindowManager::class.java) ?: return@post
+            banner?.let { runCatching { wm.removeView(it) } }
+            banner = null
+            if (by == null) return@post
+            val d = resources.displayMetrics.density
+            val pill = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                setBackgroundColor(android.graphics.Color.parseColor("#E6C62828"))
+                setPadding((12 * d).toInt(), (6 * d).toInt(), (6 * d).toInt(), (6 * d).toInt())
+                addView(android.widget.TextView(this@XarvisHandsService).apply {
+                    text = "🖥 $by is controlling this phone  "
+                    setTextColor(android.graphics.Color.WHITE); textSize = 13f
+                })
+                addView(android.widget.TextView(this@XarvisHandsService).apply {
+                    text = "  STOP  "; setTextColor(android.graphics.Color.parseColor("#C62828")); textSize = 13f
+                    setBackgroundColor(android.graphics.Color.WHITE); setTypeface(null, android.graphics.Typeface.BOLD)
+                    setOnClickListener { onStop() }
+                })
+            }
+            val params = android.view.WindowManager.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                android.graphics.PixelFormat.TRANSLUCENT,
+            ).apply {
+                gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL
+                y = (36 * d).toInt() // below the status bar, so swipes from the top still reach it
+            }
+            runCatching { wm.addView(pill, params); banner = pill }.onFailure { log("Couldn't show the control banner: ${it.message}") }
+        }
     }
 
     // ---- Capability 2: place a call inside an app (imo or WhatsApp) ----
