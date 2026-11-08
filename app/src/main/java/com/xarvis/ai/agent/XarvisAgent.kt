@@ -535,8 +535,7 @@ class XarvisAgent(
                     kotlinx.coroutines.delay(OTHER_PHONE_APP_WAIT_MS) // let the app come up before looking at it
                     when (val next = OtherPhoneCommands.followUp(then)) {
                         is OtherPhoneCommands.Read -> readOtherPhone(peer, next.question, onPartial)
-                        else -> onOtherPhone(next, onPartial).let { it.copy(text = "$opened
-${it.text}") }
+                        else -> onOtherPhone(next, onPartial).let { it.copy(text = opened + "\n" + it.text) }
                     }
                 }
                 is OtherPhoneCommands.Read -> readOtherPhone(peer, cmd.question, onPartial)
