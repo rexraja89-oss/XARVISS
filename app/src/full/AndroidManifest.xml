@@ -6,6 +6,9 @@
     <!-- XARVIS Eyes: the live camera (☰ → XARVIS Eyes, or "look"). Asked for the first time it's used. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- Remote camera with the screen off: the benco's photo request wakes the S22 like an incoming call
+         and opens Eyes over the lock screen (RemoteCameraNotice). Normal permission on Android 13. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <application>
         <!-- XARVIS Eyes: camera view; one photo at a time goes to Gemma, nothing is saved. -->

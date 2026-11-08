@@ -89,6 +89,9 @@ data class CameraRequest(val selfie: Boolean, val id: Long = System.nanoTime())
 
 data class PendingAsk(val category: com.xarvis.ai.policy.Category, val action: String)
 
+/** How Eyes was opened for a linked phone's photo: XARVIS on screen, waking a dark/locked screen, or Rex's tap. */
+private enum class SnapLaunch { ON_SCREEN, WAKE, TAP }
+
 /**
  * Everything that should outlive the screen: the loaded model, the device-link server and
  * the chat. It lives as long as the app process, so pressing Back or rotating doesn't drop
@@ -170,23 +173,47 @@ class XarvisCore(context: Context) {
                 .putExtra("snap", true).putExtra("front", front).putExtra("remote", from)
                 .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             val request = com.xarvis.ai.workflow.RemoteSnap.begin()
-            // Android only lets XARVIS open the camera while it's on screen; otherwise Rex taps the notification here.
-            val onScreen = withContext(Dispatchers.Main) {
-                if (com.xarvis.ai.workflow.LaunchNotice.inForeground()) {
-                    appContext.startActivity(eyes); true
-                } else {
-                    com.xarvis.ai.workflow.LaunchNotice.show(appContext, "XARVIS Eyes", eyes); false
+            val notice = com.xarvis.ai.workflow.RemoteCameraNotice
+            // Android only lets XARVIS open the camera from the background in two ways: XARVIS is on screen,
+            // or — with the screen off or locked — a full-screen notification wakes the phone like a call
+            // and opens Eyes over the lock screen. Otherwise (Rex is in another app) he taps the notification.
+            val asleep = notice.asleep(appContext)
+            val how = withContext(Dispatchers.Main) {
+                when {
+                    asleep && notice.allowedWhenLocked(appContext) -> {
+                        notice.show(appContext, from, eyes); SnapLaunch.WAKE
+                    }
+                    com.xarvis.ai.workflow.LaunchNotice.inForeground() -> {
+                        appContext.startActivity(eyes); SnapLaunch.ON_SCREEN
+                    }
+                    else -> {
+                        com.xarvis.ai.workflow.LaunchNotice.show(appContext, "XARVIS Eyes", eyes); SnapLaunch.TAP
+                    }
                 }
             }
-            post("📸 $from asked for a photo with my ${if (front) "front" else "back"} camera" +
-                if (onScreen) " — taking it now." else ": tap \"Tap to open XARVIS Eyes\" to take it.")
-            val shot = kotlinx.coroutines.withTimeoutOrNull(if (onScreen) SNAP_ON_SCREEN_MS else SNAP_TAP_WAIT_MS) { request.await() }
+            post("📸 $from asked for a photo with my ${if (front) "front" else "back"} camera" + when (how) {
+                SnapLaunch.WAKE -> " — waking the screen to take it."
+                SnapLaunch.ON_SCREEN -> " — taking it now."
+                SnapLaunch.TAP -> ": tap \"Tap to open XARVIS Eyes\" to take it."
+            })
+            val wait = if (how == SnapLaunch.TAP) SNAP_TAP_WAIT_MS else SNAP_ON_SCREEN_MS
+            val shot = kotlinx.coroutines.withTimeoutOrNull(wait) { request.await() }
             if (shot == null) {
                 com.xarvis.ai.workflow.RemoteSnap.cancel(request)
+                notice.cancel(appContext)
                 throw com.xarvis.ai.net.LinkException(
-                    if (onScreen) "the photo wasn't taken (XARVIS Eyes was closed, or its camera didn't start)."
-                    else "XARVIS isn't open on its screen, so Android won't let me start its camera. Open XARVIS there " +
-                        "(or tap \"Tap to open XARVIS Eyes\" on it) and ask again.",
+                    when (how) {
+                        SnapLaunch.WAKE -> "its screen was off, and XARVIS Eyes didn't take the photo (Do Not Disturb or " +
+                            "\"full screen notifications\" being off for XARVIS can stop it waking the phone)."
+                        SnapLaunch.ON_SCREEN -> "the photo wasn't taken (XARVIS Eyes was closed, or its camera didn't start)."
+                        SnapLaunch.TAP -> if (asleep) {
+                            "its screen is off or locked, and taking photos then is switched off (its XARVIS Eyes → \"My linked " +
+                                "phone may take photos…\"). Unlock it and tap \"Tap to open XARVIS Eyes\", or switch that on."
+                        } else {
+                            "XARVIS isn't on its screen (another app is), so Android needs a tap: tap \"Tap to open XARVIS Eyes\" " +
+                                "there, or open XARVIS on it, and ask again."
+                        }
+                    },
                 )
             }
             // A full photo is several MB: send a smaller copy (the full one stays in this phone's Gallery).

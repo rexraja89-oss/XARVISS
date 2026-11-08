@@ -639,7 +639,7 @@ class WorkflowEngine(
         val lens = if (front) "front" else "back"
         val problems = mutableListOf<String>()
         for (peer in peers) {
-            progress("📸 Asking ${peer.name} to take it with its $lens camera… (if XARVIS isn't open on it, tap the notification there)")
+            progress("📸 Asking ${peer.name} to take it with its $lens camera… (its screen wakes if it's locked; if another app is open on it, tap the notification there)")
             val jpeg = try {
                 link.remoteSnap(peer, front)
             } catch (e: Exception) {

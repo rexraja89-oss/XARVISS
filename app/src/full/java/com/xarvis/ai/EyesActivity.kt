@@ -114,6 +114,16 @@ class EyesActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // A photo for the linked phone may arrive with this screen off or locked (RemoteCameraNotice): show over
+        // the lock screen and turn the screen on, so it's visible — and only the camera shows (see below).
+        val forLinkedPhone = intent.getBooleanExtra(EXTRA_SNAP, false) && intent.getStringExtra(EXTRA_REMOTE) != null
+        if (forLinkedPhone) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            // Never left open over the lock screen: close after a while even if the camera never started.
+            ui.postDelayed({ if (!isFinishing) finish() }, REMOTE_MAX_OPEN_MS)
+        }
         val d = resources.displayMetrics.density
         val pad = (16 * d).toInt()
         val gap = (8 * d).toInt()
@@ -170,6 +180,13 @@ class EyesActivity : ComponentActivity() {
         ))
         speak = CheckBox(this).apply { text = "🔊 XARVIS says the answer aloud"; isChecked = true; textSize = 15f }
         col.addView(speak)
+        col.addView(CheckBox(this).apply {
+            text = "📡 My linked phone may take photos with this camera even when the screen is off or locked " +
+                "(the screen wakes and I say \"Smile, sir\" first)"
+            textSize = 15f
+            isChecked = com.xarvis.ai.workflow.RemoteCameraNotice.allowedWhenLocked(this@EyesActivity)
+            setOnCheckedChangeListener { _, on -> com.xarvis.ai.workflow.RemoteCameraNotice.setAllowedWhenLocked(this@EyesActivity, on) }
+        })
 
         // ---- the answer ----
         col.addView(header("FACES — RECOGNISE PEOPLE YOU'VE TAUGHT ME"))
@@ -191,6 +208,12 @@ class EyesActivity : ComponentActivity() {
         }
         col.addView(answer)
 
+        if (forLinkedPhone) {
+            // Over the lock screen this must not open anything else (teach faces = the photo picker, questions…):
+            // keep only the title, status, live camera and what XARVIS says.
+            val keep = setOf(col.getChildAt(0), status, texture, thumb, answer)
+            for (i in 0 until col.childCount) col.getChildAt(i).let { if (it !in keep) it.visibility = View.GONE }
+        }
         setContentView(ScrollView(this).apply { addView(col) })
         snapPending = intent.getBooleanExtra(EXTRA_SNAP, false)
         remoteFor = intent.getStringExtra(EXTRA_REMOTE)?.takeIf { snapPending }
@@ -649,6 +672,8 @@ class EyesActivity : ComponentActivity() {
     override fun onDestroy() {
         // Closed before the linked phone's photo was taken: tell it now rather than after its timeout.
         if (remoteFor != null) com.xarvis.ai.workflow.RemoteSnap.deliver(null)
+        com.xarvis.ai.workflow.RemoteCameraNotice.cancel(this)
+        ui.removeCallbacksAndMessages(null)
         runCatching { faceEngine?.close() }
         super.onDestroy()
     }
@@ -661,6 +686,8 @@ class EyesActivity : ComponentActivity() {
         const val EXTRA_WHO = "who"
         /** Launch extra: the linked phone's name, when the photo is for it (sent back over the link). */
         const val EXTRA_REMOTE = "remote"
+        /** A photo for the linked phone closes itself after this, even if the camera never started. */
+        private const val REMOTE_MAX_OPEN_MS = 45_000L
         private const val WHO = "\u0000who"
 
         private const val SEE = "Describe what you see in this photo, briefly and clearly, as if telling me what's in front of me."
