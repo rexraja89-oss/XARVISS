@@ -48,6 +48,15 @@ object HandsBridge {
         fun selectedText(): String?
         /** Opens the app [packageName] (Hands may start apps from the background; XARVIS itself may not). */
         fun openApp(packageName: String): Boolean
+
+        // ---- XARVIS using the phone by itself (PhoneAgent) ----
+        /**
+         * What's on the screen, for the brain: JSON {"app","w","h","els":[{"t":label,"c":tappable,"e":editable,
+         * "p":password,"x","y" (centre, px)}]}, top to bottom.
+         */
+        fun screenElements(): String
+        /** A yes/no question shown on top of whatever app is open; [onAnswer] gets Rex's tap (no after 60 s). */
+        fun ask(question: String, onAnswer: (Boolean) -> Unit)
     }
 
     /** Whether this build has Hands inside XARVIS (the S22's). */

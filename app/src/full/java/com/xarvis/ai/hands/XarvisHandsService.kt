@@ -152,6 +152,107 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
         return true
     }
 
+    override fun screenElements(): String {
+        val root = rootInActiveWindow
+        val dm = android.util.DisplayMetrics()
+        @Suppress("DEPRECATION")
+        getSystemService(android.hardware.display.DisplayManager::class.java)?.getDisplay(android.view.Display.DEFAULT_DISPLAY)?.getRealMetrics(dm)
+        val out = org.json.JSONObject().put("w", dm.widthPixels).put("h", dm.heightPixels)
+        if (root == null) return out.put("app", "").put("els", org.json.JSONArray()).toString()
+        class E(val r: Rect, val label: String, val tap: Boolean, val edit: Boolean, val pw: Boolean)
+        val found = ArrayList<E>()
+        fun tappable(n: AccessibilityNodeInfo): Boolean {
+            var c: AccessibilityNodeInfo? = n
+            var d = 0
+            while (c != null && d < 6) {
+                if (c.isClickable || c.isLongClickable) return true
+                c = c.parent
+                d++
+            }
+            return false
+        }
+        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
+            if (n == null || depth > 40 || found.size > 150) return
+            if (n.isVisibleToUser) {
+                val text = n.text?.toString()?.trim().orEmpty()
+                val desc = n.contentDescription?.toString()?.trim().orEmpty()
+                val hint = n.hintText?.toString()?.trim().orEmpty()
+                val label = when {
+                    n.isEditable && (n.isShowingHintText || text.isEmpty()) -> hint.ifEmpty { desc.ifEmpty { "text box" } }
+                    text.isNotEmpty() -> text
+                    else -> desc
+                }
+                if (label.isNotEmpty() || n.isEditable) {
+                    val r = Rect().also { n.getBoundsInScreen(it) }
+                    if (r.width() > 0 && r.height() > 0) found += E(r, label.replace('\n', ' ').take(80), tappable(n), n.isEditable, n.isPassword)
+                }
+            }
+            for (i in 0 until n.childCount) walk(n.getChild(i), depth + 1)
+        }
+        walk(root, 0)
+        val app = root.packageName?.toString()?.let { pkg ->
+            runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
+        }.orEmpty()
+        val els = org.json.JSONArray()
+        found.sortedWith(compareBy({ it.r.top }, { it.r.left })).distinctBy { it.label + it.r.centerX() / 20 + "," + it.r.centerY() / 20 }
+            .take(60).forEach { e ->
+                els.put(
+                    org.json.JSONObject().put("t", e.label).put("c", e.tap).put("e", e.edit).put("p", e.pw)
+                        .put("x", e.r.centerX()).put("y", e.r.centerY()),
+                )
+            }
+        log("listed the screen of $app: ${els.length()} things")
+        return out.put("app", app).put("els", els).toString()
+    }
+
+    private var askView: android.view.View? = null
+
+    override fun ask(question: String, onAnswer: (Boolean) -> Unit) {
+        handler.post {
+            val wm = getSystemService(android.view.WindowManager::class.java)
+            if (wm == null) {
+                onAnswer(false)
+                return@post
+            }
+            askView?.let { runCatching { wm.removeView(it) } }
+            var answered = false
+            fun answer(yes: Boolean) {
+                if (answered) return
+                answered = true
+                askView?.let { runCatching { wm.removeView(it) } }
+                askView = null
+                log("Rex answered ${if (yes) "YES" else "NO"}: $question")
+                onAnswer(yes)
+            }
+            val d = resources.displayMetrics.density
+            val pad = (16 * d).toInt()
+            val box = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                setBackgroundColor(android.graphics.Color.parseColor("#F2101418"))
+                setPadding(pad, pad, pad, pad)
+                addView(android.widget.TextView(this@XarvisHandsService).apply {
+                    text = "🤖 XARVIS asks:\n$question"
+                    setTextColor(android.graphics.Color.WHITE); textSize = 17f
+                })
+                addView(android.widget.LinearLayout(this@XarvisHandsService).apply {
+                    orientation = android.widget.LinearLayout.HORIZONTAL
+                    addView(android.widget.Button(this@XarvisHandsService).apply { text = "✓ Yes"; setOnClickListener { answer(true) } },
+                        android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    addView(android.widget.Button(this@XarvisHandsService).apply { text = "✗ No"; setOnClickListener { answer(false) } },
+                        android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                })
+            }
+            val params = android.view.WindowManager.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                android.graphics.PixelFormat.TRANSLUCENT,
+            ).apply { gravity = android.view.Gravity.CENTER }
+            runCatching { wm.addView(box, params); askView = box }.onFailure { answer(false) }
+            handler.postDelayed({ answer(false) }, 60_000)
+        }
+    }
+
     override fun openApp(packageName: String): Boolean {
         val launch = packageManager.getLaunchIntentForPackage(packageName)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) ?: return false
         return runCatching { startActivity(launch) }.isSuccess

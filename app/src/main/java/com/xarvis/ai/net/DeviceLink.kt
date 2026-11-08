@@ -121,6 +121,9 @@ class DeviceLink(context: Context, private val handler: Handler) {
 
         /** XARVIS acting on this phone for [from]: "open" an app, "read" the screen, "tap" a label, "type" text. */
         suspend fun act(from: String, kind: String, arg: String): String
+
+        /** One decision by this phone's AI model with [system] instructions (a linked phone's PhoneAgent); null without one. */
+        suspend fun brainOneShot(system: String, text: String): String?
     }
 
     /** A linked phone's screen: the picture, and the size of the real screen it shows. */
@@ -426,6 +429,10 @@ class DeviceLink(context: Context, private val handler: Handler) {
         request(peer, "clip", JSONObject().put("text", text))
     }
 
+    /** [peer]'s AI model answering [text] once, with [system] instructions (PhoneAgent's steps on a phone without one). */
+    suspend fun remoteThink(peer: Peer, system: String, text: String): String =
+        request(peer, "think", JSONObject().put("system", system).put("text", text), timeoutMs = CHAT_READ_TIMEOUT_MS).getString("text")
+
     /** XARVIS acting on [peer]: "open" (app), "read" (its screen), "tap" (label), "type" (text). Returns what happened. */
     suspend fun remoteAct(peer: Peer, kind: String, arg: String = ""): String =
         request(peer, "act", JSONObject().put("kind", kind).put("arg", arg), timeoutMs = SCREEN_READ_TIMEOUT_MS).getString("text")
@@ -678,6 +685,11 @@ class DeviceLink(context: Context, private val handler: Handler) {
                 reply.put("ok", true)
             }
             "act" -> reply.put("text", handler.act(peer.name, req.getString("kind"), req.optString("arg")))
+            "think" -> reply.put(
+                "text",
+                handler.brainOneShot(req.getString("system"), req.getString("text"))
+                    ?: return error("$deviceName has no AI model loaded"),
+            )
             "screen_stop" -> {
                 handler.screenStop(peer.name)
                 reply.put("ok", true)

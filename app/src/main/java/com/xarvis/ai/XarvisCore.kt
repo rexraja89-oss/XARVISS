@@ -252,6 +252,8 @@ class XarvisCore(context: Context) {
             post("📋 From $from — it's on your clipboard now (long-press a text box → Paste):\n$text")
         }
 
+        override suspend fun brainOneShot(system: String, text: String): String? = agent.thinkForPeer(system, text)
+
         override suspend fun act(from: String, kind: String, arg: String): String =
             withContext(Dispatchers.Main) { com.xarvis.ai.hands.ScreenHost.act(appContext, from, kind, arg) }
 

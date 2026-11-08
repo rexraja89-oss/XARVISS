@@ -130,6 +130,7 @@ class XarvisAgent(
                 ?: HealthCommands.parse(message)?.let { run(listOf(it)) }
                 ?: LinkCommands.parse(message, link.pairingInProgress)?.let { run(listOf(it)) }
                 ?: OtherPhoneCommands.parse(message, otherPhoneWords())?.let { onOtherPhone(it, onPartial) }
+                ?: PhoneTask.parse(message, otherPhoneWords())?.let { runPhoneTask(it, onPartial) }
                 ?: (if (OPEN_EYES.matches(message.trim().trimEnd('.', '!', '?'))) run(listOf(Step.OpenEyes)) else null)
                 ?: photoCommand(message, deviceWords())?.let { run(listOf(it)) }
                 ?: whoCommand(message)?.let { run(listOf(it)) }
@@ -547,6 +548,64 @@ class XarvisAgent(
             Reply("I couldn't do that on ${peer.name}: ${e.message ?: e.javaClass.simpleName}")
         }
     }
+
+    /**
+     * XARVIS doing a job by itself in a phone's apps (PhoneAgent): this phone through its own Hands, or the
+     * linked one over the link. Its screens are Rex's private data, so the brain is Gemma on the S22, never
+     * the cloud. Confirmations go where Rex is looking: on top of the app here, or the Ask card for the other phone.
+     */
+    private suspend fun runPhoneTask(task: PhoneTask.Task, onPartial: (String) -> Unit): Reply {
+        forceLocalThisTurn = true
+        brainReady(onPartial)
+        val target: PhoneAgent.Target
+        val confirm: suspend (String) -> Boolean
+        if (task.onOtherPhone) {
+            val peer = link.reachable().firstOrNull()?.first
+                ?: return Reply("I can't reach your other phone, sir. Make sure XARVIS is running on it with Tailscale on.")
+            target = LinkedPhone(link, peer)
+            confirm = { question ->
+                engine.confirm(com.xarvis.ai.policy.Category.OPEN_APP, question).let {
+                    it == com.xarvis.ai.policy.Answer.ONCE || it == com.xarvis.ai.policy.Answer.ALWAYS
+                }
+            }
+        } else {
+            val here = LocalPhone(appContext, link.deviceName)
+            if (!here.available()) {
+                return Reply(
+                    "To use this phone by myself I need XARVIS Hands switched on, sir: ☰ → XARVIS Hands" +
+                        if (com.xarvis.ai.hands.HandsBridge.builtIn) "." else " (on this phone, the XARVIS Hands app).",
+                )
+            }
+            target = here
+            confirm = { question -> here.ask(question) }
+        }
+        onPartial("🤖 On it, sir — working on ${target.name}. The red banner's STOP stops me.")
+        val agent = PhoneAgent(
+            target = target,
+            think = { prompt -> agentThink(prompt, onPartial) },
+            confirm = confirm,
+            progress = onPartial,
+            pause = { ms -> kotlinx.coroutines.delay(ms) },
+        )
+        val result = try {
+            agent.run(task.goal)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            "I had to stop: ${e.message ?: e.javaClass.simpleName}"
+        }
+        return Reply("🤖 $result", via = target.name)
+    }
+
+    /** One step's decision: this phone's Gemma, or the linked phone's, with the operating instructions. */
+    private suspend fun agentThink(prompt: String, onPartial: (String) -> Unit): String? {
+        if (llm.isReady) return runCatching { llm.oneShot(PhoneAgent.SYSTEM, prompt) }.getOrNull()
+        val brain = linkedBrain(onPartial) ?: return null
+        return runCatching { link.remoteThink(brain, PhoneAgent.SYSTEM, prompt) }.getOrNull()
+    }
+
+    /** A linked phone's PhoneAgent step, decided by this phone's Gemma. */
+    suspend fun thinkForPeer(system: String, text: String): String? =
+        if (llm.isReady) llm.oneShot(system, text) else null
 
     private suspend fun readOtherPhone(peer: Peer, question: String, onPartial: (String) -> Unit): Reply {
         onPartial("Reading ${peer.name}'s screen…")

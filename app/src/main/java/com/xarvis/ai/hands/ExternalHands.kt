@@ -96,6 +96,16 @@ class ExternalHands private constructor(private val context: Context) : HandsBri
 
     override fun selectedText(): String? = ask("selected", 3_000)?.getStringExtra("text")
 
+    override fun screenElements(): String =
+        ask("elements", 4_000)?.getStringExtra("text") ?: """{"app":"","w":0,"h":0,"els":[]}"""
+
+    override fun ask(question: String, onAnswer: (Boolean) -> Unit) {
+        val id = ids.getAndIncrement()
+        waiting[id] = { answer -> onAnswer(answer?.getBooleanExtra("yes", false) ?: false) }
+        handler.postDelayed({ waiting.remove(id)?.invoke(null) }, 65_000)
+        send("ask") { putExtra("id", id); putExtra("question", question) }
+    }
+
     override fun openApp(packageName: String): Boolean =
         ask("open", 3_000) { putExtra("pkg", packageName) }?.getBooleanExtra("ok", false) ?: false
 

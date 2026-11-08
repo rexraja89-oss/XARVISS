@@ -236,6 +236,34 @@ object ScreenHost {
             "read" -> hands.screenText().ifBlank { "I couldn't read anything on its screen (is it locked or off?)." }
             "tap" -> if (hands.tapText(arg)) "Tapped \"$arg\"." else "I couldn't find \"$arg\" on its screen (or it looks like a payment / password, which I never tap)."
             "type" -> if (hands.typeText(arg, false)) "Typed it." else "No text box is selected on it: tap one first."
+            // XARVIS using this phone by itself for the linked one (PhoneAgent): look, tap, scroll, keys, banner.
+            "elements" -> hands.screenElements()
+            "tapxy" -> {
+                val (x, y) = arg.split(",").map { it.trim().toFloatOrNull() ?: 0f } + listOf(0f, 0f)
+                hands.gesture("tap", x, y, x, y, 60)
+                "ok"
+            }
+            "swipe" -> {
+                val (w, h) = size(context)
+                val down = arg != "up"
+                hands.gesture("swipe", w / 2f, h * if (down) 0.72f else 0.30f, w / 2f, h * if (down) 0.30f else 0.72f, 350)
+                "ok"
+            }
+            "key" -> if (hands.globalAction(arg)) "ok" else "no such key"
+            "begin" -> {
+                hands.controlBanner("XARVIS (asked on $from)") {
+                    stoppedUntil = System.currentTimeMillis() + STOP_BLOCK_MS
+                    HandsBridge.log("STOP pressed: XARVIS stopped working on this phone.")
+                    hands.controlBanner(null) {}
+                }
+                onSession?.invoke("XARVIS (asked on $from)")
+                "ok"
+            }
+            "end" -> {
+                hands.controlBanner(null) {}
+                onSession?.invoke(null)
+                "ok"
+            }
             else -> "I don't know how to \"$kind\" there."
         }
     }

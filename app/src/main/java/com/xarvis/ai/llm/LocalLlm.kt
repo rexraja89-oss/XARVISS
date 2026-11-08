@@ -226,6 +226,24 @@ class LocalLlm(context: Context) {
             }
         }
 
+    /**
+     * One question in a throwaway conversation: XARVIS operating a phone asks one decision per screen, and
+     * each screen is a new, complete picture — keeping them in one conversation would fill the context fast.
+     */
+    suspend fun oneShot(systemPrompt: String, message: String): String = withContext(Dispatchers.IO) {
+        inference.withLock {
+            val e = checkNotNull(engine) { "Model not loaded" }
+            val c = e.createConversation(conversationConfig(systemPrompt))
+            try {
+                val reply = StringBuilder()
+                c.sendMessageAsync(Contents.of(Content.Text(message))).collect { reply.append(it.toString()) }
+                reply.toString()
+            } finally {
+                runCatching { c.close() }
+            }
+        }
+    }
+
     /** Call with [inference] held. A full conversation (long chat, files, photos) starts over once. */
     private suspend fun sideChat(key: String, systemPrompt: String, contents: Contents): String {
         val e = checkNotNull(engine) { "Model not loaded" }

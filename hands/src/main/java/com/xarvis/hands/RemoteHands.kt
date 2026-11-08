@@ -64,6 +64,8 @@ object RemoteHands {
             "read" -> reply(s, id) { putExtra("text", screenText(s)) }
             "tap" -> reply(s, id) { putExtra("ok", tapText(s, intent.getStringExtra("label").orEmpty())) }
             "selected" -> reply(s, id) { putExtra("text", selectedText(s)) }
+            "elements" -> reply(s, id) { putExtra("text", elements(s)) }
+            "ask" -> ask(s, intent.getStringExtra("question").orEmpty()) { yes -> reply(s, id) { putExtra("yes", yes) } }
             "open" -> reply(s, id) {
                 val launch = s.packageManager.getLaunchIntentForPackage(intent.getStringExtra("pkg").orEmpty())
                     ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -197,6 +199,102 @@ object RemoteHands {
         val start = field.textSelectionStart
         val end = field.textSelectionEnd
         return if (start in 0 until end && end <= all.length) all.substring(start, end) else all
+    }
+
+    /** What's on the screen for XARVIS's brain: JSON {"app","w","h","els":[{"t","c","e","p","x","y"}]}. */
+    private fun elements(s: HandsService): String {
+        val dm = android.util.DisplayMetrics()
+        @Suppress("DEPRECATION")
+        s.getSystemService(android.hardware.display.DisplayManager::class.java)?.getDisplay(Display.DEFAULT_DISPLAY)?.getRealMetrics(dm)
+        val out = org.json.JSONObject().put("w", dm.widthPixels).put("h", dm.heightPixels)
+        val root = s.rootInActiveWindow ?: return out.put("app", "").put("els", org.json.JSONArray()).toString()
+        class E(val r: Rect, val label: String, val tap: Boolean, val edit: Boolean, val pw: Boolean)
+        val found = ArrayList<E>()
+        fun tappable(n: AccessibilityNodeInfo): Boolean {
+            var c: AccessibilityNodeInfo? = n
+            var d = 0
+            while (c != null && d < 6) {
+                if (c.isClickable || c.isLongClickable) return true
+                c = c.parent
+                d++
+            }
+            return false
+        }
+        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
+            if (n == null || depth > 40 || found.size > 150) return
+            if (n.isVisibleToUser) {
+                val text = n.text?.toString()?.trim().orEmpty()
+                val desc = n.contentDescription?.toString()?.trim().orEmpty()
+                val hint = n.hintText?.toString()?.trim().orEmpty()
+                val label = when {
+                    n.isEditable && (n.isShowingHintText || text.isEmpty()) -> hint.ifEmpty { desc.ifEmpty { "text box" } }
+                    text.isNotEmpty() -> text
+                    else -> desc
+                }
+                if (label.isNotEmpty() || n.isEditable) {
+                    val r = Rect().also { n.getBoundsInScreen(it) }
+                    if (r.width() > 0 && r.height() > 0) found += E(r, label.replace('\n', ' ').take(80), tappable(n), n.isEditable, n.isPassword)
+                }
+            }
+            for (i in 0 until n.childCount) walk(n.getChild(i), depth + 1)
+        }
+        walk(root, 0)
+        val app = root.packageName?.toString()?.let { pkg ->
+            runCatching { s.packageManager.getApplicationLabel(s.packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
+        }.orEmpty()
+        val els = org.json.JSONArray()
+        found.sortedWith(compareBy({ it.r.top }, { it.r.left })).distinctBy { it.label + it.r.centerX() / 20 + "," + it.r.centerY() / 20 }
+            .take(60).forEach { e ->
+                els.put(
+                    org.json.JSONObject().put("t", e.label).put("c", e.tap).put("e", e.edit).put("p", e.pw)
+                        .put("x", e.r.centerX()).put("y", e.r.centerY()),
+                )
+            }
+        return out.put("app", app).put("els", els).toString()
+    }
+
+    /** A yes/no question over whatever app is open (XARVIS checking before Send, Delete…); no after 60 s. */
+    private var askView: View? = null
+
+    private fun ask(s: HandsService, question: String, onAnswer: (Boolean) -> Unit) {
+        val wm = s.getSystemService(WindowManager::class.java)
+        if (wm == null) {
+            onAnswer(false)
+            return
+        }
+        askView?.let { runCatching { wm.removeView(it) } }
+        var answered = false
+        fun answer(yes: Boolean) {
+            if (answered) return
+            answered = true
+            askView?.let { runCatching { wm.removeView(it) } }
+            askView = null
+            HandsService.log("Rex answered ${if (yes) "YES" else "NO"}: $question")
+            onAnswer(yes)
+        }
+        val d = s.resources.displayMetrics.density
+        val pad = (16 * d).toInt()
+        val box = LinearLayout(s).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#F2101418"))
+            setPadding(pad, pad, pad, pad)
+            addView(TextView(s).apply { text = "🤖 XARVIS asks:\n$question"; setTextColor(Color.WHITE); textSize = 17f })
+            addView(LinearLayout(s).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(android.widget.Button(s).apply { text = "✓ Yes"; setOnClickListener { answer(true) } },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(android.widget.Button(s).apply { text = "✗ No"; setOnClickListener { answer(false) } },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            })
+        }
+        val params = WindowManager.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT,
+        ).apply { gravity = Gravity.CENTER }
+        runCatching { wm.addView(box, params); askView = box }.onFailure { answer(false) }
+        main.postDelayed({ answer(false) }, 60_000)
     }
 
     private val DANGER = Regex("pay|otp|password|passcode|upi|send money|signature|bank|card number|cvv|pin\\b", RegexOption.IGNORE_CASE)
