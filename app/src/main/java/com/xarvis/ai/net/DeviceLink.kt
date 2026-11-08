@@ -106,6 +106,12 @@ class DeviceLink(context: Context, private val handler: Handler) {
 
         /** Remote control: [from] closed its view of this screen. */
         fun screenStop(from: String)
+
+        /**
+         * Remote control, smooth: stream this screen to [from] over [channel] and take its touches, until either
+         * side closes. Call [accept] once with the stream's description before sending anything; throw to refuse.
+         */
+        suspend fun screenStream(from: String, req: JSONObject, channel: Channel, accept: (JSONObject) -> Unit)
     }
 
     /** A linked phone's screen: the picture, and the size of the real screen it shows. */
@@ -147,18 +153,76 @@ class DeviceLink(context: Context, private val handler: Handler) {
         val expired: Boolean get() = System.currentTimeMillis() - created > PAIRING_TIMEOUT_MS
     }
 
-    private class Conn(private val socket: Socket) : AutoCloseable {
+    internal class Conn(private val socket: Socket) : AutoCloseable {
         private val reader = socket.getInputStream().bufferedReader()
         private val writer = socket.getOutputStream().bufferedWriter()
         val remoteHost: String? get() = socket.inetAddress?.hostAddress
         val remoteIsLoopback: Boolean get() = socket.inetAddress?.isLoopbackAddress == true
 
-        fun send(frame: JSONObject) {
-            writer.write(frame.toString()); writer.newLine(); writer.flush()
+        fun send(frame: JSONObject) = sendLine(frame.toString())
+
+        fun sendLine(line: String) = synchronized(writer) {
+            writer.write(line); writer.newLine(); writer.flush()
         }
 
-        fun receive(): JSONObject = JSONObject(reader.readLine() ?: throw LinkException("connection closed"))
+        fun receive(): JSONObject = JSONObject(receiveLine())
+        fun receiveLine(): String = reader.readLine() ?: throw LinkException("connection closed")
+
+        /** For a long-lived stream: how long a read may wait, and no batching of small packets (touches). */
+        fun streaming(readTimeoutMs: Int) {
+            socket.soTimeout = readTimeoutMs
+            socket.tcpNoDelay = true
+        }
+
         override fun close() = socket.close()
+    }
+
+    /**
+     * A long-lived, encrypted, two-way stream with a linked phone (remote control: video one way, touches
+     * the other). Each message is one line, "nonce.ciphertext" in base64, AES-256-GCM with the pairing key;
+     * the plaintext is a type byte and a payload. Opened with [openChannel] / served for op "stream".
+     */
+    class Channel internal constructor(
+        private val conn: Conn, private val key: ByteArray, private val myId: String, private val theirId: String,
+    ) : AutoCloseable {
+        private val random = SecureRandom()
+        private val enc = Cipher.getInstance("AES/GCM/NoPadding")
+        private val dec = Cipher.getInstance("AES/GCM/NoPadding")
+        private val aesKey = SecretKeySpec(key, "AES")
+        @Volatile var closed = false
+            private set
+
+        fun send(type: Int, payload: ByteArray = ByteArray(0)) {
+            val plain = ByteArray(payload.size + 1)
+            plain[0] = type.toByte()
+            System.arraycopy(payload, 0, plain, 1, payload.size)
+            val line = synchronized(enc) {
+                val nonce = ByteArray(12).also(random::nextBytes)
+                enc.init(Cipher.ENCRYPT_MODE, aesKey, GCMParameterSpec(128, nonce))
+                enc.updateAAD(("ch:$myId").toByteArray())
+                Base64.getEncoder().encodeToString(nonce) + "." + Base64.getEncoder().encodeToString(enc.doFinal(plain))
+            }
+            conn.sendLine(line)
+        }
+
+        /** The next message (type, payload); throws when the stream closes or the other side reports an error. */
+        fun receive(): Pair<Int, ByteArray> {
+            val line = conn.receiveLine()
+            if (line.startsWith("{")) throw LinkException(runCatching { JSONObject(line).optString("msg") }.getOrNull() ?: "stream error")
+            val dot = line.indexOf('.')
+            if (dot < 0) throw LinkException("bad stream message")
+            val plain = synchronized(dec) {
+                dec.init(Cipher.DECRYPT_MODE, aesKey, GCMParameterSpec(128, Base64.getDecoder().decode(line.substring(0, dot))))
+                dec.updateAAD(("ch:$theirId").toByteArray())
+                dec.doFinal(Base64.getDecoder().decode(line.substring(dot + 1)))
+            }
+            return (plain[0].toInt() and 0xff) to plain.copyOfRange(1, plain.size)
+        }
+
+        override fun close() {
+            closed = true
+            runCatching { conn.close() }
+        }
     }
 
     fun pairedPeers(): List<Peer> = peers.values.sortedBy { it.name }
@@ -306,6 +370,41 @@ class DeviceLink(context: Context, private val handler: Handler) {
         return ok.map { (p, r) -> p to r.getOrThrow().optBoolean("llm") }
     }
 
+    /**
+     * Opens a long-lived encrypted [Channel] to [peer] for [op] ("stream": remote control). Returns the peer's
+     * first answer (e.g. the video size) and the channel; the caller closes it.
+     */
+    suspend fun openChannel(peer: Peer, op: String, body: JSONObject): Pair<JSONObject, Channel> = withContext(Dispatchers.IO) {
+        val routes = listOfNotNull(peer.host, peer.tailnetHost).distinct()
+        if (routes.isEmpty()) throw LinkException(
+            "${peer.name}'s address is unknown. Make sure both devices are on the same Wi-Fi with XARVIS open."
+        )
+        body.put("op", op).put("ts", System.currentTimeMillis()).put("port", myPort)
+        tailnetAddress()?.let { body.put("tailnet", it) }
+        var failure: Exception? = null
+        for (host in routes) {
+            val socket = try {
+                connect(host, peer.port, REQUEST_READ_TIMEOUT_MS)
+            } catch (e: java.io.IOException) {
+                failure = e
+                continue
+            }
+            val c = Conn(socket)
+            try {
+                c.send(encryptFrame("req", peer.key, body))
+                val res = c.receive()
+                if (res.optString("t") == "err") throw LinkException(res.optString("msg"))
+                val first = JSONObject(String(decrypt(peer.key, res, peer.id), Charsets.UTF_8))
+                c.streaming(STREAM_READ_TIMEOUT_MS)
+                return@withContext first to Channel(c, peer.key, deviceId, peer.id)
+            } catch (e: Exception) {
+                c.close()
+                throw e
+            }
+        }
+        throw LinkException("${peer.name} isn't reachable (${failure?.message ?: "no answer"}).")
+    }
+
     /** Remote control: [peer]'s screen right now, at most [maxSide] pixels on its long side. */
     suspend fun remoteScreen(peer: Peer, maxSide: Int): ScreenFrame {
         val r = request(peer, "screen", JSONObject().put("max", maxSide), timeoutMs = SCREEN_READ_TIMEOUT_MS)
@@ -428,7 +527,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
                 val first = c.receive()
                 when (first.optString("t")) {
                     "pair1" -> servePairing(first, c)
-                    "req" -> c.send(serveRequest(first, c))
+                    "req" -> serveRequest(first, c)?.let { c.send(it) } // null: a stream that answered itself
                     else -> c.send(error("unknown frame"))
                 }
             } catch (e: Exception) {
@@ -459,7 +558,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
         )
     }
 
-    private suspend fun serveRequest(frame: JSONObject, c: Conn): JSONObject {
+    private suspend fun serveRequest(frame: JSONObject, c: Conn): JSONObject? {
         val from = frame.getString("from")
         val peer = peers[from]
         val pending = pendingIncoming[from]
@@ -537,6 +636,14 @@ class DeviceLink(context: Context, private val handler: Handler) {
                 reply.put("jpg", b64(jpg)).put("w", w).put("h", h)
             }
             "input" -> reply.put("ok", handler.screenInput(peer.name, req.getJSONObject("cmd")))
+            "stream" -> {
+                // Remote control: the connection stays open for video and touches until either side closes it.
+                c.streaming(STREAM_READ_TIMEOUT_MS)
+                Channel(c, peer.key, deviceId, peer.id).use { ch ->
+                    handler.screenStream(peer.name, req, ch) { header -> c.send(encryptFrame("res", peer.key, header)) }
+                }
+                return null
+            }
             "screen_stop" -> {
                 handler.screenStop(peer.name)
                 reply.put("ok", true)
@@ -769,6 +876,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
         private const val GALLERY_READ_TIMEOUT_MS = 60_000 // sending several downscaled photos takes a moment
         private const val SNAP_READ_TIMEOUT_MS = 90_000 // the other phone may wait up to a minute for Rex to tap its notification
         private const val SCREEN_READ_TIMEOUT_MS = 15_000 // one screen picture or one tap
+        private const val STREAM_READ_TIMEOUT_MS = 20_000 // both sides send something at least every 2 s
         private const val PAIRING_TIMEOUT_MS = 5 * 60_000L
         private const val MAX_CLOCK_SKEW_MS = 5 * 60_000L
         private const val NETWORK_SETTLE_MS = 3_000L

@@ -229,6 +229,10 @@ class XarvisCore(context: Context) {
 
         override fun screenStop(from: String) = com.xarvis.ai.hands.ScreenHost.stop(from)
 
+        override suspend fun screenStream(
+            from: String, req: JSONObject, channel: DeviceLink.Channel, accept: (JSONObject) -> Unit,
+        ) = com.xarvis.ai.hands.ScreenHost.stream(appContext, from, req, channel, accept)
+
         override suspend fun facesInPhoto(jpeg: ByteArray): String {
             val file = java.io.File(appContext.cacheDir, "photos/faces-${System.currentTimeMillis()}.jpg")
             return try {

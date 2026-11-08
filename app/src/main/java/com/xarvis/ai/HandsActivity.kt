@@ -27,6 +27,7 @@ class HandsActivity : Activity() {
 
     private lateinit var status: TextView
     private lateinit var log: TextView
+    private lateinit var smooth: TextView
     private val ui = Handler(Looper.getMainLooper())
     private val refresh = object : Runnable {
         override fun run() { render(); ui.postDelayed(this, 1000) }
@@ -84,8 +85,15 @@ class HandsActivity : Activity() {
             text = "🖥 Let my linked phone see and control this phone"
             textSize = 16f
             isChecked = com.xarvis.ai.hands.ScreenHost.allowed(this@HandsActivity)
-            setOnCheckedChangeListener { _, on -> com.xarvis.ai.hands.ScreenHost.setAllowed(this@HandsActivity, on) }
+            setOnCheckedChangeListener { _, on ->
+                com.xarvis.ai.hands.ScreenHost.setAllowed(this@HandsActivity, on)
+                // You're holding this phone now: allow smooth video too (Android asks once each time XARVIS starts).
+                if (on && !com.xarvis.ai.hands.ScreenVideo.ready) com.xarvis.ai.hands.ScreenShareService.ask(this@HandsActivity)
+            }
         })
+        smooth = TextView(this).apply { textSize = 14f; setPadding(0, gap, 0, 0) }
+        col.addView(smooth)
+        col.addView(button("⚡ Allow smooth mode (live video)") { com.xarvis.ai.hands.ScreenShareService.ask(this) })
         col.addView(TextView(this).apply {
             text = "Only your paired phone can, over XARVIS's encrypted link. While it does, a red \"… is controlling " +
                 "this phone · STOP\" banner shows here and the screen stays on; STOP ends it at once. Needs XARVIS Hands on. " +
@@ -133,6 +141,12 @@ class HandsActivity : Activity() {
             else -> "✗ XARVIS Hands is off"
         }
         status.setTextColor(Color.parseColor(if (on) "#1B8A3A" else "#B00020"))
+        if (::smooth.isInitialized) {
+            val ready = com.xarvis.ai.hands.ScreenVideo.ready
+            smooth.text = if (ready) "⚡ Smooth mode: ready — your linked phone sees this screen as live video."
+            else "Smooth mode: not allowed yet (Android asks once each time XARVIS starts). Without it, remote control still works, a few pictures a second."
+            smooth.setTextColor(Color.parseColor(if (ready) "#1B8A3A" else "#8A6D00"))
+        }
         if (::log.isInitialized) log.text = synchronized(HandsBridge.logLines) {
             if (HandsBridge.logLines.isEmpty()) "(nothing yet)" else HandsBridge.logLines.takeLast(30).joinToString("\n")
         }

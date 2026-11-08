@@ -120,6 +120,111 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
         return true
     }
 
+    // ---- Capability 4: a live finger (smooth remote control) — one gesture continued as the finger moves ----
+
+    private var liveStroke: GestureDescription.StrokeDescription? = null
+    private var liveAt = android.graphics.PointF()
+    private var liveDown = android.graphics.PointF()
+    private var liveDownTime = 0L
+    private var liveLastTime = 0L
+    private var liveBusy = false
+    private var liveBroken = false
+    private var liveMove: android.graphics.PointF? = null
+    private var liveUp: android.graphics.PointF? = null
+
+    private val liveDone = object : AccessibilityService.GestureResultCallback() {
+        override fun onCompleted(gestureDescription: GestureDescription?) {
+            liveBusy = false
+            liveNext()
+        }
+
+        override fun onCancelled(gestureDescription: GestureDescription?) {
+            liveBusy = false
+            liveBroken = true
+            liveFallback()
+        }
+    }
+
+    override fun touchDown(x: Float, y: Float) {
+        handler.post {
+            liveMove = null
+            liveUp = null
+            liveBroken = false
+            liveAt = android.graphics.PointF(x, y)
+            liveDown = android.graphics.PointF(x, y)
+            liveDownTime = android.os.SystemClock.uptimeMillis()
+            liveLastTime = liveDownTime
+            // The finger goes down here and stays down (willContinue) until the next piece of the gesture.
+            val s = GestureDescription.StrokeDescription(Path().apply { moveTo(x, y) }, 0, 1, true)
+            liveStroke = s
+            liveDispatch(s)
+        }
+    }
+
+    override fun touchMove(x: Float, y: Float) {
+        handler.post {
+            liveMove = android.graphics.PointF(x, y) // only the newest point matters
+            if (!liveBusy) liveNext()
+        }
+    }
+
+    override fun touchUp(x: Float, y: Float) {
+        handler.post {
+            liveUp = android.graphics.PointF(x, y)
+            if (!liveBusy) liveNext()
+        }
+    }
+
+    private fun liveDispatch(stroke: GestureDescription.StrokeDescription) {
+        liveBusy = true
+        if (!dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), liveDone, handler)) {
+            liveBusy = false
+            liveBroken = true
+            liveFallback()
+        }
+    }
+
+    /** Continue the gesture to the newest finger position (and lift it if the finger is up). */
+    private fun liveNext() {
+        if (liveBroken) {
+            liveFallback()
+            return
+        }
+        val previous = liveStroke ?: return
+        val up = liveUp
+        val to = up ?: liveMove ?: return
+        val now = android.os.SystemClock.uptimeMillis()
+        val duration = (now - liveLastTime).coerceIn(8L, 100L)
+        val path = Path().apply {
+            moveTo(liveAt.x, liveAt.y)
+            lineTo(to.x, to.y)
+        }
+        val next = try {
+            previous.continueStroke(path, 0, duration, up == null)
+        } catch (e: Exception) {
+            liveBroken = true
+            liveFallback()
+            return
+        }
+        liveStroke = if (up == null) next else null
+        liveAt = to
+        liveLastTime = now
+        liveMove = null
+        if (up != null) liveUp = null
+        liveDispatch(next)
+    }
+
+    /** If Android dropped the live gesture: do the whole touch at once when the finger lifts. */
+    private fun liveFallback() {
+        val up = liveUp ?: return
+        liveUp = null
+        liveStroke = null
+        liveMove = null
+        val held = android.os.SystemClock.uptimeMillis() - liveDownTime
+        val moved = kotlin.math.hypot(up.x - liveDown.x, up.y - liveDown.y) > 20f
+        gesture(if (moved) "swipe" else if (held > 600) "long" else "tap", liveDown.x, liveDown.y, up.x, up.y, held)
+    }
+
     private var banner: android.view.View? = null
 
     override fun controlBanner(by: String?, onStop: () -> Unit) {

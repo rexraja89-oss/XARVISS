@@ -5,9 +5,12 @@ import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import com.xarvis.ai.net.DeviceLink
 import com.xarvis.ai.net.LinkException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -44,6 +47,8 @@ object ScreenHost {
         if (!on) end()
     }
 
+    /** The smooth session's stream, closed by STOP. */
+    @Volatile private var live: DeviceLink.Channel? = null
     @Volatile private var controller: String? = null
     @Volatile private var lastUse = 0L
     @Volatile private var stoppedUntil = 0L
@@ -86,15 +91,119 @@ object ScreenHost {
     fun input(context: Context, from: String, cmd: JSONObject): Boolean {
         val hands = hands(context)
         touch(context, from, hands)
-        val w = screenW.takeIf { it > 0 } ?: context.resources.displayMetrics.widthPixels
-        val h = screenH.takeIf { it > 0 } ?: context.resources.displayMetrics.heightPixels
+        return command(context, hands, cmd)
+    }
+
+    private fun command(context: Context, hands: HandsBridge.Hands, cmd: JSONObject): Boolean {
+        val (w, h) = size(context)
         fun px(key: String, size: Int) = (cmd.optDouble(key, 0.5).coerceIn(0.0, 1.0) * (size - 1)).toFloat()
         return when (val kind = cmd.optString("kind")) {
             "tap", "long", "swipe" ->
                 hands.gesture(kind, px("x", w), px("y", h), px("x2", w), px("y2", h), cmd.optLong("ms", 300))
             "key" -> hands.globalAction(cmd.optString("name"))
             "text" -> hands.typeText(cmd.optString("text"), cmd.optBoolean("enter"))
+            // Smooth mode: show Android's screen-sharing prompt here, for Rex to tap "Start now" himself.
+            "smooth" -> {
+                ScreenShareService.ask(context)
+                true
+            }
             else -> false
+        }
+    }
+
+    private fun size(context: Context): Pair<Int, Int> =
+        if (screenW > 0 && screenH > 0) screenW to screenH else ScreenVideo.realSize(context)
+
+    /**
+     * Smooth remote control for [from] over [ch]: live H.264 video when screen sharing is allowed (else
+     * screenshots, ~3 a second), live touches and keys back. Runs until the viewer leaves, STOP, or switching
+     * to video (the viewer reconnects).
+     */
+    suspend fun stream(context: Context, from: String, req: JSONObject, ch: DeviceLink.Channel, accept: (JSONObject) -> Unit) {
+        val hands = hands(context)
+        touch(context, from, hands)
+        live?.close()
+        live = ch
+        val (w, h) = ScreenVideo.realSize(context)
+        screenW = w
+        screenH = h
+        val maxSide = req.optInt("max", 1440).coerceIn(480, 2400)
+        val video = withContext(Dispatchers.Main) {
+            ScreenVideo.start(context, maxSide, req.optInt("kbps", 4000).coerceIn(500, 20_000) * 1000)
+        }
+        accept(
+            JSONObject().put("ok", true).put("mode", if (video != null) "video" else "jpeg")
+                .put("w", w).put("h", h).put("vw", video?.width ?: 0).put("vh", video?.height ?: 0),
+        )
+        try {
+            coroutineScope {
+                // The viewer's fingers, keys and pings.
+                launch(Dispatchers.IO) {
+                    try {
+                        while (true) {
+                            val (type, payload) = ch.receive()
+                            lastUse = System.currentTimeMillis()
+                            when (type) {
+                                StreamMsg.TOUCH -> finger(context, hands, JSONObject(String(payload)))
+                                StreamMsg.INPUT -> withContext(Dispatchers.Main) {
+                                    runCatching { command(context, hands, JSONObject(String(payload))) }
+                                }
+                                StreamMsg.PING -> ch.send(StreamMsg.PONG, payload)
+                                StreamMsg.KEY_FRAME -> video?.let { v ->
+                                    v.config?.let { ch.send(StreamMsg.VIDEO_CONFIG, it) }
+                                    v.keyFrame()
+                                }
+                                StreamMsg.BYE -> break
+                            }
+                        }
+                    } finally {
+                        video?.stop()
+                        ch.close()
+                    }
+                }
+                // The screen.
+                launch(Dispatchers.IO) {
+                    try {
+                        if (video != null) {
+                            video.pump { type, bytes ->
+                                ch.send(type, bytes)
+                                lastUse = System.currentTimeMillis()
+                            }
+                        } else {
+                            while (!ch.closed) {
+                                // Rex allowed screen sharing meanwhile: tell the viewer to reconnect for video.
+                                if (ScreenVideo.ready) {
+                                    ch.send(StreamMsg.INFO, JSONObject().put("switch", "video").toString().toByteArray())
+                                    break
+                                }
+                                ch.send(StreamMsg.JPEG, frame(context, from, maxSide).jpeg)
+                            }
+                        }
+                    } finally {
+                        ch.close()
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            // The viewer left or the network dropped: nothing to report back.
+        } finally {
+            video?.stop()
+            if (live === ch) live = null
+            ch.close()
+            if (controller == from) end()
+        }
+    }
+
+    /** A live finger from the viewer: {"a":"down"|"move"|"up","x":0–1,"y":0–1}. */
+    private fun finger(context: Context, hands: HandsBridge.Hands, t: JSONObject) {
+        val (w, h) = size(context)
+        val x = (t.optDouble("x", 0.5).coerceIn(0.0, 1.0) * (w - 1)).toFloat()
+        val y = (t.optDouble("y", 0.5).coerceIn(0.0, 1.0) * (h - 1)).toFloat()
+        when (t.optString("a")) {
+            "down" -> hands.touchDown(x, y)
+            "move" -> hands.touchMove(x, y)
+            "up" -> hands.touchUp(x, y)
         }
     }
 
@@ -132,6 +241,8 @@ object ScreenHost {
     }
 
     private fun end() {
+        live?.close()
+        live = null
         val was = controller ?: return
         controller = null
         ui.removeCallbacks(idleCheck)

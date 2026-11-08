@@ -33,6 +33,11 @@ object HandsBridge {
         fun typeText(text: String, enter: Boolean): Boolean
         /** The "being controlled by …" banner on this screen; null hides it. Its STOP calls [onStop]. */
         fun controlBanner(by: String?, onStop: () -> Unit)
+
+        /** A live finger from the linked phone, in screen pixels: down, then moves, then up (scrolls as you drag). */
+        fun touchDown(x: Float, y: Float)
+        fun touchMove(x: Float, y: Float)
+        fun touchUp(x: Float, y: Float)
     }
 
     /** Whether this build has Hands inside XARVIS (the S22's). */
