@@ -38,6 +38,14 @@ object HandsBridge {
         fun touchDown(x: Float, y: Float)
         fun touchMove(x: Float, y: Float)
         fun touchUp(x: Float, y: Float)
+
+        // ---- XARVIS acting on this phone for the linked one ("open WhatsApp on my S22 and read…") ----
+        /** The text on the screen right now, top to bottom, with the app's name first. */
+        fun screenText(): String
+        /** Taps the visible thing labelled [label] (never payments, passwords, OTPs…); whether it did. */
+        fun tapText(label: String): Boolean
+        /** The selected text in the field with the cursor (or all of it); null if none. */
+        fun selectedText(): String?
     }
 
     /** Whether this build has Hands inside XARVIS (the S22's). */

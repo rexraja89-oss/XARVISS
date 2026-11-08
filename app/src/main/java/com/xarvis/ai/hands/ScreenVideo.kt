@@ -133,7 +133,7 @@ object ScreenVideo {
             val display = p.createVirtualDisplay(
                 "xarvis-remote", vw, vh, context.resources.displayMetrics.densityDpi,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, surface, null, null,
-            )
+            ) ?: throw IllegalStateException("Android gave no screen mirror")
             Session(vw, vh, codec, display)
         } catch (e: Exception) {
             HandsBridge.log("Smooth video couldn't start: ${e.message ?: e.javaClass.simpleName}")

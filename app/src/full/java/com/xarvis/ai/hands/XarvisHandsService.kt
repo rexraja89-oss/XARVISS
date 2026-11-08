@@ -120,6 +120,47 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
         return true
     }
 
+    // ---- Capability 5: XARVIS acting here for the linked phone (read the screen, tap by label, copy) ----
+
+    override fun screenText(): String {
+        val root = rootInActiveWindow ?: return ""
+        val items = ArrayList<Pair<Rect, String>>()
+        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
+            if (n == null || depth > 40 || items.size > 400) return
+            if (n.isVisibleToUser) {
+                val t = (n.text ?: n.contentDescription)?.toString()?.trim()
+                if (!t.isNullOrEmpty()) items += Rect().also { n.getBoundsInScreen(it) } to t
+            }
+            for (i in 0 until n.childCount) walk(n.getChild(i), depth + 1)
+        }
+        walk(root, 0)
+        val app = root.packageName?.toString()?.let { pkg ->
+            runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
+        }.orEmpty()
+        val lines = items.sortedWith(compareBy({ it.first.top }, { it.first.left })).map { it.second }.distinct()
+        log("read the screen of $app: ${lines.size} lines")
+        return ("[$app]\n" + lines.joinToString("\n")).take(6000)
+    }
+
+    override fun tapText(label: String): Boolean {
+        val node = findByText(rootInActiveWindow, label) ?: return false.also { log("tap '$label': not on screen") }
+        if (isDangerous(label) || isDangerous(text(node))) {
+            log("tap '$label': refused (looks like payment / password / OTP)")
+            return false
+        }
+        clickNode(node)
+        return true
+    }
+
+    override fun selectedText(): String? {
+        val field = findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return null
+        if (field.isShowingHintText) return null
+        val all = field.text?.toString() ?: return null
+        val start = field.textSelectionStart
+        val end = field.textSelectionEnd
+        return if (start in 0 until end && end <= all.length) all.substring(start, end) else all
+    }
+
     // ---- Capability 4: a live finger (smooth remote control) — one gesture continued as the finger moves ----
 
     private var liveStroke: GestureDescription.StrokeDescription? = null

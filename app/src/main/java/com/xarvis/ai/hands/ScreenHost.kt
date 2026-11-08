@@ -107,6 +107,7 @@ object ScreenHost {
                 ScreenShareService.ask(context)
                 true
             }
+            "paste" -> paste(context, hands, cmd.optString("text"))
             else -> false
         }
     }
@@ -145,8 +146,15 @@ object ScreenHost {
                             lastUse = System.currentTimeMillis()
                             when (type) {
                                 StreamMsg.TOUCH -> finger(context, hands, JSONObject(String(payload)))
-                                StreamMsg.INPUT -> withContext(Dispatchers.Main) {
-                                    runCatching { command(context, hands, JSONObject(String(payload))) }
+                                StreamMsg.INPUT -> {
+                                    val cmd = JSONObject(String(payload))
+                                    if (cmd.optString("kind") == "copy") {
+                                        // The viewer's "Copy": send the selected text back for its clipboard.
+                                        val text = withContext(Dispatchers.Main) { runCatching { hands.selectedText() }.getOrNull() }
+                                        ch.send(StreamMsg.INFO, JSONObject().put("clip", text ?: JSONObject.NULL).toString().toByteArray())
+                                    } else {
+                                        withContext(Dispatchers.Main) { runCatching { command(context, hands, cmd) } }
+                                    }
                                 }
                                 StreamMsg.PING -> ch.send(StreamMsg.PONG, payload)
                                 StreamMsg.KEY_FRAME -> video?.let { v ->
@@ -205,6 +213,36 @@ object ScreenHost {
             "move" -> hands.touchMove(x, y)
             "up" -> hands.touchUp(x, y)
         }
+    }
+
+    // ---- XARVIS acting on this phone for the linked one: "open WhatsApp on my S22 and read my last message" ----
+
+    /** One of "open" (app name), "read", "tap" (label), "type" (text); the answer to show on the asking phone. */
+    fun act(context: Context, from: String, kind: String, arg: String): String {
+        val hands = hands(context)
+        lastUse = System.currentTimeMillis()
+        HandsBridge.log("$from asked: $kind ${arg.take(40)}")
+        return when (kind) {
+            "open" -> {
+                val device = com.xarvis.ai.device.DeviceCapabilityManager(context)
+                val app = device.findApp(arg) ?: return "There's no app called \"$arg\" on it."
+                val launch = device.launchIntent(app) ?: return "${app.label} can't be opened from outside."
+                // Allowed from the background because XARVIS Hands (Accessibility) is on.
+                context.startActivity(launch)
+                "Opened ${app.label}."
+            }
+            "read" -> hands.screenText().ifBlank { "I couldn't read anything on its screen (is it locked or off?)." }
+            "tap" -> if (hands.tapText(arg)) "Tapped \"$arg\"." else "I couldn't find \"$arg\" on its screen (or it looks like a payment / password, which I never tap)."
+            "type" -> if (hands.typeText(arg, false)) "Typed it." else "No text box is selected on it: tap one first."
+            else -> "I don't know how to \"$kind\" there."
+        }
+    }
+
+    /** Puts [text] on this phone's clipboard and into the selected text box, if any (the viewer's "Paste"). */
+    fun paste(context: Context, hands: HandsBridge.Hands, text: String): Boolean {
+        context.getSystemService(android.content.ClipboardManager::class.java)
+            ?.setPrimaryClip(android.content.ClipData.newPlainText("XARVIS", text))
+        return hands.typeText(text, false)
     }
 
     /** The controlling phone closed its view. */

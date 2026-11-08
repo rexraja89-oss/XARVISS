@@ -28,13 +28,18 @@ class FileStore(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("files", Context.MODE_PRIVATE)
 
-    suspend fun save(block: FileBlock): SavedFile = withContext(Dispatchers.IO) {
+    suspend fun save(block: FileBlock): SavedFile {
         val (name, mime, bytes) = render(block)
+        return saveBytes(name, mime, bytes)
+    }
+
+    /** Saves [bytes] as [name] in Downloads/XARVIS (or a [subfolder] of it, e.g. "from-benco") and remembers it. */
+    suspend fun saveBytes(name: String, mime: String, bytes: ByteArray, subfolder: String? = null): SavedFile = withContext(Dispatchers.IO) {
         val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, name)
                 put(MediaStore.MediaColumns.MIME_TYPE, mime)
-                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/XARVIS")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/XARVIS" + (subfolder?.let { "/$it" } ?: ""))
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
             val resolver = appContext.contentResolver
