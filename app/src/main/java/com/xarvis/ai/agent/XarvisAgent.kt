@@ -194,7 +194,7 @@ class XarvisAgent(
 
     /** On a phone without the model (the benco): the linked phone's Gemma looks at the photo. */
     private suspend fun photoElsewhere(imagePath: String, message: String, question: String, onPartial: (String) -> Unit): Reply {
-        val brain = link.findBrain() ?: return Reply(noBrain())
+        val brain = linkedBrain(onPartial) ?: return Reply(noBrain())
         onPartial("Sending the photo to ${brain.name}…")
         val raw = try {
             link.remotePhoto(brain, facts(), File(imagePath).readBytes(), question)
@@ -267,7 +267,7 @@ class XarvisAgent(
             return out.toString()
         }
         // No Gemma here (the benco) and the cloud didn't answer: ask the linked phone's Gemma.
-        val peer = link.findBrain() ?: return noBrain()
+        val peer = linkedBrain(onPartial) ?: return noBrain()
         lastVia = withNote(peer.name, cloudNote)
         onPartial("Asking ${peer.name}…")
         return remoteChat(peer, text) ?: noBrain()
@@ -298,7 +298,7 @@ class XarvisAgent(
         brainReady(onPartial)
         // chatHere routes: cloud (if allowed) → this phone's Gemma → a linked phone's Gemma.
         // Only bail out early when none of those can answer at all.
-        if (!llm.isReady && !useCloud() && link.findBrain() == null) return Reply(noBrain())
+        if (!llm.isReady && !useCloud() && linkedBrain(onPartial) == null) return Reply(noBrain())
         lastVia = null
         suspend fun ask(text: String): String? = chatHere(text, onPartial)
 
@@ -542,6 +542,26 @@ class XarvisAgent(
         llm.awaitLoaded(BRAIN_LOAD_WAIT_MS)
     }
 
+    /**
+     * The linked phone's Gemma, for a phone without one (the benco). Right after the S22's XARVIS starts, its
+     * model takes about a minute to load: wait for it then, instead of saying it "isn't reachable" (Rex got
+     * that while the S22 was right there, still loading).
+     */
+    private suspend fun linkedBrain(onPartial: (String) -> Unit): Peer? {
+        val answering = link.reachable()
+        answering.firstOrNull { it.second }?.let { return it.first }
+        val waking = answering.map { it.first }.firstOrNull { peer ->
+            runCatching { link.remoteStatus(peer).contains("AI model: loading") }.getOrDefault(false)
+        } ?: return null
+        onPartial("${waking.name}'s brain is still waking up, sir — one moment…")
+        val until = System.currentTimeMillis() + BRAIN_LOAD_WAIT_MS
+        while (System.currentTimeMillis() < until) {
+            kotlinx.coroutines.delay(LINKED_BRAIN_POLL_MS)
+            link.findBrain()?.let { return it }
+        }
+        return null
+    }
+
     private fun noBrain(): String = when (val s = llm.status.value) {
         LlmStatus.Loading -> "My AI model is still loading. Try again in a moment."
         is LlmStatus.Failed -> "My AI model couldn't start (${s.reason}), and no linked phone with one is reachable."
@@ -620,6 +640,7 @@ class XarvisAgent(
 
         private const val MAX_FACT_CHARS = 3000
         private const val BRAIN_LOAD_WAIT_MS = 180_000L
+        private const val LINKED_BRAIN_POLL_MS = 5_000L
 
         /**
          * "take a photo", "open rear camera and take a photo", "take a selfie": straight to the camera.
@@ -635,7 +656,7 @@ class XarvisAgent(
         // "who am I" in any order ("who I am check with front camera"), and "who is this/she/he".
         private val WHO_SELF = Regex("""(?i)\bwho\s+(?:am\s+i|i\s+am)\b|\b(?:recogni[sz]e|identify)\s+me\b|\bdo\s+you\s+know\s+me\b""")
         private val WHO_OTHER = Regex(
-            """(?i)\bwho(?:'s|\s+is)\s+(?:this person|this|that|she|he|in front of me|in (?:this|the) (?:photo|picture|pic|image))\b|""" +
+            """(?i)\bwho(?:'s|\s+is|\s+are)\s+(?:this person|these people|this|that|she|he|they|in front of me|in (?:(?:this|the|that|my)\s+)?(?:photo|picture|pic|image|selfie))\b|""" +
                 """\bwhose face(?:\s+is\s+(?:this|that))?\b|\b(?:recogni[sz]e|identify)\s+(?:her|him|them|this person|this face)\b|""" +
                 """\bdo\s+you\s+(?:know|recogni[sz]e)\s+(?:her|him|them|this person|this face|who this is|who that is)\b""",
         )
@@ -644,7 +665,7 @@ class XarvisAgent(
             "hey", "xarvis", "jarvis", "please", "pls", "can", "could", "would", "do", "you", "check", "see", "tell", "me",
             "find", "out", "guess", "now", "quickly", "and", "with", "by", "using", "through", "from", "on", "via",
             "the", "my", "your", "front", "back", "rear", "selfie", "camera", "cam", "for", "just", "ok", "okay",
-            "let", "lets", "let's", "look", "is", "it", "who",
+            "let", "lets", "let's", "look", "is", "it", "who", "ask", "s22", "ultra", "galaxy", "samsung", "benco",
         )
         // "in front of me" is about a person standing there (back camera), not the front camera.
         private val SAYS_FRONT = Regex("""(?i)\bselfie\b|(?<!in\s)\bfront\b(?!\s+of\b)""")
@@ -660,7 +681,7 @@ class XarvisAgent(
             val t = message.lowercase().trim()
             val self = WHO_SELF.find(t)
             val m = self ?: WHO_OTHER.find(t) ?: return null
-            val rest = t.removeRange(m.range).split(Regex("""[^a-z']+""")).filter { it.isNotBlank() }
+            val rest = t.removeRange(m.range).split(Regex("""[^a-z0-9']+""")).filter { it.isNotBlank() }
             if (rest.any { it !in WHO_FILLER }) return null
             val front = when {
                 SAYS_FRONT.containsMatchIn(t) -> true

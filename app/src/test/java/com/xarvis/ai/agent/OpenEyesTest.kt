@@ -76,6 +76,10 @@ class WhoCommandTest {
         org.junit.Assert.assertEquals(back, who("who is she"))
         org.junit.Assert.assertEquals(back, who("who am i with the back camera"))
         org.junit.Assert.assertEquals(back, who("who is in front of me"))
+        // Typed on the benco with a photo attached (Nov 2026): it went to Gemma instead of face recognition.
+        org.junit.Assert.assertEquals(back, who("Ask s22 ultra who is in photo"))
+        org.junit.Assert.assertEquals(back, who("who is in this picture"))
+        org.junit.Assert.assertEquals(back, who("who are in this photo"))
     }
 
     @Test fun notAWhoQuestion() {

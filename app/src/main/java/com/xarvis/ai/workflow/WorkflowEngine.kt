@@ -352,7 +352,7 @@ class WorkflowEngine(
                 StepResult(true, backgroundNote("XARVIS Eyes", eyes)
                     ?: if (step.front) "Let me have a look at you, sir — face the screen." else "Let me have a look, sir — point the camera at their face.")
             } else {
-                StepResult(false, "Face recognition runs on the S22 (it has the camera and the faces you taught it), sir — ask me there.")
+                StepResult(false, "This phone has no camera, sir. Attach a photo (tap +) and ask \"who is this?\" — the S22 will recognise the faces in it.")
             }
         }
         is Step.EmergencyCall -> phone.callNumber(step.number, step.label, handsfree = true)
@@ -627,19 +627,24 @@ class WorkflowEngine(
      * XARVIS is on its screen; otherwise it shows "Tap to open XARVIS Eyes" there and waits for the tap.
      */
     private suspend fun remoteSnap(front: Boolean): StepResult {
-        val peers = link.pairedPeers()
-        if (peers.isEmpty()) return StepResult(
+        if (link.pairedPeers().isEmpty()) return StepResult(
             false, "This phone has no camera, sir, and it isn't linked to one that has. Type \"devices\" to check.",
         )
+        progress("📸 Finding the S22…")
+        // Only phones that answer (this also drops a stale old pairing, whose BAD_DECRYPT once hid the real error).
+        val peers = link.reachable().map { it.first }
+        if (peers.isEmpty()) return StepResult(
+            false, "This phone has no camera, and I can't reach the linked phone right now, sir. Make sure XARVIS is running on it with Tailscale on.",
+        )
         val lens = if (front) "front" else "back"
-        var problem = ""
+        val problems = mutableListOf<String>()
         for (peer in peers) {
             progress("📸 Asking ${peer.name} to take it with its $lens camera… (if XARVIS isn't open on it, tap the notification there)")
             val jpeg = try {
                 link.remoteSnap(peer, front)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                problem = "${peer.name}: ${e.message ?: e.javaClass.simpleName}"
+                problems += "${peer.name}: ${e.message ?: e.javaClass.simpleName}"
                 continue
             }
             val name = "XARVIS-" + java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(Date()) + ".jpg"
@@ -647,7 +652,7 @@ class WorkflowEngine(
                 ?: return StepResult(false, "${peer.name} took the photo (it's in its Gallery), but I couldn't save it on this phone.")
             return StepResult(true, "Here it is, sir — taken just now with ${peer.name}'s $lens camera (it's in its Gallery too).", listOf(saved))
         }
-        return StepResult(false, "This phone has no camera, so I asked the linked phone, but it couldn't take it. $problem")
+        return StepResult(false, "This phone has no camera, so I asked the linked phone, but it couldn't take it. " + problems.joinToString("\n"))
     }
 
     private suspend fun withPeer(name: String, block: suspend (Peer) -> StepResult): StepResult {

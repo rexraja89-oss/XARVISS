@@ -192,6 +192,17 @@ class XarvisCore(context: Context) {
             // A full photo is several MB: send a smaller copy (the full one stays in this phone's Gallery).
             return shot.uri?.let { PhotoPrep.downscaledJpeg(appContext, it, SNAP_SEND_SIDE, 88) } ?: shot.jpeg
         }
+
+        override suspend fun facesInPhoto(jpeg: ByteArray): String {
+            val file = java.io.File(appContext.cacheDir, "photos/faces-${System.currentTimeMillis()}.jpg")
+            return try {
+                file.parentFile?.mkdirs()
+                file.writeBytes(jpeg)
+                facesHere(file) // never forwarded again, so two phones can't bounce a photo back and forth
+            } finally {
+                file.delete()
+            }
+        }
     })
 
     private val memorySync: MemorySync = MemorySync(memory, link) {
@@ -301,7 +312,7 @@ class XarvisCore(context: Context) {
                         // Eyes), never the chat brain — Gemma can't recognise faces and once invented an answer.
                         if (com.xarvis.ai.agent.XarvisAgent.whoCommand(text) != null) {
                             onPartial("Checking the faces I know…")
-                            Reply(whoInPhoto(file))
+                            whoInPhoto(file, onPartial)
                         } else {
                             agent.handlePhoto(file.path, text, onPartial)
                         }
@@ -384,10 +395,34 @@ class XarvisCore(context: Context) {
     /** The reply being worked on, so STOP can cancel it. */
     private var replyJob: Job? = null
 
-    /** Who's in [file] (an upright chat photo), among the faces Rex taught XARVIS in Eyes. */
-    private suspend fun whoInPhoto(file: java.io.File): String = withContext(Dispatchers.Default) {
+    /**
+     * Who's in [file] (an upright chat photo), among the faces Rex taught XARVIS in Eyes. The benco has no
+     * face recognition (and the faces live on the S22), so there the photo goes to the S22 over the link.
+     */
+    private suspend fun whoInPhoto(file: java.io.File, onPartial: (String) -> Unit): Reply {
+        val here = withContext(Dispatchers.Default) { com.xarvis.ai.faces.FacePrintsProvider.create(appContext) != null }
+        if (here) return Reply(facesHere(file))
+        val peers = link.reachable().map { it.first }
+        if (peers.isEmpty()) {
+            return Reply("Face recognition runs on the S22, sir, and I can't reach it right now. Make sure XARVIS is running there with Tailscale on.")
+        }
+        val problems = mutableListOf<String>()
+        for (peer in peers) {
+            onPartial("Asking ${peer.name} who it is…")
+            try {
+                return Reply(link.remoteFaces(peer, file.readBytes()), via = peer.name)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                problems += "${peer.name}: ${e.message ?: e.javaClass.simpleName}"
+            }
+        }
+        return Reply("I couldn't get the S22 to check the faces, sir. " + problems.joinToString("\n"))
+    }
+
+    /** Face recognition on this phone (the S22 build), for its own chat or a linked phone's photo. */
+    private suspend fun facesHere(file: java.io.File): String = withContext(Dispatchers.Default) {
         val engine = com.xarvis.ai.faces.FacePrintsProvider.create(appContext)
-            ?: return@withContext "Face recognition is on the S22's XARVIS, sir (☰ → XARVIS Eyes → \"Who is this?\")."
+            ?: return@withContext "This phone has no face recognition, sir — it's on the S22's XARVIS."
         val known = com.xarvis.ai.faces.FaceStore(appContext).all()
         if (known.isEmpty()) return@withContext "I don't know anyone's face yet, sir. Teach me in ☰ → XARVIS Eyes → \"Teach a face\"."
         val photo = android.graphics.BitmapFactory.decodeFile(file.path) ?: return@withContext "I couldn't open that photo, sir."

@@ -94,6 +94,9 @@ class DeviceLink(context: Context, private val handler: Handler) {
          * JPEG; throws with a plain reason when it can't.
          */
         suspend fun snapPhoto(front: Boolean, from: String): ByteArray
+
+        /** Who is in a linked phone's photo, by this phone's face recognition ("That's Rex, sir — 87% match"). */
+        suspend fun facesInPhoto(jpeg: ByteArray): String
     }
 
     private val appContext = context.applicationContext
@@ -267,9 +270,33 @@ class DeviceLink(context: Context, private val handler: Handler) {
     }
 
     /** A linked, reachable device with a working LLM, if any. */
-    suspend fun findBrain(): Peer? = pairedPeers().firstOrNull { p ->
-        runCatching { request(p, "ping", timeoutMs = PING_TIMEOUT_MS).optBoolean("llm") }.getOrDefault(false)
+    suspend fun findBrain(): Peer? = reachable().firstOrNull { it.second }?.first
+
+    /**
+     * The linked devices that answer right now, each with whether its AI model is ready.
+     *
+     * Also drops a stale pairing: after the S22's XARVIS was reinstalled and re-paired, the benco kept its
+     * old entry for it (same name, old key — "2 LINKED" on the benco, "1 LINKED" on the S22). Requests
+     * through it fail with BAD_DECRYPT, and once one hid a real error from the remote camera. It's removed
+     * only when it fails that way and a device with the same name answers.
+     */
+    suspend fun reachable(): List<Pair<Peer, Boolean>> {
+        val answers = pairedPeers().map { p -> p to runCatching { request(p, "ping", timeoutMs = PING_TIMEOUT_MS) } }
+        val ok = answers.filter { it.second.isSuccess }
+        for ((p, r) in answers) {
+            val why = r.exceptionOrNull()?.message.orEmpty()
+            val oldKey = "BAD_DECRYPT" in why || "isn't linked" in why
+            if (oldKey && ok.any { (q, _) -> q.id != p.id && q.name == p.name }) {
+                Log.i(TAG, "Dropping stale pairing ${p.name} (${p.id.take(8)}): $why")
+                unpair(p)
+            }
+        }
+        return ok.map { (p, r) -> p to r.getOrThrow().optBoolean("llm") }
     }
+
+    /** Who is in [jpeg], by [peer]'s face recognition (the faces Rex taught XARVIS on that phone). */
+    suspend fun remoteFaces(peer: Peer, jpeg: ByteArray): String =
+        request(peer, "faces", JSONObject().put("image", b64(jpeg)), timeoutMs = CHAT_READ_TIMEOUT_MS).getString("text")
 
     fun unpair(peer: Peer) {
         peers.remove(peer.id)
@@ -478,6 +505,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
             "contacts" -> reply.put("lines", JSONArray(handler.findContacts(req.getString("name"))))
             // Failures throw; serve() sends their message back, which the asking phone shows Rex.
             "snap" -> reply.put("jpg", b64(handler.snapPhoto(req.optBoolean("front"), peer.name)))
+            "faces" -> reply.put("text", handler.facesInPhoto(unb64(req.getString("image"))))
             "memory_add" -> {
                 handler.memoryAdd(req.getString("c"), req.getLong("t"))
                 reply.put("ok", true)
