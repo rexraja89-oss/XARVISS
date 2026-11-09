@@ -60,6 +60,10 @@
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
+        <!-- The phone's voice recorder, for the Guard remote's "Send my real voice". -->
+        <intent>
+            <action android:name="android.provider.MediaStore.RECORD_SOUND" />
+        </intent>
         <!-- The phone's speech recognizer, for the mic button. -->
         <intent>
             <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
