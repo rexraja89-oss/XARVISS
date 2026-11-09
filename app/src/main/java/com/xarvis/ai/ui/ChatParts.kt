@@ -207,7 +207,6 @@ fun SettingsMenu(
     councilEnabled: Boolean, onCouncil: (Boolean) -> Unit,
     cloudMemory: Boolean, onCloudMemory: (Boolean) -> Unit,
     backups: () -> List<com.xarvis.ai.llm.BrainInfo>, onSaveBackup: (String, String) -> Unit, onClearBackup: (String) -> Unit,
-    braveHasKey: () -> Boolean, onSaveBrave: (String) -> Unit, onClearBrave: () -> Unit,
     searchKeyHas: (String) -> Boolean = { false }, onSaveSearchKey: (String, String) -> Unit = { _, _ -> },
     onClearSearchKey: (String) -> Unit = {},
     voiceLabel: (Boolean) -> String, onNextVoice: (Boolean) -> String,
@@ -274,7 +273,6 @@ fun SettingsMenu(
             // Cloud works on any phone with internet (including the benco), so it's always shown.
             CloudBrain(cloudEnabled, hasCloudKey, onCloud, onSaveKey, onClearKey, councilEnabled, onCouncil, cloudMemory, onCloudMemory)
             if (cloudEnabled) BackupBrains(backups, onSaveBackup, onClearBackup)
-            WebSearchKey(braveHasKey, onSaveBrave, onClearBrave)
             JobHunterKeys(searchKeyHas, onSaveSearchKey, onClearSearchKey)
             HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
             Text(
@@ -606,33 +604,6 @@ private fun BackupBrains(
             style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
         )
         list.forEach { ProviderKeyRow(it, onSaveBackup, onClearBackup) }
-    }
-}
-
-/** ☰ → BRAIN: Rex's Brave Search key — the primary source for live web results and pictures. */
-@Composable
-private fun WebSearchKey(braveHasKey: () -> Boolean, onSave: (String) -> Unit, onClear: () -> Unit) {
-    var hasKey by remember { mutableStateOf(braveHasKey()) }
-    var key by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
-        HorizontalDivider(Modifier.padding(bottom = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
-        Text("Web search (Brave)", style = MaterialTheme.typography.bodyLarge)
-        Text(
-            "For accurate live results, prices and pictures (brave.com/search/api — since Feb 2026 it needs a card; the Tavily key below is free without one). Without it, XARVIS uses Wikipedia and a free search as backup.",
-            style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
-        )
-        if (hasKey) {
-            Text("Key saved ✓", style = MaterialTheme.typography.labelSmall, color = XarvisCyan, modifier = Modifier.padding(top = 4.dp))
-            TextButton(onClick = { onClear(); hasKey = false }) { Text("Remove key") }
-        } else {
-            OutlinedTextField(
-                value = key, onValueChange = { key = it },
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                label = { Text("Paste Brave Search key (BSA…)") },
-                singleLine = true,
-            )
-            Button(onClick = { if (key.isNotBlank()) { onSave(key.trim()); key = ""; hasKey = true } }) { Text("SAVE KEY") }
-        }
     }
 }
 
