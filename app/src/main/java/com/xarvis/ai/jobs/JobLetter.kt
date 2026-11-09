@@ -26,14 +26,15 @@ object JobLetter {
 
     /** Reads name, contacts, the profile paragraph and the lines out of a CV's text. */
     fun profileFrom(cvText: String): Profile {
-        val lines = cvText.lines().map { it.replace(Regex("\\s+"), " ").trim() }.filter { it.isNotEmpty() }
+        val plain = cvText.replace("ﬁ", "fi").replace("ﬂ", "fl").replace("ﬀ", "ff").replace("ﬃ", "ffi").replace("ﬄ", "ffl")
+        val lines = plain.lines().map { it.replace(Regex("\\s+"), " ").trim() }.filter { it.isNotEmpty() }
         val name = lines.take(8).firstOrNull { l ->
             val words = l.split(' ')
             words.size in 2..4 && words.all { w -> w.length >= 2 && w.all { it.isLetter() || it == '.' || it == '-' } } &&
                 !Regex("(?i)supervisor|superintendent|painting|resume|curriculum|cv\\b").containsMatchIn(l)
         }?.let(::titleCase).orEmpty()
-        val email = EMAIL.find(cvText)?.value.orEmpty()
-        val phones = PHONE.findAll(cvText).map { it.value.replace(Regex("\\s+"), " ").trim() }
+        val email = EMAIL.find(plain)?.value.orEmpty()
+        val phones = PHONE.findAll(plain).map { it.value.replace(Regex("\\s+"), " ").trim() }
             .distinctBy { it.filter(Char::isDigit) }.take(3).toList()
         val start = lines.indexOfFirst { HEADING.matches(it) }
         val summary = if (start >= 0) {
@@ -44,8 +45,16 @@ object JobLetter {
         return Profile(name, email, phones, summary.trim(), cvLines(lines))
     }
 
-    /** CV text broken into readable lines (bullets and over-long lines split into sentences). */
+    /**
+     * CV text broken into readable lines: a line that carries on the one before (starts in lower case, "&", "(")
+     * is joined back to it; bullets and over-long lines are split into sentences.
+     */
     private fun cvLines(lines: List<String>): List<String> = lines
+        .fold(ArrayList<String>()) { acc, l ->
+            val prev = acc.lastOrNull()
+            if (prev != null && !prev.endsWith(":") && (l.first().isLowerCase() || l.first() in "&(–,")) acc[acc.size - 1] = "$prev $l" else acc += l
+            acc
+        }
         .flatMap { it.split(Regex("""\s*[•▪◆■]\s*""")) }
         .flatMap { if (it.length > 230) it.split(Regex("""(?<=[.;])\s+""")) else listOf(it) }
         .map { it.trim().trimStart('-', '–', '*').trim() }

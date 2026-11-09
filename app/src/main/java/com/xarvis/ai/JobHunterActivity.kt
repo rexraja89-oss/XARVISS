@@ -68,6 +68,17 @@ class JobHunterActivity : Activity() {
         }
         setContentView(ScrollView(this).apply { addView(col) })
         scope.launch {
+            // CVs added before the PDF reader was fixed: read them again, then rewrite the waiting drafts.
+            val reread = withContext(Dispatchers.IO) {
+                runCatching { store.rereadCvs { com.xarvis.ai.files.PdfText.read(it, 6) } }.getOrDefault(false)
+                    .also { if (it) JobHunter.rewriteDrafts(this@JobHunterActivity) }
+            }
+            if (reread) {
+                render()
+                toast("Read your CVs again — check 👤 My details.")
+            }
+        }
+        scope.launch {
             JobHunter.progress.collect { p ->
                 progress.text = p.line
                 progress.visibility = if (p.line.isBlank()) View.GONE else View.VISIBLE

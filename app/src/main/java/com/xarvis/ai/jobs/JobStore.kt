@@ -89,10 +89,25 @@ class JobStore(context: Context) {
     fun saveCv(kind: JobKind, name: String, bytes: ByteArray, text: String) {
         cvFile(kind).writeBytes(bytes)
         File(dir, "cv_${kind.name}.txt").writeText(text)
-        prefs.edit().putString("cvName_${kind.name}", name).apply()
+        prefs.edit().putString("cvName_${kind.name}", name).putInt("cvTextVersion", CV_TEXT_VERSION).apply()
     }
 
     fun cvText(kind: JobKind): String = runCatching { File(dir, "cv_${kind.name}.txt").readText() }.getOrDefault("")
+
+    /**
+     * Reads the saved CVs again when the PDF reader has improved since they were added (v2: Chrome-made PDFs no
+     * longer come out as "S A J J A D"). True when something was re-read.
+     */
+    fun rereadCvs(read: (ByteArray) -> String): Boolean {
+        if (prefs.getInt("cvTextVersion", 1) >= CV_TEXT_VERSION) return false
+        var any = false
+        for (kind in JobKind.values()) {
+            if (cvName(kind) == null) continue
+            runCatching { File(dir, "cv_${kind.name}.txt").writeText(read(cvFile(kind).readBytes())) }.onSuccess { any = true }
+        }
+        prefs.edit().putInt("cvTextVersion", CV_TEXT_VERSION).apply()
+        return any
+    }
 
     /** The CV for [kind], or the other one when only one was given. */
     fun cvFor(kind: JobKind): JobKind? = when {
@@ -165,5 +180,7 @@ class JobStore(context: Context) {
         const val TAVILY_RESERVE = 50
         /** Jooble gave Rex 500 requests (it didn't say per month); the hunter stops a little before. */
         const val JOOBLE_LIMIT = 480
+        /** Bump when the PDF reader gets better, so saved CVs are read again. */
+        const val CV_TEXT_VERSION = 2
     }
 }

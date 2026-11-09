@@ -60,9 +60,13 @@ class PdfText private constructor(private val data: String) {
             val resources = asDict(resolve(page["Resources"])) ?: inherited
             val out = StringBuilder()
             contents(page["Contents"]).forEach { runContent(it, resources, out, 0) }
-            out.toString().lines().joinToString("\n") { it.replace(Regex(""" {2,}"""), " ").trim() }.trim()
+            out.toString().lines().joinToString("\n") { it.replace(Regex(""" {2,}"""), " ").trim() }.trim().let(::unLigature)
         }
     }
+
+    /** Joined letters some fonts draw as one ("ﬁ" in "Proﬁle") back to plain letters, so words can be searched. */
+    private fun unLigature(s: String): String = s.replace("ﬀ", "ff").replace("ﬁ", "fi").replace("ﬂ", "fl")
+        .replace("ﬃ", "ffi").replace("ﬄ", "ffl").replace("ﬅ", "st").replace("ﬆ", "st")
 
     private fun collectPages(node: Any?, inherited: Map<String, Any?>?, out: MutableList<Pair<Map<String, Any?>, Map<String, Any?>?>>, depth: Int) {
         if (depth > 50) return
@@ -86,6 +90,7 @@ class PdfText private constructor(private val data: String) {
         val xobjects = asDict(resolve(resources?.get("XObject")))
         var font: Map<Int, String>? = null
         var twoByte = false
+        var fontSize = 12.0
         val operands = mutableListOf<Any?>()
         fun show(s: Str) = out.append(decodeText(s.bytes, font, twoByte))
         fun newLine() { if (out.isNotEmpty() && out.last() != '\n') out.append('\n') }
@@ -103,6 +108,7 @@ class PdfText private constructor(private val data: String) {
                     val fontDict = asDict(resolve(fontRef))
                     font = (fontRef as? Ref)?.let { cmapFor(it.num, fontDict) } ?: fontDict?.let { cmapOf(it) }
                     twoByte = (fontDict?.get("Subtype") as? Name)?.name == "Type0"
+                    (operands.getOrNull(1) as? Number)?.toDouble()?.takeIf { it > 0 }?.let { fontSize = it }
                 }
                 "Tj", "'", "\"" -> {
                     if (token.op != "Tj") newLine()
@@ -115,8 +121,15 @@ class PdfText private constructor(private val data: String) {
                     }
                 }
                 "Td", "TD" -> {
+                    val tx = (operands.getOrNull(0) as? Number)?.toDouble() ?: 0.0
                     val ty = (operands.getOrNull(1) as? Number)?.toDouble() ?: 0.0
-                    if (ty != 0.0) newLine() else if (out.isNotEmpty() && out.last() != ' ' && out.last() != '\n') out.append(' ')
+                    // A move along the line is a word gap only when it's wider than a letter: Chrome-made PDFs
+                    // place every single letter with Td (and draw spaces as letters), which read "S A J J A D".
+                    if (ty != 0.0) {
+                        newLine()
+                    } else if (tx > fontSize * 1.1 && out.isNotEmpty() && out.last() != ' ' && out.last() != '\n') {
+                        out.append(' ')
+                    }
                 }
                 "T*" -> newLine()
                 "Tm" -> {
