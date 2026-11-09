@@ -38,11 +38,19 @@ jobs:
         else
           echo "::warning title=No permanent signing key::The XARVIS_KEYSTORE secret isn't set, so this APK can't install as an upgrade over one signed with the permanent key."
         fi
+    - name: Keep the voice engine between builds
+      # So a GitHub download hiccup (a 504 on 9 Nov 2026 blocked a release) can't stop a build once it's cached.
+      uses: actions/cache@v4
+      with:
+        path: app/libs/sherpa-onnx-1.13.8.aar
+        key: sherpa-onnx-1.13.8-aar
     - name: Download the voice engine
       # sherpa-onnx (offline speech engine for Rex's own voice); too big to keep in git.
       run: |
         mkdir -p app/libs
-        curl -fsSL -o app/libs/sherpa-onnx-1.13.8.aar https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar
+        if [ ! -s app/libs/sherpa-onnx-1.13.8.aar ]; then
+          curl -fsSL --retry 8 --retry-delay 20 --retry-all-errors -o app/libs/sherpa-onnx-1.13.8.aar https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar
+        fi
     - name: Test and build debug APK
       run: |
         set -o pipefail
