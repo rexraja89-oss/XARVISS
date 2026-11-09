@@ -130,6 +130,14 @@ class XarvisAgent(
                 ?: HealthCommands.parse(message)?.let { run(listOf(it)) }
                 ?: LinkCommands.parse(message, link.pairingInProgress)?.let { run(listOf(it)) }
                 ?: GuardCommands.parse(message)?.let { run(listOf(Step.Guard(it))) }
+                ?: GuardCommands.remote(message)?.let { (action, text) ->
+                    // On the S22 itself "stop the alarm" is the fingerprint; elsewhere it's the S22's alarm, from here.
+                    if (com.xarvis.ai.guard.GuardMode.available(appContext)) {
+                        if (action == "stop") run(listOf(Step.Guard(false))) else null
+                    } else {
+                        run(listOf(Step.GuardRemote(action, text)))
+                    }
+                }
                 ?: OtherPhoneCommands.parse(message, otherPhoneWords())?.let { onOtherPhone(it, onPartial) }
                 ?: PhoneTask.parse(message, otherPhoneWords())?.let { runPhoneTask(it, onPartial) }
                 ?: (if (OPEN_EYES.matches(message.trim().trimEnd('.', '!', '?'))) run(listOf(Step.OpenEyes)) else null)

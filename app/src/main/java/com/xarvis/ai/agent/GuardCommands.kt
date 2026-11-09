@@ -21,6 +21,26 @@ object GuardCommands {
     /** "It's alright XARVIS" as speech recognition writes it ("it's all right Jarvis", "its alright jervis"…). */
     fun isDisarmPhrase(text: String): Boolean = OK_WORD.containsMatchIn(text) && NAME.containsMatchIn(text)
 
+    private val STOP_ALARM = Regex(
+        """(?i)$LEAD(?:stop|turn\s+off|switch\s+off|silence|shut\s+off|end)\s+(?:the\s+)?(?:alarm|siren)""" +
+            """(?:\s+(?:on|of)\s+(?:my\s+|the\s+)?[\w' ]{1,30})?(?:\s+now)?$""",
+    )
+    private val SOUND_ALARM = Regex(
+        """(?i)$LEAD(?:sound|ring|trigger|raise|fire)\s+(?:the\s+)?(?:alarm|siren)""" +
+            """(?:\s+(?:on|of)\s+(?:my\s+|the\s+)?[\w' ]{1,30})?(?:\s+now)?$""",
+    )
+    private val WARN = Regex("""(?i)$LEAD(?:tell|warn)\s+(?:the\s+)?(?:intruder|thief|stranger)\s*[:,\-–]?\s+(.+)$""")
+    private val SAY_THERE = Regex("""(?i)$LEAD(?:say|speak)\s+(?:on|through|from)\s+(?:my\s+|the\s+)?[\w']+(?:\s+[\w']+){0,2}\s*[:,\-–]\s*(.+)$""")
+
+    /** Guard remote, from the other phone: ("stop" | "panic" | "say", text) — or null. */
+    fun remote(message: String): Pair<String, String?>? {
+        val t = message.trim().trimEnd('.', '!', '?').trim()
+        STOP_ALARM.matchEntire(t)?.let { return "stop" to null }
+        SOUND_ALARM.matchEntire(t)?.let { return "panic" to null }
+        (WARN.matchEntire(t) ?: SAY_THERE.matchEntire(t))?.let { return "say" to it.groupValues[1].trim() }
+        return null
+    }
+
     /** true = arm, false = disarm, null = not about guard mode. */
     fun parse(message: String): Boolean? {
         val t = message.trim().trimEnd('.', '!', '?').trim()

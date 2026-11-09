@@ -157,6 +157,12 @@
             android:exported="false"
             android:label="XARVIS Hands"
             android:theme="@android:style/Theme.DeviceDefault.Light" />
+        <!-- Guard remote: the other phone's intruder alarm — speak through it, stop it, or sound it. -->
+        <activity
+            android:name=".GuardRemoteActivity"
+            android:exported="false"
+            android:label="Guard remote"
+            android:theme="@android:style/Theme.DeviceDefault.Light" />
         <!-- Share → "Send to my other phone": files and text to the linked phone over the encrypted link. -->
         <activity
             android:name=".ShareToLinkedActivity"

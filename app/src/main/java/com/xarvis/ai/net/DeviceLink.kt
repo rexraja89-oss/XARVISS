@@ -124,6 +124,15 @@ class DeviceLink(context: Context, private val handler: Handler) {
 
         /** One decision by this phone's AI model with [system] instructions (a linked phone's PhoneAgent); null without one. */
         suspend fun brainOneShot(system: String, text: String): String?
+
+        /**
+         * Guard mode, run from Rex's other phone: "status", "say" (text), "play" (audio + ext), "stop", "panic".
+         * Answers {"state","phase"} for status, {"text"} otherwise; throws with a reason when it can't.
+         */
+        suspend fun guard(from: String, action: String, req: JSONObject): JSONObject
+
+        /** The linked phone's intruder alarm went off: tell Rex here (notification + chat), with the intruder's photo. */
+        suspend fun guardAlert(from: String, text: String, jpeg: ByteArray?)
     }
 
     /** A linked phone's screen: the picture, and the size of the real screen it shows. */
@@ -429,6 +438,21 @@ class DeviceLink(context: Context, private val handler: Handler) {
         request(peer, "clip", JSONObject().put("text", text))
     }
 
+    /** Guard mode on [peer] (its alarm): "status", "say" {text}, "play" {audio, ext}, "stop", "panic". */
+    suspend fun remoteGuard(peer: Peer, action: String, body: JSONObject = JSONObject()): JSONObject =
+        request(peer, "guard", body.put("action", action), timeoutMs = SCREEN_READ_TIMEOUT_MS)
+
+    /** A voice clip for [peer]'s alarm to play out loud (recorded on this phone). */
+    suspend fun remoteGuardVoice(peer: Peer, audio: ByteArray, extension: String): JSONObject =
+        request(peer, "guard", JSONObject().put("action", "play").put("audio", b64(audio)).put("ext", extension), timeoutMs = FILE_READ_TIMEOUT_MS)
+
+    /** This phone's intruder alarm went off: alert [peer] (Rex's other phone) with [text] and the photo. */
+    suspend fun sendGuardAlert(peer: Peer, text: String, jpeg: ByteArray?) {
+        val body = JSONObject().put("text", text)
+        if (jpeg != null) body.put("jpg", b64(jpeg))
+        request(peer, "guard_alert", body, timeoutMs = FILE_READ_TIMEOUT_MS)
+    }
+
     /** [peer]'s AI model answering [text] once, with [system] instructions (PhoneAgent's steps on a phone without one). */
     suspend fun remoteThink(peer: Peer, system: String, text: String): String =
         request(peer, "think", JSONObject().put("system", system).put("text", text), timeoutMs = CHAT_READ_TIMEOUT_MS).getString("text")
@@ -685,6 +709,17 @@ class DeviceLink(context: Context, private val handler: Handler) {
                 reply.put("ok", true)
             }
             "act" -> reply.put("text", handler.act(peer.name, req.getString("kind"), req.optString("arg")))
+            "guard" -> {
+                val action = req.getString("action")
+                // A voice clip arrives as base64; decode it here so the handler gets bytes.
+                if (action == "play") req.put("audioBytes", unb64(req.getString("audio")))
+                val answer = handler.guard(peer.name, action, req)
+                answer.keys().forEach { k -> reply.put(k, answer.get(k)) }
+            }
+            "guard_alert" -> {
+                handler.guardAlert(peer.name, req.getString("text"), req.optString("jpg").takeIf { it.isNotEmpty() }?.let { unb64(it) })
+                reply.put("ok", true)
+            }
             "think" -> reply.put(
                 "text",
                 handler.brainOneShot(req.getString("system"), req.getString("text"))

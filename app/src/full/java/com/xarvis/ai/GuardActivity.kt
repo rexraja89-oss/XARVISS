@@ -60,6 +60,7 @@ class GuardActivity : Activity() {
     private var reader: ImageReader? = null
     private val frames = ArrayList<ByteArray>()
     @Volatile private var checking = false
+    @Volatile private var forced = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -104,6 +105,8 @@ class GuardActivity : Activity() {
         com.xarvis.ai.guard.GuardNotice.cancel(this)
         when (mode) {
             "check" -> if (GuardMode.state == GuardMode.State.CHECKING) check() else render()
+            // "Sound the alarm now" from Rex's other phone: take the photo, then the alarm whoever it is.
+            "force" -> if (GuardMode.state == GuardMode.State.CHECKING) { forced = true; check() } else render()
             "finger" -> { render(); askFinger(disarmOnly = false) }
             "disarm" -> {
                 title.text = "🛡 XARVIS Guard"
@@ -118,7 +121,7 @@ class GuardActivity : Activity() {
 
     private fun render() {
         when (GuardAlarm.phase) {
-            GuardAlarm.Phase.WARNING, GuardAlarm.Phase.LISTENING, GuardAlarm.Phase.FINGER -> {
+            GuardAlarm.Phase.WARNING, GuardAlarm.Phase.LISTENING, GuardAlarm.Phase.FINGER, GuardAlarm.Phase.OWNER -> {
                 title.text = "⚠ WARNING\nILLEGAL ACTIVITY DETECTED"
                 info.text = "You are not authorized to touch this device."
                 GuardAlarm.photo?.let { uri ->
@@ -259,7 +262,7 @@ class GuardActivity : Activity() {
                 }
             }
             ui.post {
-                if (isRex) {
+                if (isRex && !forced) {
                     GuardMode.ownerSeen()
                     title.text = "✓"
                     info.text = "Welcome back, sir. Guard off."

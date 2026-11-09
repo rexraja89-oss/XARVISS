@@ -24,7 +24,8 @@ import java.util.Locale
  * location go to the linked phone at once.
  */
 object GuardAlarm {
-    enum class Phase { IDLE, WARNING, LISTENING, FINGER, RELIEF }
+    /** OWNER: Rex's own words from his other phone are being said or played here. */
+    enum class Phase { IDLE, WARNING, LISTENING, FINGER, RELIEF, OWNER }
 
     @Volatile var phase = Phase.IDLE
         private set
@@ -42,11 +43,15 @@ object GuardAlarm {
     private var ttsReady = false
     private var recognizer: SpeechRecognizer? = null
     @Volatile var screenShowing = false
+    /** The alarm is on (until the fingerprint, or Rex stops it from his other phone). */
+    @Volatile private var active = false
+    private var player: android.media.MediaPlayer? = null
 
     fun start(context: Context, photoUri: Uri?, jpeg: ByteArray?) {
         val c = context.applicationContext
         app = c
         photo = photoUri
+        active = true
         HandsBridge.log("Guard mode: INTRUDER — alarm on.")
         alertLinkedPhone(c, jpeg)
         voice(c) { ui.post { warn() } }
@@ -85,6 +90,7 @@ object GuardAlarm {
                         override fun onDone(utteranceId: String?) {
                             if (utteranceId == "warn") ui.post { listen() }
                             if (utteranceId == "laugh-end") ui.post { finishRelief() }
+                            if (utteranceId == "owner") ui.post { resumeAfterOwner() }
                         }
                         @Deprecated("Deprecated in Java")
                         override fun onError(utteranceId: String?) {
@@ -115,7 +121,7 @@ object GuardAlarm {
     /** One warning, deep and slow, then listen. */
     private fun warn() {
         val c = app ?: return
-        if (phase == Phase.FINGER || phase == Phase.RELIEF) return
+        if (!active || phase == Phase.FINGER || phase == Phase.RELIEF) return
         set(Phase.WARNING)
         loud(c)
         if (!screenShowing) GuardMode.launch(c, "alarm") // someone left the red screen: bring it back
@@ -178,8 +184,81 @@ object GuardAlarm {
 
     // ---- the fingerprint, then relief ----
 
+    // ---- Rex speaking or stopping it from his other phone ----
+
+    private fun interrupt() {
+        ui.removeCallbacks(listenTimeout)
+        recognizer?.let { r -> runCatching { r.destroy() } }
+        recognizer = null
+        tts?.stop()
+        player?.let { p -> runCatching { p.stop(); p.release() } }
+        player = null
+    }
+
+    private fun louder(c: Context) {
+        loud(c)
+        runCatching {
+            val audio = c.getSystemService(AudioManager::class.java)
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC), 0)
+        }
+    }
+
+    /** Rex's words, typed or spoken on his other phone, said aloud here at full volume (his trained voice if he has one). */
+    fun sayFromOwner(context: Context, text: String) {
+        val c = context.applicationContext
+        app = c
+        interrupt()
+        if (active) set(Phase.OWNER)
+        louder(c)
+        if (com.xarvis.ai.voice.OwnVoice.use(c, false)) {
+            com.xarvis.ai.voice.OwnVoice.speak(c, text, false)
+            if (active) ui.postDelayed({ resumeAfterOwner() }, 1_500L + text.length * 80L)
+        } else {
+            voice(c) { say(text, "owner", pitch = 1f, rate = 0.92f, flush = true) }
+        }
+        HandsBridge.log("Guard mode: said Rex's message from his other phone.")
+    }
+
+    /** A voice clip Rex recorded on his other phone, played here at alarm volume. */
+    fun playFromOwner(context: Context, audio: ByteArray, extension: String) {
+        val c = context.applicationContext
+        app = c
+        interrupt()
+        if (active) set(Phase.OWNER)
+        louder(c)
+        val file = java.io.File(c.cacheDir, "guard-voice.$extension").apply { writeBytes(audio) }
+        runCatching {
+            player = android.media.MediaPlayer().apply {
+                setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                setDataSource(file.path)
+                setOnCompletionListener { mp -> mp.release(); if (player === mp) player = null; resumeAfterOwner() }
+                setOnErrorListener { mp, _, _ -> mp.release(); if (player === mp) player = null; resumeAfterOwner(); true }
+                prepare()
+                start()
+            }
+        }.onFailure {
+            HandsBridge.log("Guard mode: couldn't play Rex's voice clip: ${it.message}")
+            resumeAfterOwner()
+        }
+    }
+
+    private fun resumeAfterOwner() {
+        if (active && phase == Phase.OWNER) ui.postDelayed({ warn() }, 600)
+    }
+
+    /** Rex stopped it from his other phone (after unlocking that phone): alarm off, guard off. */
+    fun stopByOwner() {
+        active = false
+        interrupt()
+        GuardMode.disarm()
+        set(Phase.IDLE)
+        photo = null
+        HandsBridge.log("Guard mode: Rex stopped the alarm from his other phone.")
+    }
+
     /** Rex's fingerprint matched: alarm off, guard off, and a laugh. */
     fun fingerOk(context: Context) {
+        active = false
         val c = context.applicationContext
         ui.removeCallbacks(listenTimeout)
         recognizer?.let { runCatching { it.destroy() } }
@@ -210,6 +289,9 @@ object GuardAlarm {
 
     /** Stop everything at once (e.g. Rex disarmed from the guard screen another way). */
     fun stop() {
+        active = false
+        player?.let { p -> runCatching { p.stop(); p.release() } }
+        player = null
         ui.removeCallbacks(listenTimeout)
         recognizer?.let { runCatching { it.destroy() } }
         recognizer = null
@@ -228,10 +310,7 @@ object GuardAlarm {
                     val peer = link.reachable().firstOrNull()?.first ?: return@runBlocking
                     val time = java.text.SimpleDateFormat("d MMM, HH:mm:ss", Locale.US).format(java.util.Date())
                     val where = runCatching { com.xarvis.ai.tools.LocationTool(c).read() }.getOrDefault("location unknown")
-                    link.sendNote(peer, "🚨 Someone touched your ${link.deviceName} at $time — it wasn't you. The alarm is on.\n$where")
-                    if (jpeg != null) {
-                        link.sendFile(peer, "intruder-" + System.currentTimeMillis() + ".jpg", "image/jpeg", jpeg)
-                    }
+                    link.sendGuardAlert(peer, "🚨 Someone touched your ${link.deviceName} at $time — it wasn't you. The alarm is on.\n$where", jpeg)
                 }
             }.onFailure { HandsBridge.log("Guard mode: couldn't alert the other phone: ${it.message}") }
         }.start()

@@ -84,12 +84,35 @@ object GuardMode : SensorEventListener {
         val sensors = c.getSystemService(SensorManager::class.java)
         sensors?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let { sensors.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
         ContextCompat.registerReceiver(c, unlocked, IntentFilter(Intent.ACTION_USER_PRESENT), ContextCompat.RECEIVER_NOT_EXPORTED)
+        stayAwake(c)
+        state = State.ARMED
+        HandsBridge.log("Guard mode: guarding.")
+    }
+
+    private fun stayAwake(c: Context) {
+        if (wake?.isHeld == true) return
         wake = runCatching {
             c.getSystemService(PowerManager::class.java)?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "xarvis:guard")
                 ?.apply { acquire(WAKE_MAX_MS) }
         }.getOrNull()
-        state = State.ARMED
-        HandsBridge.log("Guard mode: guarding.")
+    }
+
+    /**
+     * "Sound the alarm now", from Rex's other phone (the S22 has been taken): look through the front camera for
+     * the evidence photo, then the alarm — whoever it is, armed or not.
+     */
+    fun panic(context: Context): String {
+        if (!available(context)) return "This phone has no guard mode (it needs the S22's camera)."
+        if (state == State.ALARM || state == State.CHECKING) return "The alarm is already going."
+        val c = context.applicationContext
+        app = c
+        ui.removeCallbacksAndMessages(null)
+        stopWatching(keepAwake = true)
+        stayAwake(c)
+        state = State.CHECKING
+        HandsBridge.log("Guard mode: alarm sounded from the other phone.")
+        launch(c, "force")
+        return "Sounding the alarm now — I'll send you their photo."
     }
 
     /** Stop reading the sensor; [keepAwake] keeps the CPU awake (the alarm must survive the power button). */

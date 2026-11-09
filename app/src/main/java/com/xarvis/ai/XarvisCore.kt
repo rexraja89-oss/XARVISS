@@ -254,6 +254,50 @@ class XarvisCore(context: Context) {
 
         override suspend fun brainOneShot(system: String, text: String): String? = agent.thinkForPeer(system, text)
 
+        override suspend fun guard(from: String, action: String, req: JSONObject): JSONObject = withContext(Dispatchers.Main) {
+            val guard = com.xarvis.ai.guard.GuardMode
+            val alarm = com.xarvis.ai.guard.GuardAlarm
+            if (!guard.available(appContext)) throw com.xarvis.ai.net.LinkException("this phone has no guard mode (it needs the S22's camera)")
+            when (action) {
+                "status" -> JSONObject().put("state", guard.state.name).put("phase", alarm.phase.name)
+                "say" -> {
+                    alarm.sayFromOwner(appContext, req.getString("text").take(500))
+                    JSONObject().put("text", "Said it out loud on ${link.deviceName}.")
+                }
+                "play" -> {
+                    val audio = req.opt("audioBytes") as? ByteArray ?: throw com.xarvis.ai.net.LinkException("no voice clip arrived")
+                    alarm.playFromOwner(appContext, audio, req.optString("ext").ifBlank { "m4a" }.take(5))
+                    JSONObject().put("text", "Playing your voice on ${link.deviceName}.")
+                }
+                "stop" -> if (guard.state == com.xarvis.ai.guard.GuardMode.State.OFF && alarm.phase == com.xarvis.ai.guard.GuardAlarm.Phase.IDLE) {
+                    JSONObject().put("text", "No alarm is on.")
+                } else {
+                    alarm.stopByOwner()
+                    post("🛡 $from stopped the alarm.")
+                    JSONObject().put("text", "Alarm stopped. Guard mode is off.")
+                }
+                "panic" -> JSONObject().put("text", guard.panic(appContext))
+                else -> throw com.xarvis.ai.net.LinkException("unknown guard action \"$action\"")
+            }
+        }
+
+        override suspend fun guardAlert(from: String, text: String, jpeg: ByteArray?) {
+            val dir = java.io.File(appContext.cacheDir, "guard").apply { mkdirs() }
+            val latest = java.io.File(dir, "intruder.jpg")
+            if (jpeg != null) latest.writeBytes(jpeg) else latest.delete()
+            val saved = jpeg?.let {
+                com.xarvis.ai.files.CameraShots.saveReceived(appContext, "intruder-${System.currentTimeMillis()}.jpg", it, DeviceLink.shortName(from))
+            }
+            _state.update {
+                it.copy(
+                    messages = it.messages + ChatMessage(
+                        false, "$text\n\nTap the alert, or ☰ → 🛡 Guard my other phone, to speak to them or stop it.", files = listOfNotNull(saved),
+                    ),
+                )
+            }
+            com.xarvis.ai.guard.GuardRemoteNotice.show(appContext, from, text, jpeg)
+        }
+
         override suspend fun act(from: String, kind: String, arg: String): String =
             withContext(Dispatchers.Main) { com.xarvis.ai.hands.ScreenHost.act(appContext, from, kind, arg) }
 

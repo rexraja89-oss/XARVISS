@@ -295,6 +295,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 },
                 onHands = { context.startActivity(Intent(context, com.xarvis.ai.HandsActivity::class.java)) },
                 onRemote = { context.startActivity(Intent(context, com.xarvis.ai.RemoteScreenActivity::class.java)) },
+                onGuardRemote = { context.startActivity(Intent(context, com.xarvis.ai.GuardRemoteActivity::class.java)) },
                 onActivityLog = {
                     context.startActivity(Intent(context, com.xarvis.ai.PolicyActivity::class.java).putExtra(com.xarvis.ai.PolicyActivity.EXTRA_LOG, true))
                 },

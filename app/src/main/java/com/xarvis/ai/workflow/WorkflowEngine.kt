@@ -52,6 +52,8 @@ sealed interface Step {
     data class WhoIsThis(val front: Boolean = false) : Step
     /** Guard mode: "guard my phone" arms the intruder alarm ([on]); "guard mode off" needs Rex's fingerprint. */
     data class Guard(val on: Boolean) : Step
+    /** The other phone's alarm, from here: "stop" (after this phone's lock), "panic" (sound it now), "say" [text] out loud there. */
+    data class GuardRemote(val action: String, val text: String? = null) : Step
     /** "Control my S22": the linked phone's screen, live, to tap and swipe on (like TeamViewer). */
     data class RemoteScreen(val device: String? = null) : Step
     /** Dial an emergency service (police/ambulance/fire) directly and handsfree. [label] e.g. "the police". */
@@ -367,6 +369,24 @@ class WorkflowEngine(
                 com.xarvis.ai.guard.GuardMode.launch(appContext, "disarm")
                 StepResult(true, "Touch the fingerprint sensor, sir, to turn guard mode off.")
             }
+        }
+        is Step.GuardRemote -> if (step.action == "say") {
+            val peer = link.reachable().firstOrNull()?.first
+            if (peer == null) {
+                StepResult(false, "I can't reach your other phone, sir. Make sure XARVIS is running on it with Tailscale on.")
+            } else {
+                runCatching { link.remoteGuard(peer, "say", org.json.JSONObject().put("text", step.text.orEmpty())).optString("text", "Said it.") }
+                    .fold({ StepResult(true, "🗣 $it") }, { StepResult(false, "I couldn't say it on ${peer.name}: ${it.message}") })
+            }
+        } else {
+            val open = Intent().setClassName(appContext, "com.xarvis.ai.GuardRemoteActivity")
+                .putExtra("action", step.action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            appContext.startActivity(open)
+            StepResult(
+                true,
+                backgroundNote("the Guard remote", open)
+                    ?: if (step.action == "stop") "Unlock this phone to confirm it's you, sir — then I'll stop the alarm." else "Confirm on the screen, sir.",
+            )
         }
         is Step.RemoteScreen -> {
             val view = Intent().setClassName(appContext, "com.xarvis.ai.RemoteScreenActivity")
