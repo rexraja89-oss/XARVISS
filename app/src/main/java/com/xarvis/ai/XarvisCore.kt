@@ -356,6 +356,7 @@ class XarvisCore(context: Context) {
     val deviceLink: DeviceLink get() = link
 
     init {
+        link.relay.onWarning = { text -> com.xarvis.ai.remind.ProactiveNotice.show(appContext, "Relay data", text) }
         com.xarvis.ai.jobs.JobHunter.env = object : com.xarvis.ai.jobs.JobHunter.Env {
             override fun post(text: String) = this@XarvisCore.post(text)
             override fun notify(title: String, text: String, speak: Boolean) {

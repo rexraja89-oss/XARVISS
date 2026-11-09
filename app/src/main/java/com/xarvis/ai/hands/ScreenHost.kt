@@ -155,9 +155,12 @@ object ScreenHost {
         val (w, h) = ScreenVideo.realSize(context)
         screenW = w
         screenH = h
-        val maxSide = req.optInt("max", 1440).coerceIn(480, 2400)
+        // Through the relay (away from home, no direct line): lighter video and pictures, to save data.
+        val viaRelay = req.optString("route") == "relay"
+        val maxSide = req.optInt("max", 1440).coerceIn(480, 2400).let { if (viaRelay) minOf(it, RELAY_MAX_SIDE) else it }
+        val kbps = req.optInt("kbps", 4000).coerceIn(500, 20_000).let { if (viaRelay) minOf(it, RELAY_KBPS) else it }
         val video = withContext(Dispatchers.Main) {
-            ScreenVideo.start(context, maxSide, req.optInt("kbps", 4000).coerceIn(500, 20_000) * 1000)
+            ScreenVideo.start(context, maxSide, kbps * 1000)
         }
         accept(
             JSONObject().put("ok", true).put("mode", if (video != null) "video" else "jpeg")
@@ -230,7 +233,8 @@ object ScreenHost {
                                     delay(500)
                                     continue
                                 }
-                                ch.send(StreamMsg.JPEG, frame(context, from, maxSide).jpeg)
+                                ch.send(StreamMsg.JPEG, frame(context, from, if (viaRelay) RELAY_PICTURE_SIDE else maxSide).jpeg)
+                                if (viaRelay) delay(RELAY_PICTURE_GAP_MS)
                             }
                         }
                     } catch (e: LinkException) {
@@ -387,4 +391,9 @@ object ScreenHost {
     }
 
     private const val JPEG_QUALITY = 60
+    /** Remote control through the relay: smaller video and pictures (about 0.4 GB an hour instead of 1–2). */
+    private const val RELAY_MAX_SIDE = 960
+    private const val RELAY_KBPS = 900
+    private const val RELAY_PICTURE_SIDE = 720
+    private const val RELAY_PICTURE_GAP_MS = 250L
 }

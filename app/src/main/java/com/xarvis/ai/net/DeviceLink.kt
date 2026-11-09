@@ -165,6 +165,12 @@ class DeviceLink(context: Context, private val handler: Handler) {
 
     private val myPort: Int get() = server?.localPort ?: PORT
 
+    /** The relay: the way to the linked phones away from home Wi-Fi, without Tailscale (☰ → Always connected). */
+    val relay = Relay(appContext, deviceId)
+    private val relayConns = ConcurrentHashMap<String, RelayConn>()
+    /** When reaching a linked phone at its home Wi-Fi address last failed (so it isn't tried on every request). */
+    private val wifiFailedAt = ConcurrentHashMap<String, Long>()
+
     private class Discovered(val id: String, val name: String, val host: String, val port: Int)
 
     private class Pending(
@@ -174,23 +180,35 @@ class DeviceLink(context: Context, private val handler: Handler) {
         val expired: Boolean get() = System.currentTimeMillis() - created > PAIRING_TIMEOUT_MS
     }
 
-    internal class Conn(private val socket: Socket) : AutoCloseable {
+    /**
+     * One conversation with a linked phone, line by line: a TCP connection (home Wi-Fi, Tailscale) or a
+     * connection through the relay. [route] is "wifi", "tailscale" or "relay" (shown in remote control).
+     */
+    internal interface LineLink : AutoCloseable {
+        val remoteHost: String?
+        val remoteIsLoopback: Boolean
+        val route: String
+        fun sendLine(line: String)
+        fun receiveLine(): String
+        /** For a long-lived stream: how long a read may wait (and, on TCP, no batching of small packets). */
+        fun streaming(readTimeoutMs: Int)
+        fun send(frame: JSONObject) = sendLine(frame.toString())
+        fun receive(): JSONObject = JSONObject(receiveLine())
+    }
+
+    internal class Conn(private val socket: Socket, override val route: String = "wifi") : LineLink {
         private val reader = socket.getInputStream().bufferedReader()
         private val writer = socket.getOutputStream().bufferedWriter()
-        val remoteHost: String? get() = socket.inetAddress?.hostAddress
-        val remoteIsLoopback: Boolean get() = socket.inetAddress?.isLoopbackAddress == true
+        override val remoteHost: String? get() = socket.inetAddress?.hostAddress
+        override val remoteIsLoopback: Boolean get() = socket.inetAddress?.isLoopbackAddress == true
 
-        fun send(frame: JSONObject) = sendLine(frame.toString())
-
-        fun sendLine(line: String) = synchronized(writer) {
+        override fun sendLine(line: String) = synchronized(writer) {
             writer.write(line); writer.newLine(); writer.flush()
         }
 
-        fun receive(): JSONObject = JSONObject(receiveLine())
-        fun receiveLine(): String = reader.readLine() ?: throw LinkException("connection closed")
+        override fun receiveLine(): String = reader.readLine() ?: throw LinkException("connection closed")
 
-        /** For a long-lived stream: how long a read may wait, and no batching of small packets (touches). */
-        fun streaming(readTimeoutMs: Int) {
+        override fun streaming(readTimeoutMs: Int) {
             socket.soTimeout = readTimeoutMs
             socket.tcpNoDelay = true
         }
@@ -199,13 +217,56 @@ class DeviceLink(context: Context, private val handler: Handler) {
     }
 
     /**
+     * A conversation through the relay: lines go to the other phone's mailbox, its answers arrive in [inbox].
+     * [server]: the other phone started it (this phone answers).
+     */
+    private inner class RelayConn(
+        val peerId: String, val cid: String, @Volatile var timeoutMs: Int, server: Boolean,
+    ) : LineLink {
+        val inbox = java.util.concurrent.LinkedBlockingQueue<String>()
+        @Volatile private var opened = server
+        @Volatile private var stream = false
+        @Volatile var closedByPeer = false
+        override val remoteHost: String? = null
+        override val remoteIsLoopback = false
+        override val route = "relay"
+
+        override fun sendLine(line: String) {
+            val kind = if (opened) "d" else "o"
+            opened = true
+            relay.sendLine(peerId, cid, kind, line)
+        }
+
+        override fun receiveLine(): String {
+            val line = inbox.poll(timeoutMs.toLong(), java.util.concurrent.TimeUnit.MILLISECONDS)
+                ?: throw java.net.SocketTimeoutException("no answer through the relay")
+            if (line === CLOSED) throw LinkException("connection closed")
+            return line
+        }
+
+        override fun streaming(readTimeoutMs: Int) {
+            timeoutMs = readTimeoutMs
+            stream = true
+        }
+
+        override fun close() {
+            relayConns.remove("$peerId|$cid")
+            // A plain question needs no goodbye; a stream tells the other side it's over.
+            if (stream && !closedByPeer) runCatching { relay.sendLine(peerId, cid, "x", "") }
+        }
+    }
+
+    /**
      * A long-lived, encrypted, two-way stream with a linked phone (remote control: video one way, touches
      * the other). Each message is one line, "nonce.ciphertext" in base64, AES-256-GCM with the pairing key;
      * the plaintext is a type byte and a payload. Opened with [openChannel] / served for op "stream".
      */
     class Channel internal constructor(
-        private val conn: Conn, private val key: ByteArray, private val myId: String, private val theirId: String,
+        private val conn: LineLink, private val key: ByteArray, private val myId: String, private val theirId: String,
     ) : AutoCloseable {
+        /** "wifi", "tailscale", "relay" — how this stream travels (the remote-control screen shows it). */
+        val route: String get() = conn.route
+
         private val random = SecureRandom()
         private val enc = Cipher.getInstance("AES/GCM/NoPadding")
         private val dec = Cipher.getInstance("AES/GCM/NoPadding")
@@ -255,12 +316,30 @@ class DeviceLink(context: Context, private val handler: Handler) {
 
     fun start() {
         scope.launch { runServer() }
+        relay.setPeers(peers.keys)
+        relay.start(scope) { from, cid, kind, line -> onRelayLine(from, cid, kind, line) }
+    }
+
+    /** A line from the relay: a linked phone starting a conversation ("o"), continuing one ("d") or ending it ("x"). */
+    private fun onRelayLine(from: String, cid: String, kind: String, line: String) {
+        val key = "$from|$cid"
+        when (kind) {
+            "o" -> {
+                val c = RelayConn(from, cid, CHAT_READ_TIMEOUT_MS, server = true)
+                relayConns[key] = c
+                c.inbox.put(line)
+                scope.launch { serve(c) }
+            }
+            "d" -> relayConns[key]?.inbox?.put(line)
+            "x" -> relayConns[key]?.let { it.closedByPeer = true; it.inbox.put(CLOSED) }
+        }
     }
 
     fun stop() {
         runCatching { networkCallback?.let { appContext.getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(it) } }
         stopNsd()
         runCatching { server?.close() }
+        relay.stop()
         scope.cancel()
     }
 
@@ -304,6 +383,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
         request(peer, "confirm")
         peers[peer.id] = peer
         savePeers()
+        relay.setPeers(peers.keys)
         handler.onPeersChanged()
         return "Linked with ${p.name}. Your memories are now shared between the two phones."
     }
@@ -401,35 +481,22 @@ class DeviceLink(context: Context, private val handler: Handler) {
      * first answer (e.g. the video size) and the channel; the caller closes it.
      */
     suspend fun openChannel(peer: Peer, op: String, body: JSONObject): Pair<JSONObject, Channel> = withContext(Dispatchers.IO) {
-        val routes = listOfNotNull(peer.host, peer.tailnetHost).distinct()
-        if (routes.isEmpty()) throw LinkException(
-            "${peer.name}'s address is unknown. Make sure both devices are on the same Wi-Fi with XARVIS open."
-        )
         body.put("op", op).put("ts", System.currentTimeMillis()).put("port", myPort)
         tailnetAddress()?.let { body.put("tailnet", it) }
-        var failure: Exception? = null
-        for (host in routes) {
-            val socket = try {
-                connect(host, peer.port, REQUEST_READ_TIMEOUT_MS)
-            } catch (e: java.io.IOException) {
-                failure = e
-                continue
-            }
-            val c = Conn(socket)
-            try {
-                c.send(encryptFrame("req", peer.key, body))
-                val res = c.receive()
-                if (res.optString("t") == "err") throw LinkException(res.optString("msg"))
-                val first = JSONObject(String(decrypt(peer.key, res, peer.id), Charsets.UTF_8))
-                c.streaming(STREAM_READ_TIMEOUT_MS)
-                return@withContext first to Channel(c, peer.key, deviceId, peer.id)
-            } catch (e: Exception) {
-                c.close()
-                throw e
-            }
+        val c = open(peer, REQUEST_READ_TIMEOUT_MS, op) ?: throw LinkException("${peer.name} is offline.")
+        try {
+            c.send(encryptFrame("req", peer.key, body))
+            val res = c.receive()
+            if (res.optString("t") == "err") throw LinkException(res.optString("msg"))
+            val first = JSONObject(String(decrypt(peer.key, res, peer.id), Charsets.UTF_8))
+            c.streaming(STREAM_READ_TIMEOUT_MS)
+            first to Channel(c, peer.key, deviceId, peer.id)
+        } catch (e: Exception) {
+            c.close()
+            throw e
         }
-        throw LinkException("${peer.name} isn't reachable (${failure?.message ?: "no answer"}).")
     }
+
 
     /** Sends a file to [peer] (it lands in its Downloads › XARVIS); returns the name it was saved as. */
     suspend fun sendFile(peer: Peer, name: String, mime: String, bytes: ByteArray): String =
@@ -487,6 +554,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
     fun unpair(peer: Peer) {
         peers.remove(peer.id)
         savePeers()
+        relay.setPeers(peers.keys)
         handler.onPeersChanged()
     }
 
@@ -515,39 +583,107 @@ class DeviceLink(context: Context, private val handler: Handler) {
     private suspend fun request(
         peer: Peer, op: String, body: JSONObject = JSONObject(), timeoutMs: Int = REQUEST_READ_TIMEOUT_MS,
     ): JSONObject = withContext(Dispatchers.IO) {
-        // Home Wi-Fi first; away from it, the Tailscale address (when both phones run Tailscale).
-        val routes = listOfNotNull(peer.host, peer.tailnetHost).distinct()
-        if (routes.isEmpty()) throw LinkException(
-            "${peer.name}'s address is unknown. Make sure both devices are on the same Wi-Fi with XARVIS open."
-        )
         body.put("op", op).put("ts", System.currentTimeMillis()).put("port", myPort)
         tailnetAddress()?.let { body.put("tailnet", it) }
+        // Home Wi-Fi first, then Tailscale (when it's on), then the relay (anywhere).
+        val link = open(peer, timeoutMs, op)
+            ?: return@withContext JSONObject().put("ok", true).put("queued", true) // waits at the relay for that phone
+        val answer = exchange(link, peer, body)
+        if (op == "ping") shareRelay(peer, answer)
+        answer
+    }
+
+    /**
+     * A connection to [peer] by the best route: its home Wi-Fi address (only when this phone is on Wi-Fi and it
+     * didn't just fail), its Tailscale address (only when Tailscale is on here), else the relay. Null: [peer] is
+     * offline but [op] can wait at the relay for it (a guard alert, a note).
+     */
+    private fun open(peer: Peer, timeoutMs: Int, op: String): LineLink? {
         var failure: Exception? = null
-        for (host in routes) {
-            val socket = try {
-                connect(host, peer.port, timeoutMs)
+        val routes = buildList {
+            val lan = peer.host
+            if (lan != null && onWifi() && System.currentTimeMillis() - (wifiFailedAt[peer.id] ?: 0L) > WIFI_RETRY_MS) add(lan to "wifi")
+            if (peer.tailnetHost != null && tailnetAddress() != null) add(peer.tailnetHost!! to "tailscale")
+        }.distinctBy { it.first }
+        for ((host, route) in routes) {
+            try {
+                val conn = Conn(connect(host, peer.port, timeoutMs), route)
+                if (route == "wifi") wifiFailedAt.remove(peer.id)
+                return conn
             } catch (e: java.io.IOException) {
                 failure = e
-                continue
+                if (route == "wifi") wifiFailedAt[peer.id] = System.currentTimeMillis()
             }
-            return@withContext exchange(socket, peer, body)
+        }
+        if (relay.connected) {
+            if (relay.online(peer.id) == false) {
+                if (op in DELIVER_LATER) {
+                    // Posted now, delivered when that phone comes back online.
+                    val c = RelayConn(peer.id, UUID.randomUUID().toString(), timeoutMs, server = false)
+                    return QueuedOnce(c)
+                }
+                throw LinkException("${peer.name} is offline (its XARVIS isn't connected to the internet right now).")
+            }
+            val c = RelayConn(peer.id, UUID.randomUUID().toString(), maxOf(timeoutMs, RELAY_MIN_TIMEOUT_MS), server = false)
+            relayConns["${peer.id}|${c.cid}"] = c
+            return c
         }
         throw LinkException(
-            "${peer.name} isn't reachable" + if (peer.tailnetHost == null) {
-                ". Away from home Wi-Fi, both phones need Tailscale on (and to have been on the same Wi-Fi once since)."
-            } else {
-                " on Wi-Fi or Tailscale (${failure?.message ?: "no answer"})."
-            }
+            "${peer.name} isn't reachable" + when {
+                relay.config() == null && peer.tailnetHost == null ->
+                    ". Away from home Wi-Fi, set up the relay (☰ → Always connected) or turn Tailscale on."
+                relay.config() != null -> ": the relay isn't connected (${relay.status.value.detail.ifBlank { "no internet?" }})."
+                else -> " on Wi-Fi or Tailscale (${failure?.message ?: "no answer"})."
+            },
         )
     }
 
-    private fun exchange(socket: Socket, peer: Peer, body: JSONObject): JSONObject =
-        Conn(socket).use { c ->
+    /** A one-way post for a phone that's offline: sent once, no answer awaited. */
+    private inner class QueuedOnce(private val c: RelayConn) : LineLink by c {
+        override fun receiveLine(): String = throw QueuedException()
+    }
+
+    private class QueuedException : Exception("queued at the relay")
+
+    private fun onWifi(): Boolean = runCatching {
+        val cm = appContext.getSystemService(ConnectivityManager::class.java) ?: return true
+        cm.allNetworks.any { cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true }
+    }.getOrDefault(true)
+
+    private fun exchange(link: LineLink, peer: Peer, body: JSONObject): JSONObject =
+        link.use { c ->
             c.send(encryptFrame("req", peer.key, body))
-            val res = c.receive()
+            val res = try {
+                c.receive()
+            } catch (e: QueuedException) {
+                return@use JSONObject().put("ok", true).put("queued", true)
+            }
             if (res.optString("t") == "err") throw LinkException(res.optString("msg"))
             JSONObject(String(decrypt(peer.key, res, peer.id), Charsets.UTF_8))
         }
+
+    /** A linked phone without the relay login gets this phone's (sealed by the link) so it can be reached anywhere too. */
+    private fun shareRelay(peer: Peer, pong: JSONObject) {
+        if (pong.optBoolean("relay") || !pong.has("pong")) return
+        val cfg = relay.config() ?: return
+        scope.launch {
+            runCatching {
+                request(peer, "relay_cfg", JSONObject().put("host", "${cfg.host}:${cfg.port}").put("user", cfg.user).put("pass", cfg.pass))
+            }.onSuccess { Log.i(TAG, "Shared the relay login with ${peer.name}") }
+        }
+    }
+
+    /** Sends this phone's relay login to every linked phone that answers (after Rex sets it up here). */
+    suspend fun shareRelayNow(): String {
+        val cfg = relay.config() ?: return "Set up the relay here first."
+        val done = pairedPeers().map { p ->
+            p.name to runCatching {
+                request(p, "relay_cfg", JSONObject().put("host", "${cfg.host}:${cfg.port}").put("user", cfg.user).put("pass", cfg.pass))
+            }.isSuccess
+        }
+        if (done.isEmpty()) return "No linked phones yet."
+        return done.joinToString("\n") { (n, ok) -> if (ok) "✓ $n has it now" else "✗ $n didn't answer (it gets it next time they're in touch)" }
+    }
 
     private fun connect(host: String, port: Int, readTimeoutMs: Int) = Socket().apply {
         connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
@@ -583,7 +719,13 @@ class DeviceLink(context: Context, private val handler: Handler) {
 
     private suspend fun serve(socket: Socket) {
         socket.soTimeout = CHAT_READ_TIMEOUT_MS
-        Conn(socket).use { c ->
+        val host = socket.inetAddress?.hostAddress.orEmpty()
+        serve(Conn(socket, if (isTailnet(host)) "tailscale" else "wifi"))
+    }
+
+    /** One conversation from a linked phone (a socket, or a conversation through the relay). */
+    private suspend fun serve(link: LineLink) {
+        link.use { c ->
             try {
                 val first = c.receive()
                 when (first.optString("t")) {
@@ -598,7 +740,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
         }
     }
 
-    private fun servePairing(first: JSONObject, c: Conn) {
+    private fun servePairing(first: JSONObject, c: LineLink) {
         val peerId = first.getString("id")
         val peerName = first.getString("name")
         val commit = first.getString("commit")
@@ -619,16 +761,18 @@ class DeviceLink(context: Context, private val handler: Handler) {
         )
     }
 
-    private suspend fun serveRequest(frame: JSONObject, c: Conn): JSONObject? {
+    private suspend fun serveRequest(frame: JSONObject, c: LineLink): JSONObject? {
         val from = frame.getString("from")
         val peer = peers[from]
         val pending = pendingIncoming[from]
         val key = peer?.key ?: pending?.key ?: return error("this device isn't linked")
         val req = JSONObject(String(decrypt(key, frame, from), Charsets.UTF_8))
-        if (Math.abs(System.currentTimeMillis() - req.getLong("ts")) > MAX_CLOCK_SKEW_MS) {
+        val op = req.getString("op")
+        // A guard alert or a note may have waited at the relay while this phone was offline.
+        val maxAge = if (c.route == "relay" && op in DELIVER_LATER) 24 * 3_600_000L else MAX_CLOCK_SKEW_MS
+        if (Math.abs(System.currentTimeMillis() - req.getLong("ts")) > maxAge) {
             return error("request too old; check both devices' clocks")
         }
-        val op = req.getString("op")
         val reply = JSONObject()
 
         if (peer == null) {
@@ -638,6 +782,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
             val host = if (c.remoteIsLoopback) pending.host else c.remoteHost
             peers[from] = Peer(from, pending.name, pending.key, host, req.optInt("port", PORT))
             savePeers()
+            relay.setPeers(peers.keys)
             handler.onPeersChanged()
             _events.tryEmit("Linked with ${pending.name}.")
             return encryptFrame("res", pending.key, reply.put("ok", true))
@@ -660,8 +805,15 @@ class DeviceLink(context: Context, private val handler: Handler) {
         }
 
         when (op) {
-            "ping" -> reply.put("name", deviceName).put("llm", handler.llmReady())
+            "ping" -> reply.put("name", deviceName).put("llm", handler.llmReady()).put("pong", true).put("relay", relay.config() != null)
                 .apply { tailnetAddress()?.let { put("tailnet", it) } }
+            // A linked phone shares the relay login (sealed by the link), so this one is reachable anywhere too.
+            "relay_cfg" -> {
+                val (h, port) = Relay.splitHost(req.getString("host"))
+                val cfg = Relay.Config(h, port, req.getString("user"), req.getString("pass"))
+                if (relay.config() != cfg) relay.save(cfg)
+                reply.put("ok", true)
+            }
             "status" -> reply.put("text", handler.status())
             "battery" -> reply.put("text", handler.battery())
             "gallery" -> {
@@ -700,6 +852,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
             "stream" -> {
                 // Remote control: the connection stays open for video and touches until either side closes it.
                 c.streaming(STREAM_READ_TIMEOUT_MS)
+                req.put("route", c.route) // through the relay: lighter pictures (data)
                 var started = false
                 val ch = Channel(c, peer.key, deviceId, peer.id)
                 try {
@@ -979,6 +1132,14 @@ class DeviceLink(context: Context, private val handler: Handler) {
         private const val FILE_READ_TIMEOUT_MS = 180_000 // a file of up to 25 MB, over Tailscale on mobile data
         private const val PAIRING_TIMEOUT_MS = 5 * 60_000L
         private const val MAX_CLOCK_SKEW_MS = 5 * 60_000L
+        /** Through the relay a question and its answer take a round trip via the broker: allow a little longer. */
+        private const val RELAY_MIN_TIMEOUT_MS = 8_000
+        /** After the home Wi-Fi address didn't answer, don't try it again for this long (straight to the relay). */
+        private const val WIFI_RETRY_MS = 60_000L
+        /** One-way messages that may wait at the relay for a phone that's offline. */
+        private val DELIVER_LATER = setOf("guard_alert", "note")
+        /** Marks a relay conversation the other side ended. */
+        private val CLOSED = String(charArrayOf('\u0000', 'x'))
         private const val NETWORK_SETTLE_MS = 3_000L
         private val ADDRESS = Regex("""^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d{1,5}))?$""")
 

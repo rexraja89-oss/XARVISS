@@ -505,6 +505,14 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
         runCatching { sender.execute { runCatching { ch.send(type, payload) } } }
     }
 
+    /** How the stream travels: home Wi-Fi, Tailscale, or the relay (away from home, lighter pictures). */
+    private fun routeLabel(): String = when (channel?.route) {
+        "relay" -> " · 🌐 Relay"
+        "tailscale" -> " · Tailscale"
+        "wifi" -> " · 🏠 Wi-Fi"
+        else -> ""
+    }
+
     /** Once a second: measure the delay, and show how smooth it is. */
     private val ticker = object : Runnable {
         private var lastFrames = 0
@@ -517,8 +525,8 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
             if (p != null && channel != null) {
                 val delay = if (rttMs >= 0) " · ${rttMs} ms delay" else ""
                 status.text = when (mode) {
-                    "video" -> "⚡ ${p.name} · live · $fps fps$delay"
-                    "jpeg" -> "🖥 ${p.name} · $fps pictures/s$delay" + if (smoothButton.visibility == View.VISIBLE) " · tap ⚡ for live video" else ""
+                    "video" -> "⚡ ${p.name} · live · $fps fps$delay${routeLabel()}"
+                    "jpeg" -> "🖥 ${p.name} · $fps pictures/s$delay${routeLabel()}" + if (smoothButton.visibility == View.VISIBLE) " · tap ⚡ for live video" else ""
                     else -> status.text
                 }
             }
