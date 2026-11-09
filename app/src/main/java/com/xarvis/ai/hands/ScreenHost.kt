@@ -191,6 +191,9 @@ object ScreenHost {
                                 ch.send(StreamMsg.JPEG, frame(context, from, maxSide).jpeg)
                             }
                         }
+                    } catch (e: LinkException) {
+                        ch.fail(e.message ?: "its screen stopped")
+                        throw e
                     } finally {
                         ch.close()
                     }

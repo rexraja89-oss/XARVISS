@@ -240,6 +240,11 @@ class DeviceLink(context: Context, private val handler: Handler) {
             return (plain[0].toInt() and 0xff) to plain.copyOfRange(1, plain.size)
         }
 
+        /** Tells the other side why the stream is ending (a plain error line, which [receive] reports). */
+        fun fail(message: String) {
+            runCatching { conn.sendLine(JSONObject().put("t", "err").put("msg", message).toString()) }
+        }
+
         override fun close() {
             closed = true
             runCatching { conn.close() }
@@ -695,8 +700,21 @@ class DeviceLink(context: Context, private val handler: Handler) {
             "stream" -> {
                 // Remote control: the connection stays open for video and touches until either side closes it.
                 c.streaming(STREAM_READ_TIMEOUT_MS)
-                Channel(c, peer.key, deviceId, peer.id).use { ch ->
-                    handler.screenStream(peer.name, req, ch) { header -> c.send(encryptFrame("res", peer.key, header)) }
+                var started = false
+                val ch = Channel(c, peer.key, deviceId, peer.id)
+                try {
+                    handler.screenStream(peer.name, req, ch) { header ->
+                        started = true
+                        c.send(encryptFrame("res", peer.key, header))
+                    }
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    // Say why before closing (remote control off, Hands off, no screenshot…): closing first
+                    // left the other phone with only "connection closed".
+                    val why = e.message ?: e.javaClass.simpleName
+                    if (!started) runCatching { c.send(error(why)) } else ch.fail(why)
+                } finally {
+                    ch.close()
                 }
                 return null
             }
