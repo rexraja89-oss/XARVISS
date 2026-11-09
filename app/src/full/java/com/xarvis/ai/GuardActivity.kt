@@ -41,8 +41,9 @@ import java.util.Locale
 /**
  * Guard mode's screen (S22 build): shows over the lock screen. "check": a quick look through the front
  * camera — Rex → guard off; anyone else → the alarm. "alarm": flashing red WARNING with the intruder's
- * photo while GuardAlarm speaks. "finger": Rex said "It's alright XARVIS" — his fingerprint (fingerprint
- * only, not the PIN) ends it. "disarm": "guard mode off" — the fingerprint turns guard mode off.
+ * photo while GuardAlarm speaks; the fingerprint prompt opens by itself and stays one tap away ("👆 It's me"),
+ * fingerprint only, never the PIN. "finger": Rex said "It's alright XARVIS" — the alarm goes quiet and asks for
+ * the fingerprint. "disarm": "guard mode off" — the fingerprint turns guard mode off.
  */
 class GuardActivity : Activity() {
     private val ui = Handler(Looper.getMainLooper())
@@ -50,6 +51,10 @@ class GuardActivity : Activity() {
     private lateinit var title: TextView
     private lateinit var info: TextView
     private lateinit var picture: ImageView
+    private lateinit var fingerButton: android.widget.Button
+    private var lastAutoAsk = 0L
+    private var triedUnlock = false
+    private var note: String? = null
     private var flashing = false
     private var red = true
     private var asking = false
@@ -79,6 +84,14 @@ class GuardActivity : Activity() {
             addView(title)
             addView(picture, LinearLayout.LayoutParams((220 * d).toInt(), LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = (16 * d).toInt() })
             addView(info)
+            fingerButton = android.widget.Button(this@GuardActivity).apply {
+                text = "👆  It's me — fingerprint"
+                textSize = 20f
+                isAllCaps = false
+                visibility = View.GONE
+                setOnClickListener { note = null; askFinger(disarmOnly = false) }
+            }
+            addView(fingerButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (64 * d).toInt()).apply { topMargin = (28 * d).toInt() })
         }
         setContentView(root)
         GuardAlarm.onChange = { runOnUiThread { render() } }
@@ -94,6 +107,18 @@ class GuardActivity : Activity() {
     override fun onResume() {
         super.onResume()
         GuardAlarm.screenShowing = true
+        if (alarmOn()) ui.postDelayed({ autoFinger() }, 600)
+    }
+
+    private fun alarmOn() = GuardAlarm.phase.let {
+        it == GuardAlarm.Phase.WARNING || it == GuardAlarm.Phase.LISTENING || it == GuardAlarm.Phase.OWNER
+    }
+
+    /** The fingerprint prompt opens by itself on the alarm screen (again a while after it's cancelled). */
+    private fun autoFinger() {
+        if (!alarmOn() || asking || isFinishing) return
+        if (System.currentTimeMillis() - lastAutoAsk < AUTO_ASK_GAP_MS) return
+        askFinger(disarmOnly = false)
     }
 
     override fun onPause() {
@@ -123,14 +148,22 @@ class GuardActivity : Activity() {
         when (GuardAlarm.phase) {
             GuardAlarm.Phase.WARNING, GuardAlarm.Phase.LISTENING, GuardAlarm.Phase.FINGER, GuardAlarm.Phase.OWNER -> {
                 title.text = "⚠ WARNING\nILLEGAL ACTIVITY DETECTED"
-                info.text = "You are not authorized to touch this device."
+                info.text = note ?: when (GuardAlarm.phase) {
+                    GuardAlarm.Phase.LISTENING -> "You are not authorized to touch this device.\n🎤 listening…"
+                    GuardAlarm.Phase.FINGER -> "Touch the fingerprint sensor, sir."
+                    GuardAlarm.Phase.OWNER -> "🗣 A message from the owner."
+                    else -> "You are not authorized to touch this device."
+                }
+                fingerButton.visibility = View.VISIBLE
                 GuardAlarm.photo?.let { uri ->
                     runCatching { contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = 4 }) } }
                         .getOrNull()?.let { picture.setImageBitmap(upright(it, uri)); picture.visibility = View.VISIBLE }
                 }
                 startFlashing()
+                if (GuardAlarm.screenShowing) autoFinger()
             }
             GuardAlarm.Phase.RELIEF -> {
+                fingerButton.visibility = View.GONE
                 stopFlashing()
                 root.setBackgroundColor(Color.parseColor("#0B3D1E"))
                 title.text = "✓ Welcome back, sir"
@@ -139,6 +172,7 @@ class GuardActivity : Activity() {
                 ui.postDelayed({ finish() }, 6_000)
             }
             GuardAlarm.Phase.IDLE -> if (GuardMode.state == GuardMode.State.CHECKING) {
+                fingerButton.visibility = View.GONE
                 root.setBackgroundColor(Color.BLACK)
                 title.text = "🛡"
                 info.text = "XARVIS Guard"
@@ -306,6 +340,8 @@ class GuardActivity : Activity() {
     private fun askFinger(disarmOnly: Boolean) {
         if (asking) return
         asking = true
+        if (!disarmOnly) lastAutoAsk = System.currentTimeMillis()
+        val askedAt = android.os.SystemClock.elapsedRealtime()
         val builder = BiometricPrompt.Builder(this)
             .setTitle("XARVIS Guard")
             .setSubtitle(if (disarmOnly) "Your fingerprint turns guard mode off" else "Your fingerprint, sir")
@@ -316,9 +352,36 @@ class GuardActivity : Activity() {
         runCatching {
             builder.build().authenticate(CancellationSignal(), mainExecutor, object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) = fingerDone(true, disarmOnly)
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) = fingerDone(false, disarmOnly)
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
+                    val userSaidNo = errorCode == BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED ||
+                        errorCode == BiometricPrompt.BIOMETRIC_ERROR_NEGATIVE_BUTTON
+                    val quick = android.os.SystemClock.elapsedRealtime() - askedAt < 1_500
+                    val locked = getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true
+                    when {
+                        errorCode == BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT || errorCode == BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT_PERMANENT -> {
+                            note = "Too many wrong fingers — the sensor is locked for a while.\nStop it from your other phone: ☰ → 🛡 Guard my other phone."
+                            fingerDone(false, disarmOnly)
+                        }
+                        // The prompt couldn't show over the lock screen: let Rex unlock the phone first, then ask again.
+                        !userSaidNo && quick && locked && !triedUnlock -> {
+                            triedUnlock = true
+                            asking = false
+                            unlockThenFinger(disarmOnly)
+                        }
+                        else -> fingerDone(false, disarmOnly)
+                    }
+                }
             })
         }.onFailure { fingerDone(false, disarmOnly) }
+    }
+
+    private fun unlockThenFinger(disarmOnly: Boolean) {
+        val keyguard = getSystemService(android.app.KeyguardManager::class.java) ?: return fingerDone(false, disarmOnly)
+        keyguard.requestDismissKeyguard(this, object : android.app.KeyguardManager.KeyguardDismissCallback() {
+            override fun onDismissSucceeded() { ui.postDelayed({ askFinger(disarmOnly) }, 400) }
+            override fun onDismissCancelled() = fingerDone(false, disarmOnly)
+            override fun onDismissError() = fingerDone(false, disarmOnly)
+        })
     }
 
     private fun fingerDone(ok: Boolean, disarmOnly: Boolean) {
@@ -336,6 +399,10 @@ class GuardActivity : Activity() {
         }
         if (ok) GuardAlarm.fingerOk(this) else GuardAlarm.fingerFailed()
         render()
+    }
+
+    companion object {
+        private const val AUTO_ASK_GAP_MS = 12_000L
     }
 
     override fun onDestroy() {

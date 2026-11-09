@@ -31,9 +31,11 @@ class GuardCommandsTest {
     }
 
     @Test fun hearsTheDisarmPhrase() {
-        listOf("it's alright Jarvis", "its all right jarvis", "it's alright Xarvis", "It is okay Jervis")
-            .forEach { assertTrue(it, GuardCommands.isDisarmPhrase(it)) }
-        listOf("you are not authorized to touch this device", "it's alright", "hello jarvis")
+        listOf(
+            "it's alright Jarvis", "its all right jarvis", "it's alright Xarvis", "It is okay Jervis", "it's alright",
+            "It's alright, Travis.", "okay jarvis", "इट्स ऑलराइट जार्विस",
+        ).forEach { assertTrue(it, GuardCommands.isDisarmPhrase(it)) }
+        listOf("you are not authorized to touch this device", "hello jarvis", "okay", "all done")
             .forEach { assertFalse(it, GuardCommands.isDisarmPhrase(it)) }
     }
 }

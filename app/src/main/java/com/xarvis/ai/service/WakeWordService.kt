@@ -96,7 +96,7 @@ class WakeWordService : Service() {
             while (running) {
                 // Let go of the mic while XARVIS is listening for a command, thinking or talking
                 // (so it doesn't hear itself), or while another XARVIS mic is in use.
-                if (handling || WakeWord.paused || core().busy()) {
+                if (handling || WakeWord.paused || WakeWord.guardHold || core().busy()) {
                     record?.let { it.stop(); it.release() }
                     record = null
                     Thread.sleep(300)
@@ -207,6 +207,9 @@ class WakeWordService : Service() {
 object WakeWord {
     /** Set while the mic button or the voice screen is listening, so they get the mic. */
     @Volatile var paused = false
+
+    /** Set while Guard mode's alarm listens for "It's alright XARVIS" ("Jarvis" in it would wake "Hey Jarvis"). */
+    @Volatile var guardHold = false
 
     /**
      * Whether "Hey Jarvis" can run on this phone: Android 14+ also needs FOREGROUND_SERVICE_MICROPHONE,

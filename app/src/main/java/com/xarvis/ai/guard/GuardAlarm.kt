@@ -35,7 +35,7 @@ object GuardAlarm {
     @Volatile var onChange: ((Phase) -> Unit)? = null
 
     private const val WARNING = "You are not authorized to touch this device."
-    private const val LISTEN_MS = 6_000L
+    private const val LISTEN_MS = 8_000L
 
     private val ui = Handler(Looper.getMainLooper())
     private var app: Context? = null
@@ -52,6 +52,7 @@ object GuardAlarm {
         app = c
         photo = photoUri
         active = true
+        com.xarvis.ai.service.WakeWord.guardHold = true
         HandsBridge.log("Guard mode: INTRUDER — alarm on.")
         alertLinkedPhone(c, jpeg)
         voice(c) { ui.post { warn() } }
@@ -131,24 +132,36 @@ object GuardAlarm {
     // ---- listening for "It's alright XARVIS" ----
 
     private val listenTimeout = Runnable { heard(null) }
+    private var listenUntil = 0L
 
+    /** A short beep (so Rex knows when to speak), then listen for the whole window. */
     private fun listen() {
         val c = app ?: return
         if (phase != Phase.WARNING) return
         set(Phase.LISTENING)
-        if (!SpeechRecognizer.isRecognitionAvailable(c)) {
-            ui.postDelayed({ heard(null) }, 2_500)
-            return
+        listenUntil = android.os.SystemClock.elapsedRealtime() + LISTEN_MS
+        runCatching {
+            val tone = android.media.ToneGenerator(AudioManager.STREAM_ALARM, 60)
+            tone.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 150)
+            ui.postDelayed({ runCatching { tone.release() } }, 500)
         }
+        ui.postDelayed(listenTimeout, LISTEN_MS)
+        ui.postDelayed({ hear(c) }, 300)
+    }
+
+    private fun hear(c: Context) {
+        if (phase != Phase.LISTENING) return
+        if (!SpeechRecognizer.isRecognitionAvailable(c)) return // the timeout brings the warning back
+        recognizer?.let { old -> runCatching { old.destroy() } }
         val r = SpeechRecognizer.createSpeechRecognizer(c)
         recognizer = r
         r.setRecognitionListener(object : RecognitionListener {
-            override fun onResults(results: Bundle?) = heard(results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION))
+            override fun onResults(results: Bundle?) = ended(c, results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION))
             override fun onPartialResults(partialResults: Bundle?) {
                 val partial = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 if (partial?.any(::isPhrase) == true) heard(partial)
             }
-            override fun onError(error: Int) = heard(null)
+            override fun onError(error: Int) = ended(c, null)
             override fun onReadyForSpeech(params: Bundle?) {}
             override fun onBeginningOfSpeech() {}
             override fun onRmsChanged(rmsdB: Float) {}
@@ -160,9 +173,19 @@ object GuardAlarm {
             Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5),
+                .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+                .putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, c.packageName),
         )
-        ui.postDelayed(listenTimeout, LISTEN_MS)
+    }
+
+    /** The recognizer stopped by itself (silence, nothing matched, busy): the phrase, or listen again until the window closes. */
+    private fun ended(c: Context, words: List<String>?) {
+        if (words?.any(::isPhrase) == true) {
+            heard(words)
+            return
+        }
+        if (phase != Phase.LISTENING) return
+        if (android.os.SystemClock.elapsedRealtime() < listenUntil - 1_200) ui.postDelayed({ hear(c) }, 400) else heard(null)
     }
 
     private fun heard(words: List<String>?) {
@@ -249,6 +272,7 @@ object GuardAlarm {
     /** Rex stopped it from his other phone (after unlocking that phone): alarm off, guard off. */
     fun stopByOwner() {
         active = false
+        com.xarvis.ai.service.WakeWord.guardHold = false
         interrupt()
         GuardMode.disarm()
         set(Phase.IDLE)
@@ -259,6 +283,7 @@ object GuardAlarm {
     /** Rex's fingerprint matched: alarm off, guard off, and a laugh. */
     fun fingerOk(context: Context) {
         active = false
+        com.xarvis.ai.service.WakeWord.guardHold = false
         val c = context.applicationContext
         ui.removeCallbacks(listenTimeout)
         recognizer?.let { runCatching { it.destroy() } }
@@ -290,6 +315,7 @@ object GuardAlarm {
     /** Stop everything at once (e.g. Rex disarmed from the guard screen another way). */
     fun stop() {
         active = false
+        com.xarvis.ai.service.WakeWord.guardHold = false
         player?.let { p -> runCatching { p.stop(); p.release() } }
         player = null
         ui.removeCallbacks(listenTimeout)

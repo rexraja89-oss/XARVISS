@@ -15,11 +15,18 @@ object GuardCommands {
             """(?:turn\s+off|switch\s+off|stop|disable|deactivate)\s+(?:the\s+)?guard(?:\s+mode)?)$""",
     )
 
-    private val OK_WORD = Regex("""(?i)\b(?:all ?right|alright|okay|ok)\b""")
-    private val NAME = Regex("""(?i)\b(?:[xj]arvis|jervis|harvis|xavis|jarvish|charvis|service)\b""")
+    private val OK_WORD = Regex("""(?i)\b(?:all ?right|alright|okay|ok)\b|ऑल ?राइट|आल ?राइट|ओके""")
+    private val ITS_ALRIGHT = Regex("""(?i)\b(?:it'?s|it\s+is)\s+(?:all ?right|alright|ok(?:ay)?)\b|इट्स\s*(?:ऑल ?राइट|आल ?राइट|ओके)""")
+    private val NAME = Regex(
+        """(?i)\b(?:[xj]arvis|jervis|harvis|xavis|jarvish|charvis|service|travis|javis|jarvas|jarves|garvis|jaavis)\b|जार्विस|जारविस|जर्विस""",
+    )
 
-    /** "It's alright XARVIS" as speech recognition writes it ("it's all right Jarvis", "its alright jervis"…). */
-    fun isDisarmPhrase(text: String): Boolean = OK_WORD.containsMatchIn(text) && NAME.containsMatchIn(text)
+    /**
+     * "It's alright XARVIS" as speech recognition writes it ("it's all right Jarvis", "its alright Travis", in Devanagari
+     * when the phone listens in Hindi…). "It's alright" alone is enough: it only opens the fingerprint prompt, and the
+     * fingerprint is the real lock.
+     */
+    fun isDisarmPhrase(text: String): Boolean = ITS_ALRIGHT.containsMatchIn(text) || (OK_WORD.containsMatchIn(text) && NAME.containsMatchIn(text))
 
     private val STOP_ALARM = Regex(
         """(?i)$LEAD(?:stop|turn\s+off|switch\s+off|silence|shut\s+off|end)\s+(?:the\s+)?(?:alarm|siren)""" +
