@@ -7,6 +7,12 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+# One build per branch at a time, in push order: two main builds running side by side once let the older
+# one (v1.0.213) finish last and become "latest", so the in-app updater offered it over v1.0.214.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
