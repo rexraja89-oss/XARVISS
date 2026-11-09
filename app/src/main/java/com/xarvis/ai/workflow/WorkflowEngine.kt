@@ -50,6 +50,8 @@ sealed interface Step {
     data object OpenEyes : Step
     /** "Who is this?" / "who am I?": open Eyes and recognise the face ([front]: the selfie camera). */
     data class WhoIsThis(val front: Boolean = false) : Step
+    /** Guard mode: "guard my phone" arms the intruder alarm ([on]); "guard mode off" needs Rex's fingerprint. */
+    data class Guard(val on: Boolean) : Step
     /** "Control my S22": the linked phone's screen, live, to tap and swipe on (like TeamViewer). */
     data class RemoteScreen(val device: String? = null) : Step
     /** Dial an emergency service (police/ambulance/fire) directly and handsfree. [label] e.g. "the police". */
@@ -355,6 +357,15 @@ class WorkflowEngine(
                     ?: if (step.front) "Let me have a look at you, sir — face the screen." else "Let me have a look, sir — point the camera at their face.")
             } else {
                 StepResult(false, "This phone has no camera, sir. Attach a photo (tap +) and ask \"who is this?\" — the S22 will recognise the faces in it.")
+            }
+        }
+        is Step.Guard -> when {
+            !com.xarvis.ai.guard.GuardMode.available(appContext) -> StepResult(false, "Guard mode needs the S22's camera, sir — ask me there.")
+            step.on -> StepResult(true, com.xarvis.ai.guard.GuardMode.arm(appContext))
+            com.xarvis.ai.guard.GuardMode.state == com.xarvis.ai.guard.GuardMode.State.OFF -> StepResult(true, "Guard mode is already off, sir.")
+            else -> {
+                com.xarvis.ai.guard.GuardMode.launch(appContext, "disarm")
+                StepResult(true, "Touch the fingerprint sensor, sir, to turn guard mode off.")
             }
         }
         is Step.RemoteScreen -> {

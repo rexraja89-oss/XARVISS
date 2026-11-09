@@ -13,6 +13,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Smooth remote control: screen sharing (Android's "Start now" prompt) into the video encoder. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <!-- Guard mode: Rex's fingerprint (only) ends the intruder alarm. Normal permission. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <application>
         <!-- XARVIS Eyes: camera view; one photo at a time goes to Gemma, nothing is saved. -->
@@ -22,6 +24,15 @@
             android:label="XARVIS Eyes"
             android:screenOrientation="portrait"
             android:theme="@android:style/Theme.DeviceDefault.Light" />
+
+        <!-- Guard mode: the front-camera check, the red intruder alarm and the fingerprint (over the lock screen). -->
+        <activity
+            android:name=".GuardActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
 
         <!-- Smooth remote control: Android's screen-sharing prompt, and the service that holds the permission. -->
         <activity

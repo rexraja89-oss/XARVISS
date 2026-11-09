@@ -35,7 +35,14 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
         }
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // Guard mode: someone tapping, scrolling or typing on the phone counts as touching it.
+        if (event != null && com.xarvis.ai.guard.GuardMode.armed) when (event.eventType) {
+            AccessibilityEvent.TYPE_VIEW_CLICKED, AccessibilityEvent.TYPE_VIEW_LONG_CLICKED,
+            AccessibilityEvent.TYPE_VIEW_SCROLLED, AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
+            -> com.xarvis.ai.guard.GuardMode.trigger(this, "screen touched")
+        }
+    }
 
     override fun onInterrupt() {}
 
