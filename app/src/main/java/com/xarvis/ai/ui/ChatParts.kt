@@ -208,6 +208,8 @@ fun SettingsMenu(
     cloudMemory: Boolean, onCloudMemory: (Boolean) -> Unit,
     backups: () -> List<com.xarvis.ai.llm.BrainInfo>, onSaveBackup: (String, String) -> Unit, onClearBackup: (String) -> Unit,
     braveHasKey: () -> Boolean, onSaveBrave: (String) -> Unit, onClearBrave: () -> Unit,
+    searchKeyHas: (String) -> Boolean = { false }, onSaveSearchKey: (String, String) -> Unit = { _, _ -> },
+    onClearSearchKey: (String) -> Unit = {},
     voiceLabel: (Boolean) -> String, onNextVoice: (Boolean) -> String,
 ) {
     ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surface) {
@@ -273,6 +275,7 @@ fun SettingsMenu(
             CloudBrain(cloudEnabled, hasCloudKey, onCloud, onSaveKey, onClearKey, councilEnabled, onCouncil, cloudMemory, onCloudMemory)
             if (cloudEnabled) BackupBrains(backups, onSaveBackup, onClearBackup)
             WebSearchKey(braveHasKey, onSaveBrave, onClearBrave)
+            JobHunterKeys(searchKeyHas, onSaveSearchKey, onClearSearchKey)
             HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
             Text(
                 "VOICE", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
@@ -615,7 +618,7 @@ private fun WebSearchKey(braveHasKey: () -> Boolean, onSave: (String) -> Unit, o
         HorizontalDivider(Modifier.padding(bottom = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
         Text("Web search (Brave)", style = MaterialTheme.typography.bodyLarge)
         Text(
-            "For accurate live results, prices and pictures. Free key (2,000/month) at brave.com/search/api. Without it, XARVIS uses Wikipedia and a free search as backup.",
+            "For accurate live results, prices and pictures (brave.com/search/api — since Feb 2026 it needs a card; the Tavily key below is free without one). Without it, XARVIS uses Wikipedia and a free search as backup.",
             style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
         )
         if (hasKey) {
@@ -629,6 +632,55 @@ private fun WebSearchKey(braveHasKey: () -> Boolean, onSave: (String) -> Unit, o
                 singleLine = true,
             )
             Button(onClick = { if (key.isNotBlank()) { onSave(key.trim()); key = ""; hasKey = true } }) { Text("SAVE KEY") }
+        }
+    }
+}
+
+/** ☰ → BRAIN: the Job Hunter's keys — Tavily (web search + reading job pages) and Jooble (job listings). */
+@Composable
+private fun JobHunterKeys(has: (String) -> Boolean, onSave: (String, String) -> Unit, onClear: (String) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+        HorizontalDivider(Modifier.padding(bottom = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
+        Text("Job Hunter keys", style = MaterialTheme.typography.bodyLarge)
+        Text(
+            "For finding blasting & painting jobs worldwide. Both are free and need no card.",
+            style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+        )
+        NamedKey(
+            id = com.xarvis.ai.llm.BrainKeys.TAVILY, title = "Tavily",
+            help = "Web search + reading job pages. Free 1,000 credits a month: sign up at tavily.com (Google account works), copy the key that starts with tvly-.",
+            hint = "Paste Tavily key (tvly-…)", has = has, onSave = onSave, onClear = onClear,
+        )
+        NamedKey(
+            id = com.xarvis.ai.llm.BrainKeys.JOOBLE, title = "Jooble",
+            help = "Job listings in many countries. Free: fill the form at jooble.org/api/about and the key comes by email.",
+            hint = "Paste Jooble key", has = has, onSave = onSave, onClear = onClear,
+        )
+    }
+}
+
+/** One named key: what it's for, a paste field, or "Key saved ✓" with Remove. */
+@Composable
+private fun NamedKey(
+    id: String, title: String, help: String, hint: String,
+    has: (String) -> Boolean, onSave: (String, String) -> Unit, onClear: (String) -> Unit,
+) {
+    var hasKey by remember { mutableStateOf(has(id)) }
+    var key by remember { mutableStateOf("") }
+    Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+        Text(title, style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+        Text(help, style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+        if (hasKey) {
+            Text("Key saved ✓", style = MaterialTheme.typography.labelSmall, color = XarvisCyan, modifier = Modifier.padding(top = 4.dp))
+            TextButton(onClick = { onClear(id); hasKey = false }) { Text("Remove key") }
+        } else {
+            OutlinedTextField(
+                value = key, onValueChange = { key = it },
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                label = { Text(hint) },
+                singleLine = true,
+            )
+            Button(onClick = { if (key.isNotBlank()) { onSave(id, key.trim()); key = ""; hasKey = true } }) { Text("SAVE KEY") }
         }
     }
 }

@@ -308,6 +308,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 cloudMemory = state.cloudMemory, onCloudMemory = viewModel::setCloudMemory,
                 backups = viewModel::backupBrains, onSaveBackup = viewModel::saveBackupKey, onClearBackup = viewModel::clearBackupKey,
                 braveHasKey = viewModel::braveHasKey, onSaveBrave = viewModel::saveBraveKey, onClearBrave = viewModel::clearBraveKey,
+                searchKeyHas = viewModel::searchKeyHas, onSaveSearchKey = viewModel::saveSearchKey, onClearSearchKey = viewModel::clearSearchKey,
                 voiceLabel = viewModel::voiceLabel,
                 onNextVoice = viewModel::nextVoice,
             )

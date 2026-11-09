@@ -641,6 +641,11 @@ class XarvisCore(context: Context) {
     fun saveBraveKey(key: String) { searchKeys.save(com.xarvis.ai.llm.BrainKeys.BRAVE, key) }
     fun clearBraveKey() { searchKeys.clear(com.xarvis.ai.llm.BrainKeys.BRAVE) }
 
+    /** Job Hunter keys (☰ → BRAIN → Job Hunter keys): BrainKeys.TAVILY, BrainKeys.JOOBLE. Kept encrypted like the others. */
+    fun searchKeyHas(id: String): Boolean = searchKeys.has(id)
+    fun saveSearchKey(id: String, key: String) { searchKeys.save(id, key) }
+    fun clearSearchKey(id: String) { searchKeys.clear(id) }
+
     // XARVIS Code: a GitHub token (stored encrypted, like the other keys) so XARVIS can create and
     // build separate projects on GitHub without ever touching its own app.
     // ---- Morning briefing (Gmail app password + Calendar secret iCal URL, no OAuth) ----
