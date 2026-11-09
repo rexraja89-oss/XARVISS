@@ -353,8 +353,8 @@ class GuardActivity : Activity() {
             builder.build().authenticate(CancellationSignal(), mainExecutor, object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) = fingerDone(true, disarmOnly)
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
-                    val userSaidNo = errorCode == BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED ||
-                        errorCode == BiometricPrompt.BIOMETRIC_ERROR_NEGATIVE_BUTTON
+                    // 13 = the Cancel button (the framework keeps that constant hidden).
+                    val userSaidNo = errorCode == BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED || errorCode == 13
                     val quick = android.os.SystemClock.elapsedRealtime() - askedAt < 1_500
                     val locked = getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true
                     when {
