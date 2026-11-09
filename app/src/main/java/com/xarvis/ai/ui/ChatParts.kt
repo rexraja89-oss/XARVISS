@@ -200,7 +200,7 @@ fun SettingsMenu(
     wakeWord: Boolean, onWakeWord: (Boolean) -> Unit, onAssistantSettings: () -> Unit, onRecordVoice: () -> Unit,
     onLoadVoice: () -> Unit, ownVoices: () -> String?, ownVoiceOn: () -> Boolean, onOwnVoice: (Boolean) -> Unit,
     onPermissions: () -> Unit, onActivityLog: () -> Unit, onFolders: () -> Unit, onXarvisCode: () -> Unit, onGameMod: () -> Unit,
-    onHelp: () -> Unit, onBriefing: () -> Unit, onEyes: () -> Unit, onHands: () -> Unit, onRemote: () -> Unit = {}, onGuardRemote: () -> Unit = {}, onJobHunter: () -> Unit = {}, onRelay: () -> Unit = {},
+    onHelp: () -> Unit, onBriefing: () -> Unit, onEyes: () -> Unit, onHands: () -> Unit, onRemote: () -> Unit = {}, onGuardRemote: () -> Unit = {}, onJobHunter: () -> Unit = {}, onRelay: () -> Unit = {}, onHelper: () -> Unit = {},
     smartBrain: Boolean, smartDownload: ModelDownload, hasModel: Boolean, onSmartBrain: (Boolean) -> Unit,
     modelDownload: ModelDownload, onDownloadModel: () -> Unit,
     cloudEnabled: Boolean, hasCloudKey: () -> Boolean, onCloud: (Boolean) -> Unit, onSaveKey: (String) -> Unit, onClearKey: () -> Unit,
@@ -241,6 +241,10 @@ fun SettingsMenu(
             Column(Modifier.fillMaxWidth().clickable(onClick = onRelay).padding(horizontal = 20.dp, vertical = 10.dp)) {
                 Text("🌐 Always connected ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
                 Text("Reach your other phones anywhere — mobile data, another country — without Tailscale or a VPN.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+            }
+            Column(Modifier.fillMaxWidth().clickable(onClick = onHelper).padding(horizontal = 20.dp, vertical = 10.dp)) {
+                Text("🤝 Help a family phone ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+                Text("See and fix a family member's phone from anywhere, when they ask (XARVIS Helper).", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
             }
             Column(Modifier.fillMaxWidth().clickable(onClick = onJobHunter).padding(horizontal = 20.dp, vertical = 10.dp)) {
                 Text("💼 Job Hunter ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">XARVIS Helper</string>
+    <string name="hands_description">Lets the family member you asked for help tap and type on this phone, only while you are being helped (you start it with \"Ask for help\" and end it with STOP). Nothing happens on its own.</string>
+</resources>

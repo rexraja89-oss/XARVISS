@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- XARVIS Helper's "Allow tapping": gestures and typing for the helper, only during help she asked for. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/hands_description"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:notificationTimeout="200"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="true" />

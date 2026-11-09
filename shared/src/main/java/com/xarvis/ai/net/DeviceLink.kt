@@ -42,11 +42,21 @@ import javax.crypto.KeyAgreement
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-/** [tailnetHost]: the device's Tailscale address, used when it isn't on the same Wi-Fi. */
+/**
+ * A linked device. [tailnetHost]: its Tailscale address, used when it isn't on the same Wi-Fi.
+ * [kind]: [KIND_PHONE] (Rex's own phones: everything is shared), [KIND_HELPER] (a family phone with XARVIS Helper
+ * that Rex helps: it may only ask for help) or [KIND_OWNER] (on a Helper: the phone that helps it).
+ */
 class Peer(
     val id: String, val name: String, val key: ByteArray, var host: String?, var port: Int,
-    var tailnetHost: String? = null,
-)
+    var tailnetHost: String? = null, val kind: String = KIND_PHONE,
+) {
+    companion object {
+        const val KIND_PHONE = "phone"
+        const val KIND_HELPER = "helper"
+        const val KIND_OWNER = "owner"
+    }
+}
 
 class LinkException(message: String) : Exception(message)
 
@@ -58,8 +68,14 @@ class LinkException(message: String) : Exception(message)
  * first; both sides then derive a 6-digit code from the transcript, the responder
  * shows it and the user types it on the initiator, which defeats a man in the middle.
  * After pairing, every request and response is AES-256-GCM encrypted with the shared key.
+ *
+ * Away from home Wi-Fi the phones meet through the relay (Rex's own MQTT broker) and, for remote control and
+ * files, go straight to each other over XARVIS Direct (UDP hole punching) when the networks allow it.
+ * A family phone with XARVIS Helper links by an invite Rex sends on WhatsApp ([createInvite], [acceptInvite]).
+ *
+ * [helperApp]: this is XARVIS Helper (no home-network server, and it only answers the ops a helped phone needs).
  */
-class DeviceLink(context: Context, private val handler: Handler) {
+class DeviceLink(context: Context, private val handler: Handler, private val helperApp: Boolean = false) {
 
     interface Handler {
         /** Device status to report to a linked device. */
@@ -133,6 +149,12 @@ class DeviceLink(context: Context, private val handler: Handler) {
 
         /** The linked phone's intruder alarm went off: tell Rex here (notification + chat), with the intruder's photo. */
         suspend fun guardAlert(from: String, text: String, jpeg: ByteArray?)
+
+        /** A family phone with XARVIS Helper asks Rex for help (its owner just tapped "Ask for help"). */
+        suspend fun helpRequest(peer: Peer, text: String) {}
+
+        /** A new phone linked through an invite (XARVIS Helper on a family phone). */
+        fun onInviteUsed(peer: Peer) {}
     }
 
     /** A linked phone's screen: the picture, and the size of the real screen it shows. */
@@ -170,6 +192,10 @@ class DeviceLink(context: Context, private val handler: Handler) {
     private val relayConns = ConcurrentHashMap<String, RelayConn>()
     /** When reaching a linked phone at its home Wi-Fi address last failed (so it isn't tried on every request). */
     private val wifiFailedAt = ConcurrentHashMap<String, Long>()
+    /** When XARVIS Direct last failed to reach each phone (so seconds aren't spent on it again right away). */
+    private val directFailedAt = ConcurrentHashMap<String, Long>()
+    /** XARVIS Direct lines being set up or in use (a cap, so a linked phone can't make this one open many sockets). */
+    private val directLines = java.util.concurrent.atomic.AtomicInteger()
 
     private class Discovered(val id: String, val name: String, val host: String, val port: Int)
 
@@ -256,6 +282,22 @@ class DeviceLink(context: Context, private val handler: Handler) {
         }
     }
 
+    /** A conversation over XARVIS Direct: UDP straight to the other phone, through both phones' NATs. */
+    private inner class DirectLink(private val c: Direct.Conn) : LineLink {
+        // Not a home address (it must never replace the phone's Wi-Fi address).
+        override val remoteHost: String? = null
+        override val remoteIsLoopback = false
+        override val route = "direct"
+        override fun sendLine(line: String) = c.sendLine(line)
+        override fun receiveLine(): String = c.receiveLine()
+        override fun streaming(readTimeoutMs: Int) { c.readTimeoutMs = readTimeoutMs }
+        private val done = java.util.concurrent.atomic.AtomicBoolean()
+        override fun close() {
+            c.close()
+            if (done.compareAndSet(false, true)) directLines.decrementAndGet() // closed more than once by some callers
+        }
+    }
+
     /**
      * A long-lived, encrypted, two-way stream with a linked phone (remote control: video one way, touches
      * the other). Each message is one line, "nonce.ciphertext" in base64, AES-256-GCM with the pairing key;
@@ -264,7 +306,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
     class Channel internal constructor(
         private val conn: LineLink, private val key: ByteArray, private val myId: String, private val theirId: String,
     ) : AutoCloseable {
-        /** "wifi", "tailscale", "relay" — how this stream travels (the remote-control screen shows it). */
+        /** "wifi", "tailscale", "direct", "relay" — how this stream travels (the remote-control screen shows it). */
         val route: String get() = conn.route
 
         private val random = SecureRandom()
@@ -312,10 +354,17 @@ class DeviceLink(context: Context, private val handler: Handler) {
         }
     }
 
-    fun pairedPeers(): List<Peer> = peers.values.sortedBy { it.name }
+    /** Rex's own linked phones (and, on a Helper, the phones that help it) — never the family phones he helps. */
+    fun pairedPeers(): List<Peer> = peers.values.filter { it.kind != Peer.KIND_HELPER }.sortedBy { it.name }
+
+    /** Family phones with XARVIS Helper that this phone can help. */
+    fun helperPeers(): List<Peer> = peers.values.filter { it.kind == Peer.KIND_HELPER }.sortedBy { it.name }
+
+    fun peerById(id: String): Peer? = peers[id]
 
     fun start() {
-        scope.launch { runServer() }
+        // XARVIS Helper doesn't listen on the home network: it's reached through the relay only.
+        if (!helperApp) scope.launch { runServer() }
         relay.setPeers(peers.keys)
         relay.start(scope) { from, cid, kind, line -> onRelayLine(from, cid, kind, line) }
     }
@@ -394,7 +443,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
     fun findPeer(query: String): Peer? {
         val words = normalize(query).split(' ').filter { it.isNotBlank() }
         if (words.isEmpty()) return null
-        return peers.values.firstOrNull { p -> words.all { p.name.lowercase().contains(it) } }
+        return pairedPeers().firstOrNull { p -> words.all { p.name.lowercase().contains(it) } }
     }
 
     suspend fun remoteStatus(peer: Peer): String = request(peer, "status").getString("text")
@@ -595,10 +644,11 @@ class DeviceLink(context: Context, private val handler: Handler) {
 
     /**
      * A connection to [peer] by the best route: its home Wi-Fi address (only when this phone is on Wi-Fi and it
-     * didn't just fail), its Tailscale address (only when Tailscale is on here), else the relay. Null: [peer] is
-     * offline but [op] can wait at the relay for it (a guard alert, a note).
+     * didn't just fail), its Tailscale address (only when Tailscale is on here), then — for remote control and
+     * files — XARVIS Direct, else the relay. Null: [peer] is offline but [op] can wait at the relay for it (a
+     * guard alert, a note).
      */
-    private fun open(peer: Peer, timeoutMs: Int, op: String): LineLink? {
+    private suspend fun open(peer: Peer, timeoutMs: Int, op: String): LineLink? {
         var failure: Exception? = null
         val routes = buildList {
             val lan = peer.host
@@ -624,8 +674,13 @@ class DeviceLink(context: Context, private val handler: Handler) {
                     val c = RelayConn(peer.id, UUID.randomUUID().toString(), timeoutMs, server = false)
                     return QueuedOnce(c)
                 }
-                throw LinkException("${peer.name} is offline (its XARVIS isn't connected to the internet right now).")
+                throw LinkException(
+                    if (peer.kind == Peer.KIND_HELPER) "${peer.name} has XARVIS Helper closed. Ask them to open it and tap \"Ask for help\"."
+                    else "${peer.name} is offline (its XARVIS isn't connected to the internet right now).",
+                )
             }
+            // Big things (remote control, files) go straight to the other phone when the networks allow it.
+            if (op in DIRECT_OPS) tryDirect(peer, timeoutMs)?.let { return it }
             val c = RelayConn(peer.id, UUID.randomUUID().toString(), maxOf(timeoutMs, RELAY_MIN_TIMEOUT_MS), server = false)
             relayConns["${peer.id}|${c.cid}"] = c
             return c
@@ -646,6 +701,197 @@ class DeviceLink(context: Context, private val handler: Handler) {
     }
 
     private class QueuedException : Exception("queued at the relay")
+
+    /**
+     * XARVIS Direct to [peer]: swap addresses through the relay, punch through both NATs, and return the line;
+     * null when it can't get through (then the relay carries it). A failure isn't retried for a while.
+     */
+    private suspend fun tryDirect(peer: Peer, timeoutMs: Int): LineLink? {
+        if (System.currentTimeMillis() - (directFailedAt[peer.id] ?: 0L) < DIRECT_RETRY_MS) return null
+        if (directLines.incrementAndGet() > MAX_DIRECT_LINES) {
+            directLines.decrementAndGet()
+            return null
+        }
+        val d = runCatching { Direct.open() }.getOrNull() ?: run { directLines.decrementAndGet(); return null }
+        var conn: Direct.Conn? = null
+        try {
+            val mine = withContext(Dispatchers.IO) { d.candidates() }
+            val token = ByteArray(16).also(random::nextBytes)
+            val answer = request(
+                peer, "direct", JSONObject().put("tok", b64(token)).put("cands", JSONArray(mine)), timeoutMs = DIRECT_SETUP_TIMEOUT_MS,
+            )
+            val theirs = answer.optJSONArray("cands").toStrings()
+            if (theirs.isNotEmpty()) conn = withContext(Dispatchers.IO) { d.connect(token, theirs, initiator = true, timeoutMs = DIRECT_PUNCH_MS) }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) {
+                d.close()
+                directLines.decrementAndGet()
+                throw e
+            }
+            Log.i(TAG, "XARVIS Direct to ${peer.name}: ${e.message}")
+        }
+        if (conn == null) {
+            d.close()
+            directLines.decrementAndGet()
+            directFailedAt[peer.id] = System.currentTimeMillis()
+            Log.i(TAG, "XARVIS Direct to ${peer.name} didn't get through; using the relay")
+            return null
+        }
+        directFailedAt.remove(peer.id)
+        Log.i(TAG, "XARVIS Direct to ${peer.name}: through to ${conn.remote}")
+        conn.readTimeoutMs = timeoutMs
+        return DirectLink(conn)
+    }
+
+    /** The answering side of XARVIS Direct: this phone's addresses go back in the reply; the line is served once through. */
+    private fun answerDirect(req: JSONObject, reply: JSONObject) {
+        if (directLines.incrementAndGet() > MAX_DIRECT_LINES) {
+            directLines.decrementAndGet()
+            reply.put("cands", JSONArray())
+            return
+        }
+        val d = try {
+            Direct.open()
+        } catch (e: Exception) {
+            directLines.decrementAndGet()
+            reply.put("cands", JSONArray())
+            return
+        }
+        val token = unb64(req.getString("tok"))
+        val theirs = req.optJSONArray("cands").toStrings()
+        val mine = runCatching { d.candidates() }.getOrDefault(emptyList())
+        reply.put("cands", JSONArray(mine))
+        scope.launch {
+            val conn = runCatching { d.connect(token, theirs, initiator = false, timeoutMs = DIRECT_ANSWER_MS) }.getOrNull()
+            if (conn == null) {
+                d.close()
+                directLines.decrementAndGet()
+                return@launch
+            }
+            conn.readTimeoutMs = CHAT_READ_TIMEOUT_MS
+            serve(DirectLink(conn))
+        }
+    }
+
+    // ---- Linking by invite (XARVIS Helper on a family phone, through the relay) ----
+
+    /**
+     * An invite for a family phone with XARVIS Helper, to send on WhatsApp: the relay login, this phone's id and a
+     * one-time secret. Whoever has the secret can link as a phone Rex helps (it may then only ask for help), and
+     * the secret also proves to that phone it really linked with this one — so nobody in between (not even the
+     * relay) can take part. Null without the relay.
+     */
+    fun createInvite(): String? {
+        val cfg = relay.config() ?: return null
+        val secret = ByteArray(16).also(random::nextBytes)
+        val id = UUID.randomUUID().toString().take(8)
+        val invites = JSONObject(prefs.getString("invites", "{}") ?: "{}")
+        // Old ones expire (a week).
+        invites.keys().asSequence().toList().forEach { k ->
+            if (System.currentTimeMillis() - invites.getJSONObject(k).optLong("t") > INVITE_VALID_MS) invites.remove(k)
+        }
+        invites.put(id, JSONObject().put("s", b64(secret)).put("t", System.currentTimeMillis()))
+        prefs.edit().putString("invites", invites.toString()).apply()
+        val payload = JSONObject().put("v", 1).put("r", "${cfg.host}:${cfg.port}").put("u", cfg.user).put("p", cfg.pass)
+            .put("d", deviceId).put("n", deviceName).put("i", id).put("s", b64(secret))
+        return INVITE_PREFIX + Base64.getUrlEncoder().withoutPadding().encodeToString(payload.toString().toByteArray())
+    }
+
+    /**
+     * On XARVIS Helper: links with the phone that sent [text] (an invite pasted or shared from WhatsApp). Saves
+     * the relay login, then pairs through the relay. Returns the other phone's name; throws with a plain reason.
+     */
+    suspend fun acceptInvite(text: String): String = withContext(Dispatchers.IO) {
+        val inv = parseInvite(text) ?: throw LinkException("That isn't a XARVIS invite. Copy the whole message Rex sent and try again.")
+        val (h, port) = Relay.splitHost(inv.getString("r"))
+        val cfg = Relay.Config(h, port, inv.getString("u"), inv.getString("p"))
+        if (relay.config() != cfg) relay.save(cfg)
+        val ownerId = inv.getString("d")
+        relay.setPeers(peers.keys + ownerId)
+        // Wait for the relay (up to 20 s) and for the other phone's presence to be known.
+        var waited = 0
+        while (!relay.connected && waited < 20_000) { delay(250); waited += 250 }
+        if (!relay.connected) throw LinkException("Couldn't reach the internet relay (${relay.status.value.detail.ifBlank { "no internet?" }}).")
+        val secret = unb64(inv.getString("s"))
+        val keys = newKeyPair()
+        val myPub = keys.public.encoded
+        val c = RelayConn(ownerId, UUID.randomUUID().toString(), INVITE_TIMEOUT_MS, server = false)
+        relayConns["$ownerId|${c.cid}"] = c
+        c.use {
+            it.send(
+                JSONObject().put("t", "ipair1").put("id", deviceId).put("name", deviceName).put("inv", inv.getString("i"))
+                    .put("pub", b64(myPub)).put("mac", b64(hmac(secret, "ipair1|$deviceId|$deviceName|${b64(myPub)}"))),
+            )
+            val r = try {
+                it.receive()
+            } catch (e: java.net.SocketTimeoutException) {
+                throw LinkException("${inv.optString("n", "Rex's phone")} didn't answer. Its XARVIS must be on and connected; try again in a minute.")
+            }
+            if (r.optString("t") != "ipair1ok") throw LinkException(r.optString("msg", "the invite was refused"))
+            val theirPub = unb64(r.getString("pub"))
+            val ownerName = r.getString("name")
+            val expect = hmac(secret, "ipair1ok|$ownerId|$ownerName|${b64(theirPub)}|${b64(myPub)}")
+            if (!MessageDigest.isEqual(expect, unb64(r.getString("mac")))) throw LinkException("the answer didn't prove it's the right phone, so I didn't link")
+            val key = sha256(agree(keys.private, theirPub) + secret + "xarvis-invite-v1".toByteArray())
+            peers[ownerId] = Peer(ownerId, ownerName, key, null, PORT, kind = Peer.KIND_OWNER)
+            savePeers()
+            relay.setPeers(peers.keys)
+            handler.onPeersChanged()
+            ownerName
+        }
+    }
+
+    /** The other side of [acceptInvite], on Rex's phone: checks the invite's secret and links the family phone. */
+    private fun serveInvite(first: JSONObject, c: LineLink) {
+        val inviteId = first.getString("inv")
+        val invites = JSONObject(prefs.getString("invites", "{}") ?: "{}")
+        val inv = invites.optJSONObject(inviteId)
+        if (inv == null || System.currentTimeMillis() - inv.optLong("t") > INVITE_VALID_MS) {
+            c.send(error("this invite has expired; ask for a new one"))
+            return
+        }
+        val secret = unb64(inv.getString("s"))
+        val peerId = first.getString("id")
+        val sentName = first.getString("name")
+        val theirPub = unb64(first.getString("pub"))
+        val expect = hmac(secret, "ipair1|$peerId|$sentName|${b64(theirPub)}")
+        if (!MessageDigest.isEqual(expect, unb64(first.getString("mac")))) {
+            c.send(error("this invite isn't valid"))
+            return
+        }
+        // One family phone per invite (the same phone may try again).
+        val usedBy = inv.optString("by")
+        if (usedBy.isNotEmpty() && usedBy != peerId) {
+            c.send(error("this invite was already used by another phone; ask for a new one"))
+            return
+        }
+        if (peers[peerId]?.let { it.kind != Peer.KIND_HELPER } == true) {
+            c.send(error("that phone is already linked as one of your own"))
+            return
+        }
+        val peerName = sentName.take(60)
+        val keys = newKeyPair()
+        val myPub = keys.public.encoded
+        val key = sha256(agree(keys.private, theirPub) + secret + "xarvis-invite-v1".toByteArray())
+        val peer = Peer(peerId, peerName, key, null, PORT, kind = Peer.KIND_HELPER)
+        peers[peerId] = peer
+        savePeers()
+        invites.put(inviteId, inv.put("by", peerId))
+        prefs.edit().putString("invites", invites.toString()).apply()
+        relay.setPeers(peers.keys)
+        c.send(
+            JSONObject().put("t", "ipair1ok").put("id", deviceId).put("name", deviceName).put("pub", b64(myPub))
+                .put("mac", b64(hmac(secret, "ipair1ok|$deviceId|$deviceName|${b64(myPub)}|${b64(theirPub)}"))),
+        )
+        handler.onPeersChanged()
+        handler.onInviteUsed(peer)
+        _events.tryEmit("Linked with $peerName (XARVIS Helper). When they tap \"Ask for help\", you'll be told here.")
+    }
+
+    /** On XARVIS Helper: tells the helping phone its owner asks for help (it shows Rex a notification). */
+    suspend fun askForHelp(peer: Peer, text: String = "") {
+        request(peer, "help", JSONObject().put("text", text))
+    }
 
     private fun onWifi(): Boolean = runCatching {
         val cm = appContext.getSystemService(ConnectivityManager::class.java) ?: return true
@@ -731,7 +977,8 @@ class DeviceLink(context: Context, private val handler: Handler) {
             try {
                 val first = c.receive()
                 when (first.optString("t")) {
-                    "pair1" -> servePairing(first, c)
+                    "pair1" -> if (helperApp) c.send(error("XARVIS Helper links by invite only")) else servePairing(first, c)
+                    "ipair1" -> if (helperApp) c.send(error("not here")) else serveInvite(first, c)
                     "req" -> serveRequest(first, c)?.let { c.send(it) } // null: a stream that answered itself
                     else -> c.send(error("unknown frame"))
                 }
@@ -790,6 +1037,10 @@ class DeviceLink(context: Context, private val handler: Handler) {
             return encryptFrame("res", pending.key, reply.put("ok", true))
         }
 
+        // A family phone Rex helps may only ask for help (and say hello); on XARVIS Helper, only remote help is answered.
+        if (peer.kind == Peer.KIND_HELPER && op !in FROM_HELPER) return error("not allowed from XARVIS Helper")
+        if (helperApp && op !in HELPER_ANSWERS) return error("XARVIS Helper doesn't do \"$op\"")
+
         // Remember its Tailscale address, to reach it later from outside home Wi-Fi.
         req.optString("tailnet").takeIf { it.isNotEmpty() && it != peer.tailnetHost }?.let {
             peer.tailnetHost = it
@@ -814,6 +1065,12 @@ class DeviceLink(context: Context, private val handler: Handler) {
                 val (h, port) = Relay.splitHost(req.getString("host"))
                 val cfg = Relay.Config(h, port, req.getString("user"), req.getString("pass"))
                 if (relay.config() != cfg) relay.save(cfg)
+                reply.put("ok", true)
+            }
+            // XARVIS Direct: this phone's addresses back, then the line opens straight between the phones.
+            "direct" -> answerDirect(req, reply)
+            "help" -> {
+                handler.helpRequest(peer, req.optString("text"))
                 reply.put("ok", true)
             }
             "status" -> reply.put("text", handler.status())
@@ -1104,7 +1361,8 @@ class DeviceLink(context: Context, private val handler: Handler) {
         (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
             Peer(o.getString("id"), o.getString("name"), unb64(o.getString("key")),
-                o.optString("host").ifEmpty { null }, o.optInt("port", PORT), o.optString("tailnet").ifEmpty { null })
+                o.optString("host").ifEmpty { null }, o.optInt("port", PORT), o.optString("tailnet").ifEmpty { null },
+                o.optString("kind").ifEmpty { Peer.KIND_PHONE })
         }
     }.getOrDefault(emptyList())
 
@@ -1112,7 +1370,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
         val arr = JSONArray()
         peers.values.forEach {
             arr.put(JSONObject().put("id", it.id).put("name", it.name).put("key", b64(it.key))
-                .put("host", it.host ?: "").put("port", it.port).put("tailnet", it.tailnetHost ?: ""))
+                .put("host", it.host ?: "").put("port", it.port).put("tailnet", it.tailnetHost ?: "").put("kind", it.kind))
         }
         prefs.edit().putString("peers", arr.toString()).apply()
     }
@@ -1159,12 +1417,48 @@ class DeviceLink(context: Context, private val handler: Handler) {
         private const val WIFI_RETRY_MS = 60_000L
         /** One-way messages that may wait at the relay for a phone that's offline. */
         private val DELIVER_LATER = setOf("guard_alert", "note")
+        /** What goes over XARVIS Direct when the phones aren't on the same Wi-Fi (the rest is small: the relay). */
+        private val DIRECT_OPS = setOf("stream", "file")
+        /** Swapping addresses through the relay (the other phone asks STUN servers first). */
+        private const val DIRECT_SETUP_TIMEOUT_MS = 10_000
+        /** How long the asking phone tries to punch through before using the relay. */
+        private const val DIRECT_PUNCH_MS = 3_000L
+        /** How long the answering phone waits for the asking one to get through. */
+        private const val DIRECT_ANSWER_MS = 12_000L
+        /** After XARVIS Direct couldn't get through, use the relay straight away for this long. */
+        private const val DIRECT_RETRY_MS = 5 * 60_000L
+        private const val MAX_DIRECT_LINES = 4
+        /** All a family phone (XARVIS Helper) may ask Rex's phone. */
+        private val FROM_HELPER = setOf("ping", "help", "confirm")
+        /** All XARVIS Helper answers: being seen and helped (with its owner's consent each time). */
+        private val HELPER_ANSWERS = setOf("ping", "stream", "direct", "screen_stop", "relay_cfg", "confirm")
+        const val INVITE_PREFIX = "XARVIS-INVITE:"
+        private const val INVITE_VALID_MS = 7 * 24 * 3_600_000L
+        private const val INVITE_TIMEOUT_MS = 20_000
         /** Marks a relay conversation the other side ended. */
         private val CLOSED = String(charArrayOf('\u0000', 'x'))
         private const val NETWORK_SETTLE_MS = 3_000L
         private val ADDRESS = Regex("""^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d{1,5}))?$""")
 
         private fun sha256(data: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(data)
+
+        private fun hmac(key: ByteArray, text: String): ByteArray =
+            javax.crypto.Mac.getInstance("HmacSHA256").run {
+                init(SecretKeySpec(key, "HmacSHA256"))
+                doFinal(text.toByteArray())
+            }
+
+        /** The invite inside [text] (a whole WhatsApp message is fine), or null. */
+        fun parseInvite(text: String): JSONObject? {
+            val at = text.indexOf(INVITE_PREFIX)
+            if (at < 0) return null
+            val code = text.substring(at + INVITE_PREFIX.length).takeWhile { it.isLetterOrDigit() || it == '-' || it == '_' }
+            return runCatching {
+                JSONObject(String(Base64.getUrlDecoder().decode(code))).takeIf { o ->
+                    listOf("r", "u", "p", "d", "i", "s").all { o.has(it) }
+                }
+            }.getOrNull()
+        }
         private fun b64(data: ByteArray): String = Base64.getEncoder().encodeToString(data)
         private fun unb64(s: String): ByteArray = Base64.getDecoder().decode(s)
 

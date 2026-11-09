@@ -132,8 +132,10 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
 
     private suspend fun run() {
         val wanted = intent.getStringExtra(EXTRA_DEVICE)
+        val wantedId = intent.getStringExtra(EXTRA_PEER_ID)
         val p = withContext(Dispatchers.IO) {
-            wanted?.let { link.findPeer(it) } ?: runCatching { link.reachable().firstOrNull()?.first }.getOrNull()
+            wantedId?.let { link.peerById(it) }
+                ?: wanted?.let { link.findPeer(it) } ?: runCatching { link.reachable().firstOrNull()?.first }.getOrNull()
         }
         if (p == null) {
             status.text = "⚠ I can't reach your linked phone. Make sure XARVIS is running on it with Tailscale on."
@@ -183,6 +185,8 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
             smoothButton.visibility = if (head.optBoolean("smoothable", true)) View.VISIBLE else View.GONE
         }
         status.text = "🖥 ${p.name} · connected"
+        // XARVIS Helper without its Accessibility switch: Rex can see but not tap (the ticker keeps saying so).
+        viewOnly = !head.optBoolean("control", true)
         val next = withContext(Dispatchers.IO) { readLoop(p, ch) }
         channel = null
         ch.close()
@@ -508,10 +512,14 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
     /** How the stream travels: home Wi-Fi, Tailscale, or the relay (away from home, lighter pictures). */
     private fun routeLabel(): String = when (channel?.route) {
         "relay" -> " · 🌐 Relay"
+        "direct" -> " · ⚡ Direct"
         "tailscale" -> " · Tailscale"
         "wifi" -> " · 🏠 Wi-Fi"
         else -> ""
     }
+
+    /** XARVIS Helper on the other phone without its Accessibility switch: seeing works, tapping doesn't. */
+    @Volatile private var viewOnly = false
 
     /** Once a second: measure the delay, and show how smooth it is. */
     private val ticker = object : Runnable {
@@ -525,7 +533,8 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
             if (p != null && channel != null) {
                 val delay = if (rttMs >= 0) " · ${rttMs} ms delay" else ""
                 status.text = when (mode) {
-                    "video" -> "⚡ ${p.name} · live · $fps fps$delay${routeLabel()}"
+                    "video" -> "⚡ ${p.name} · live · $fps fps$delay${routeLabel()}" +
+                        if (viewOnly) "\n👀 View only: to let you tap, they use \"✋ Allow tapping\" in XARVIS Helper" else ""
                     "jpeg" -> "🖥 ${p.name} · $fps pictures/s$delay${routeLabel()}" + if (smoothButton.visibility == View.VISIBLE) " · tap ⚡ for live video" else ""
                     else -> status.text
                 }
@@ -601,6 +610,8 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
     companion object {
         /** The linked phone to control, by name (optional: else the first one that answers). */
         const val EXTRA_DEVICE = "device"
+        /** Or by id (a family phone with XARVIS Helper, from ☰ → Help a family phone or its help notification). */
+        const val EXTRA_PEER_ID = "peer_id"
         /** Video: long side and bit rate — sharp text, and light enough for Tailscale on mobile data. */
         private const val MAX_SIDE = 1440
         private const val KBPS = 4000

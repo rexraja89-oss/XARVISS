@@ -81,6 +81,8 @@ jobs:
         cp hands/build/outputs/apk/debug/hands-debug.apk "out/XARVIS-Hands-v1.0.${{ github.run_number }}.apk"
         # XARVIS Eyes: the small camera app.
         cp eyes/build/outputs/apk/debug/eyes-debug.apk "out/XARVIS-Eyes-v1.0.${{ github.run_number }}.apk"
+        # XARVIS Helper: the small app for a family phone that asks Rex for help.
+        cp helper/build/outputs/apk/debug/helper-debug.apk "out/XARVIS-Helper-v1.0.${{ github.run_number }}.apk"
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
@@ -99,9 +101,10 @@ jobs:
         cp "XARVIS-benco-v$v.apk" XARVIS-benco.apk
         cp "XARVIS-Hands-v$v.apk" XARVIS-Hands.apk
         cp "XARVIS-Eyes-v$v.apk" XARVIS-Eyes.apk
-        gh release create "v$v" "XARVIS-v$v.apk" "XARVIS-benco-v$v.apk" "XARVIS-Hands-v$v.apk" "XARVIS-Eyes-v$v.apk" XARVIS.apk XARVIS-benco.apk XARVIS-Hands.apk XARVIS-Eyes.apk --repo "${{ github.repository }}" \
+        cp "XARVIS-Helper-v$v.apk" XARVIS-Helper.apk
+        gh release create "v$v" "XARVIS-v$v.apk" "XARVIS-benco-v$v.apk" "XARVIS-Hands-v$v.apk" "XARVIS-Eyes-v$v.apk" "XARVIS-Helper-v$v.apk" XARVIS.apk XARVIS-benco.apk XARVIS-Hands.apk XARVIS-Eyes.apk XARVIS-Helper.apk --repo "${{ github.repository }}" \
           --target "${{ github.sha }}" --title "XARVIS v$v" --latest \
-          --notes "S22: XARVIS.apk. Benco: XARVIS-benco.apk (no permission to place calls; the benco rejects it). XARVIS-Hands.apk is the tiny Accessibility app; XARVIS-Eyes.apk is the camera app. Always newest: https://github.com/${{ github.repository }}/releases/latest/download/XARVIS.apk , .../XARVIS-benco.apk, .../XARVIS-Hands.apk and .../XARVIS-Eyes.apk"
+          --notes "S22: XARVIS.apk. Benco: XARVIS-benco.apk (no permission to place calls; the benco rejects it). XARVIS-Hands.apk is the tiny Accessibility app; XARVIS-Eyes.apk is the camera app; XARVIS-Helper.apk is for a family phone that asks for help. Always newest: https://github.com/${{ github.repository }}/releases/latest/download/XARVIS.apk , .../XARVIS-benco.apk, .../XARVIS-Hands.apk, .../XARVIS-Eyes.apk and .../XARVIS-Helper.apk"
     # A test-* branch (an install experiment): published as a pre-release that is never "latest", so
     # the phones' UPDATE button and the releases/latest links keep pointing at the real build.
     - name: Publish a test build (never "latest")

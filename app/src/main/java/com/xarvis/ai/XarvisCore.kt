@@ -298,6 +298,13 @@ class XarvisCore(context: Context) {
             com.xarvis.ai.guard.GuardRemoteNotice.show(appContext, from, text, jpeg)
         }
 
+        override suspend fun helpRequest(peer: com.xarvis.ai.net.Peer, text: String) {
+            _state.update {
+                it.copy(messages = it.messages + ChatMessage(false, "🙋 ${peer.name} asks for your help. Tap the notification, or ☰ → 🤝 Help a family phone → Help now."))
+            }
+            HelpRequestNotice.show(appContext, peer.id, peer.name, text)
+        }
+
         override suspend fun act(from: String, kind: String, arg: String): String =
             withContext(Dispatchers.Main) { com.xarvis.ai.hands.ScreenHost.act(appContext, from, kind, arg) }
 

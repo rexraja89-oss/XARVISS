@@ -93,6 +93,12 @@ fun HelpScreen(onBack: () -> Unit) {
             "\"Who is this?\" on the benco — the S22 recognises the faces.",
             "☰ → 🛡 Guard my other phone: speak or type a warning out loud on the S22, send your voice, stop the alarm (with your benco's lock) or sound it now. Or say \"stop the alarm on my S22\", \"warn the intruder: …\".",
             "☰ → 🌐 Always connected: reach your other phones anywhere (mobile data, another country) through your own free relay — no VPN, banking apps stay happy. Guard alerts wait there if the other phone is offline.",
+            "⚡ XARVIS Direct: away from home, remote control and files go straight between the phones when the networks allow (fast, and no relay data). The remote view shows ⚡ Direct or 🌐 Relay.",
+        ))
+        Section("🤝 Help a family phone", listOf(
+            "☰ → 🤝 Help a family phone → Invite a phone: send the invite on WhatsApp. They install the small XARVIS Helper app and paste it.",
+            "When they tap \"Ask for help\", you get a notification: tap it to see their screen (and tap for them, if they switched on \"Allow tapping\").",
+            "They allow it every time and can press STOP any time. Works UAE ↔ India. Their phone can't see or touch yours.",
         ))
         Section("🖥 Remote control (like TeamViewer)", listOf(
             "\"Control my S22\" or ☰ → Control linked phone — see its screen and use it with your finger.",
