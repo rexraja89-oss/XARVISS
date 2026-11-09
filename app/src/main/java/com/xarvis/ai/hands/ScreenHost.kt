@@ -110,9 +110,34 @@ object ScreenHost {
                 true
             }
             "paste" -> paste(context, hands, cmd.optString("text"))
+            "unlock" -> unlock(context, hands)
             else -> false
         }
     }
+
+    /**
+     * The viewer's "🔓 Unlock" after its "🔒 Lock": screen on, then a swipe up to the lock screen's pattern / PIN
+     * pad, which Rex draws or types from the other phone (his finger, live; nothing is stored).
+     */
+    private fun unlock(context: Context, hands: HandsBridge.Hands): Boolean {
+        synchronized(this) {
+            runCatching { wake?.takeIf { it.isHeld }?.release() }
+            wake = null
+        }
+        wakeScreen(context)
+        ui.postDelayed({
+            if (context.getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true) {
+                val (w, h) = size(context)
+                hands.gesture("swipe", w / 2f, h * 0.80f, w / 2f, h * 0.30f, 300)
+            }
+        }, 800)
+        return true
+    }
+
+    /** Locked, or its screen is off: the viewer then offers "🔓 Unlock". */
+    private fun lockedOrAsleep(context: Context): Boolean =
+        context.getSystemService(PowerManager::class.java)?.isInteractive == false ||
+            context.getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true
 
     private fun size(context: Context): Pair<Int, Int> =
         if (screenW > 0 && screenH > 0) screenW to screenH else ScreenVideo.realSize(context)
@@ -173,6 +198,18 @@ object ScreenHost {
                         ch.close()
                     }
                 }
+                // Locked or not, so the viewer shows 🔒 Lock or 🔓 Unlock.
+                launch(Dispatchers.IO) {
+                    var last: Boolean? = null
+                    while (!ch.closed) {
+                        val now = lockedOrAsleep(context)
+                        if (now != last) {
+                            ch.send(StreamMsg.INFO, JSONObject().put("locked", now).toString().toByteArray())
+                            last = now
+                        }
+                        delay(700)
+                    }
+                }
                 // The screen.
                 launch(Dispatchers.IO) {
                     try {
@@ -187,6 +224,11 @@ object ScreenHost {
                                 if (ScreenVideo.ready) {
                                     ch.send(StreamMsg.INFO, JSONObject().put("switch", "video").toString().toByteArray())
                                     break
+                                }
+                                // Locked from the viewer (screen off): wait for "🔓 Unlock" instead of failing.
+                                if (context.getSystemService(PowerManager::class.java)?.isInteractive == false) {
+                                    delay(500)
+                                    continue
                                 }
                                 ch.send(StreamMsg.JPEG, frame(context, from, maxSide).jpeg)
                             }

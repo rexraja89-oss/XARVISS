@@ -62,6 +62,8 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
     private lateinit var video: SurfaceView
     private lateinit var picture: ImageView
     private lateinit var smoothButton: Button
+    private lateinit var lockButton: Button
+    @Volatile private var remoteLocked = false
 
     private var peer: Peer? = null
     @Volatile private var channel: DeviceLink.Channel? = null
@@ -117,7 +119,8 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
             addView(smoothButton)
             addView(stage, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
             addView(row(button("◀ Back") { key("back") }, button("⬤ Home") { key("home") }, button("▢ Apps") { key("recents") }, button("🔔") { key("notifications") }))
-            addView(row(button("⌨ Type") { type() }, button("⚙ Quick") { key("quick") }, button("🔒 Lock") { key("lock") }, button("✖ End") { finish() }))
+            lockButton = button("🔒 Lock") { if (remoteLocked) unlock() else confirmLock() }
+            addView(row(button("⌨ Type") { type() }, button("⚙ Quick") { key("quick") }, lockButton, button("✖ End") { finish() }))
             addView(row(button("📋 Paste to it") { pasteToIt() }, button("📋 Copy from it") { copyFromIt() }, button("📁 Send file") { pickFile() }))
         }
         setContentView(col)
@@ -208,6 +211,7 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
                         val info = JSONObject(String(payload))
                         if (info.optString("switch") == "video") return "video"
                         if (info.has("clip")) runOnUiThread { gotClip(if (info.isNull("clip")) null else info.optString("clip")) }
+                        if (info.has("locked")) info.optBoolean("locked").let { locked -> runOnUiThread { setLocked(locked) } }
                     }
                 }
             }
@@ -364,6 +368,33 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
         send(StreamMsg.TOUCH, JSONObject().put("a", action).put("x", x).put("y", y).toString().toByteArray())
 
     private fun key(name: String) = command(JSONObject().put("kind", "key").put("name", name))
+
+    /** Lock asks first: getting back in means drawing the other phone's pattern (or typing its PIN) here. */
+    private fun confirmLock() {
+        val name = peer?.name ?: "the other phone"
+        AlertDialog.Builder(this)
+            .setTitle("Lock $name?")
+            .setMessage("Its screen turns off. To get back in, tap 🔓 Unlock here and draw its pattern (or type its PIN) on the picture.")
+            .setPositiveButton("Lock") { _, _ ->
+                key("lock")
+                setLocked(true)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** Wake the other phone and open its pattern / PIN screen, for Rex to draw on the picture. */
+    private fun unlock() {
+        command(JSONObject().put("kind", "unlock"))
+        android.widget.Toast.makeText(
+            this, "Waking ${peer?.name ?: "it"}… now draw its pattern (or type its PIN) on the picture.", android.widget.Toast.LENGTH_LONG,
+        ).show()
+    }
+
+    private fun setLocked(locked: Boolean) {
+        remoteLocked = locked
+        lockButton.text = if (locked) "🔓 Unlock" else "🔒 Lock"
+    }
 
     private fun makeSmooth() {
         command(JSONObject().put("kind", "smooth"))

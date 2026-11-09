@@ -381,36 +381,68 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
 
     private var banner: android.view.View? = null
 
+    private var bannerShrink: Runnable? = null
+
     override fun controlBanner(by: String?, onStop: () -> Unit) {
         handler.post {
             val wm = getSystemService(android.view.WindowManager::class.java) ?: return@post
             banner?.let { runCatching { wm.removeView(it) } }
             banner = null
+            bannerShrink?.let { handler.removeCallbacks(it) }
+            bannerShrink = null
             if (by == null) return@post
             val d = resources.displayMetrics.density
+            // Rex asked for it "star size": a small red ✱ in the status bar, beside the camera hole. Tap it to see
+            // who is controlling the phone and the STOP button (for 5 s); everything else on screen stays free.
+            val red = android.graphics.Color.parseColor("#FF1744")
+            val star = android.widget.TextView(this).apply {
+                text = "✱"; textSize = 14f; setTextColor(red); setTypeface(null, android.graphics.Typeface.BOLD)
+                gravity = android.view.Gravity.CENTER
+                setPadding((10 * d).toInt(), 0, (10 * d).toInt(), 0)
+                contentDescription = "$by is controlling this phone"
+            }
+            val label = android.widget.TextView(this).apply {
+                text = "$by is controlling this phone  "; setTextColor(android.graphics.Color.WHITE); textSize = 12f
+                gravity = android.view.Gravity.CENTER_VERTICAL; visibility = android.view.View.GONE
+            }
+            val stop = android.widget.TextView(this).apply {
+                text = "  STOP  "; setTextColor(android.graphics.Color.parseColor("#C62828")); textSize = 12f
+                setBackgroundColor(android.graphics.Color.WHITE); setTypeface(null, android.graphics.Typeface.BOLD)
+                gravity = android.view.Gravity.CENTER_VERTICAL; visibility = android.view.View.GONE
+                setOnClickListener { onStop() }
+            }
             val pill = android.widget.LinearLayout(this).apply {
                 orientation = android.widget.LinearLayout.HORIZONTAL
-                setBackgroundColor(android.graphics.Color.parseColor("#E6C62828"))
-                setPadding((12 * d).toInt(), (6 * d).toInt(), (6 * d).toInt(), (6 * d).toInt())
-                addView(android.widget.TextView(this@XarvisHandsService).apply {
-                    text = "🖥 $by is controlling this phone  "
-                    setTextColor(android.graphics.Color.WHITE); textSize = 13f
-                })
-                addView(android.widget.TextView(this@XarvisHandsService).apply {
-                    text = "  STOP  "; setTextColor(android.graphics.Color.parseColor("#C62828")); textSize = 13f
-                    setBackgroundColor(android.graphics.Color.WHITE); setTypeface(null, android.graphics.Typeface.BOLD)
-                    setOnClickListener { onStop() }
-                })
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, 0, (4 * d).toInt(), 0)
+                addView(star, android.widget.LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT))
+                addView(label)
+                addView(stop)
             }
+            fun open(show: Boolean) {
+                label.visibility = if (show) android.view.View.VISIBLE else android.view.View.GONE
+                stop.visibility = label.visibility
+                star.setTextColor(if (show) android.graphics.Color.WHITE else red)
+                pill.setBackgroundColor(if (show) android.graphics.Color.parseColor("#E6C62828") else android.graphics.Color.TRANSPARENT)
+            }
+            star.setOnClickListener {
+                open(true)
+                bannerShrink?.let { handler.removeCallbacks(it) }
+                bannerShrink = Runnable { open(false) }.also { handler.postDelayed(it, 5_000) }
+            }
+            val barId = resources.getIdentifier("status_bar_height", "dimen", "android")
+            val barHeight = if (barId > 0) resources.getDimensionPixelSize(barId) else (24 * d).toInt()
             val params = android.view.WindowManager.LayoutParams(
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT, barHeight,
                 android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 android.graphics.PixelFormat.TRANSLUCENT,
             ).apply {
                 gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL
-                y = (36 * d).toInt() // below the status bar, so swipes from the top still reach it
+                x = (30 * d).toInt() // just right of the S22's centre camera hole
+                y = 0
+                layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
             runCatching { wm.addView(pill, params); banner = pill }.onFailure { log("Couldn't show the control banner: ${it.message}") }
         }
