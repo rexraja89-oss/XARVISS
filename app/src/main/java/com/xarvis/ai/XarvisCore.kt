@@ -356,6 +356,17 @@ class XarvisCore(context: Context) {
     val deviceLink: DeviceLink get() = link
 
     init {
+        com.xarvis.ai.jobs.JobHunter.env = object : com.xarvis.ai.jobs.JobHunter.Env {
+            override fun post(text: String) = this@XarvisCore.post(text)
+            override fun notify(title: String, text: String, speak: Boolean) {
+                com.xarvis.ai.remind.ProactiveNotice.show(appContext, title, text)
+                if (speak) voice.speak(text)
+            }
+            override suspend fun brain(system: String, text: String): String? {
+                if (cloudReady()) runCatching { return cloudLlm.chat(system, text, maxTokens = 1_500) {}.text }
+                return runCatching { agent.thinkForPeer(system, text) }.getOrNull()
+            }
+        }
         link.start()
         // Remote control of this phone by the linked one: say so in the chat too (the red banner shows meanwhile).
         com.xarvis.ai.hands.ScreenHost.onSession = { by ->
@@ -759,6 +770,12 @@ class XarvisCore(context: Context) {
         com.xarvis.ai.remind.Reminders.takeDue(appContext).forEach { hasReminder = true; lines += "Reminder, sir: ${it.text}." }
         com.xarvis.ai.remind.Reminders.reschedule(appContext)
         lines += runCatching { com.xarvis.ai.remind.Nudges.check(appContext, briefIcal()) }.getOrDefault(emptyList())
+        // Job Hunter: replies to Rex's applications (no follow-ups — just tell him).
+        runCatching { com.xarvis.ai.jobs.JobHunter.checkReplies(appContext) }.getOrDefault(emptyList()).forEach { reply ->
+            post(reply)
+            com.xarvis.ai.remind.ProactiveNotice.show(appContext, "Reply to your job application", reply)
+            lines += "Sir, you have a reply to a job application. It's in my chat."
+        }
         if (lines.isEmpty()) return
         val msg = lines.joinToString("  ")
         speakAloud(msg)

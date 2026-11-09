@@ -70,7 +70,8 @@ object PolicyRules {
         is Step.Call, is Step.AppCall -> Category.PHONE_CALL
         is Step.WhatsApp, is Step.Sms -> Category.MESSAGING
         is Step.LaunchApp, is Step.FindInApp, is Step.AskApp, is Step.ShowMap, is Step.Search, is Step.TakePhoto -> Category.OPEN_APP
-        is Step.Jobs -> Category.JOB_SEARCH
+        is Step.Jobs, is Step.JobHunt -> Category.JOB_SEARCH
+        is Step.JobSend -> Category.EMAIL_DRAFTING
         is Step.MakeFile, is Step.ShowFiles, is Step.ConvertFile, is Step.SearchPhone, is Step.RemoteGallery -> Category.FILES
         is Step.Remember, Step.ListMemories -> Category.MEMORY
         is Step.Wifi, is Step.Bluetooth, is Step.Flashlight, is Step.Alarm, is Step.Timer -> Category.DEVICE_SETTINGS

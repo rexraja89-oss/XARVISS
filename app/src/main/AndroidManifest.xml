@@ -167,6 +167,12 @@
             android:exported="false"
             android:label="Guard remote"
             android:theme="@android:style/Theme.DeviceDefault.Light" />
+        <!-- ☰ → Job Hunter: Rex's worldwide job search — drafts to approve, sending, replies, CVs. -->
+        <activity
+            android:name=".JobHunterActivity"
+            android:exported="false"
+            android:label="Job Hunter"
+            android:theme="@android:style/Theme.DeviceDefault.Light" />
         <!-- Share → "Send to my other phone": files and text to the linked phone over the encrypted link. -->
         <activity
             android:name=".ShareToLinkedActivity"

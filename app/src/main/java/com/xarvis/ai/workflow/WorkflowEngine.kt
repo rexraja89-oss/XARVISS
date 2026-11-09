@@ -54,6 +54,15 @@ sealed interface Step {
     data class Guard(val on: Boolean) : Step
     /** The other phone's alarm, from here: "stop" (after this phone's lock), "panic" (sound it now), "say" [text] out loud there. */
     data class GuardRemote(val action: String, val text: String? = null) : Step
+    /** Job Hunter (Rex's own worldwide job search): hunt, show the drafts, send approved ones, trust lists, replies. */
+    data class JobHunt(val country: String?, val full: Boolean) : Step
+    data object JobDrafts : Step
+    data class JobSend(val count: Int?) : Step
+    data object JobStopSending : Step
+    data class JobTrust(val name: String, val trust: Boolean?) : Step
+    data object JobInfo : Step
+    data object JobReplies : Step
+    data class JobLinkedIn(val country: String?) : Step
     /** "Control my S22": the linked phone's screen, live, to tap and swipe on (like TeamViewer). */
     data class RemoteScreen(val device: String? = null) : Step
     /** Dial an emergency service (police/ambulance/fire) directly and handsfree. [label] e.g. "the police". */
@@ -388,6 +397,41 @@ class WorkflowEngine(
                     ?: if (step.action == "stop") "Unlock this phone to confirm it's you, sir — then I'll stop the alarm." else "Confirm on the screen, sir.",
             )
         }
+        is Step.JobHunt -> StepResult(true, com.xarvis.ai.jobs.JobHunter.startHunt(appContext, step.country, step.full))
+        Step.JobDrafts -> {
+            val open = Intent().setClassName(appContext, "com.xarvis.ai.JobHunterActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            appContext.startActivity(open)
+            StepResult(true, backgroundNote("the Job Hunter", open) ?: "Here are your job drafts, sir. Tick ✓ the ones to send, then tell me how many.")
+        }
+        is Step.JobSend -> StepResult(true, com.xarvis.ai.jobs.JobHunter.startSend(appContext, step.count))
+        Step.JobStopSending -> {
+            val was = com.xarvis.ai.jobs.JobHunter.sending()
+            com.xarvis.ai.jobs.JobHunter.stopSending()
+            StepResult(true, if (was) "Stopped sending, sir. The rest stay approved for later." else "Nothing is being sent right now, sir.")
+        }
+        is Step.JobTrust -> {
+            com.xarvis.ai.jobs.JobStore(appContext).setTrust(step.name, step.trust)
+            com.xarvis.ai.jobs.JobHunter.retrust(appContext)
+            StepResult(
+                true,
+                when (step.trust) {
+                    true -> "\"${step.name}\" is on your trusted list, sir: its jobs show as ✅ authentic."
+                    false -> "\"${step.name}\" is blocked, sir: its jobs show as 🚫 and are never emailed."
+                    null -> "\"${step.name}\" is off both lists, sir."
+                },
+            )
+        }
+        Step.JobInfo -> StepResult(true, com.xarvis.ai.jobs.JobHunter.status(appContext))
+        Step.JobReplies -> {
+            val lines = runCatching { com.xarvis.ai.jobs.JobHunter.checkReplies(appContext, force = true) }.getOrElse { listOf("I couldn't check Gmail: ${it.message}") }
+            StepResult(true, lines.joinToString("\n\n").ifBlank { "No new replies to your applications yet, sir." })
+        }
+        is Step.JobLinkedIn -> StepResult(
+            true,
+            "Browsing the LinkedIn app myself (slow, human-paced, read-only) comes in the next update, sir. " +
+                "Your LinkedIn job-alert emails are already read in every hunt — say \"hunt jobs\"" +
+                (step.country?.let { " or \"hunt jobs in $it\"" } ?: "") + ".",
+        )
         is Step.RemoteScreen -> {
             val view = Intent().setClassName(appContext, "com.xarvis.ai.RemoteScreenActivity")
                 .putExtra("device", step.device).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

@@ -138,6 +138,22 @@ class XarvisAgent(
                         run(listOf(Step.GuardRemote(action, text)))
                     }
                 }
+                ?: JobCommands.parse(message)?.let { cmd ->
+                    run(
+                        listOf(
+                            when (cmd) {
+                                is JobCommands.Cmd.Hunt -> Step.JobHunt(cmd.country, cmd.full)
+                                JobCommands.Cmd.Drafts -> Step.JobDrafts
+                                is JobCommands.Cmd.Send -> Step.JobSend(cmd.count)
+                                JobCommands.Cmd.StopSending -> Step.JobStopSending
+                                is JobCommands.Cmd.Trust -> Step.JobTrust(cmd.name, cmd.trust)
+                                JobCommands.Cmd.Status -> Step.JobInfo
+                                JobCommands.Cmd.Replies -> Step.JobReplies
+                                is JobCommands.Cmd.LinkedIn -> Step.JobLinkedIn(cmd.country)
+                            },
+                        ),
+                    )
+                }
                 ?: OtherPhoneCommands.parse(message, otherPhoneWords())?.let { onOtherPhone(it, onPartial) }
                 ?: PhoneTask.parse(message, otherPhoneWords())?.let { runPhoneTask(it, onPartial) }
                 ?: (if (OPEN_EYES.matches(message.trim().trimEnd('.', '!', '?'))) run(listOf(Step.OpenEyes)) else null)
