@@ -92,6 +92,7 @@ fun HelpScreen(onBack: () -> Unit) {
             "\"Take a photo\" on the benco uses the S22's camera — even with its screen off.",
             "\"Who is this?\" on the benco — the S22 recognises the faces.",
             "☰ → 🛡 Guard my other phone: speak or type a warning out loud on the S22, send your voice, stop the alarm (with your benco's lock) or sound it now. Or say \"stop the alarm on my S22\", \"warn the intruder: …\".",
+            "☰ → 🌐 Always connected: reach your other phones anywhere (mobile data, another country) through your own free relay — no VPN, banking apps stay happy. Guard alerts wait there if the other phone is offline.",
         ))
         Section("🖥 Remote control (like TeamViewer)", listOf(
             "\"Control my S22\" or ☰ → Control linked phone — see its screen and use it with your finger.",

@@ -222,6 +222,10 @@ object ScreenHost {
                                 lastUse = System.currentTimeMillis()
                             }
                         } else {
+                            // Through the relay a picture is sent only when the screen changed (a still
+                            // screen costs nothing); the viewer's pings keep the line alive meanwhile.
+                            var lastSent: ByteArray? = null
+                            var lastSentAt = 0L
                             while (!ch.closed) {
                                 // Rex allowed screen sharing meanwhile: tell the viewer to reconnect for video.
                                 if (ScreenVideo.ready) {
@@ -233,7 +237,14 @@ object ScreenHost {
                                     delay(500)
                                     continue
                                 }
-                                ch.send(StreamMsg.JPEG, frame(context, from, if (viaRelay) RELAY_PICTURE_SIDE else maxSide).jpeg)
+                                val jpeg = frame(context, from, if (viaRelay) RELAY_PICTURE_SIDE else maxSide).jpeg
+                                val now = System.currentTimeMillis()
+                                val same = viaRelay && lastSent?.contentEquals(jpeg) == true && now - lastSentAt < RELAY_SAME_PICTURE_MS
+                                if (!same) {
+                                    ch.send(StreamMsg.JPEG, jpeg)
+                                    lastSent = jpeg
+                                    lastSentAt = now
+                                }
                                 if (viaRelay) delay(RELAY_PICTURE_GAP_MS)
                             }
                         }
@@ -391,9 +402,15 @@ object ScreenHost {
     }
 
     private const val JPEG_QUALITY = 60
-    /** Remote control through the relay: smaller video and pictures (about 0.4 GB an hour instead of 1–2). */
-    private const val RELAY_MAX_SIDE = 960
-    private const val RELAY_KBPS = 900
-    private const val RELAY_PICTURE_SIDE = 720
-    private const val RELAY_PICTURE_GAP_MS = 250L
+    /**
+     * Remote control through the relay (EMQX's free 1 GB a month): smaller video (at most ~0.2 GB an hour, much
+     * less on a still screen) and pictures sent only when the screen changes. The relay also stops a session
+     * once the month's screen allowance is used (Relay.SCREEN_LIMIT_BYTES).
+     */
+    private const val RELAY_MAX_SIDE = 720
+    private const val RELAY_KBPS = 500
+    private const val RELAY_PICTURE_SIDE = 640
+    private const val RELAY_PICTURE_GAP_MS = 300L
+    /** A still screen through the relay is re-sent this often anyway (a picture lost on the way heals). */
+    private const val RELAY_SAME_PICTURE_MS = 5_000L
 }

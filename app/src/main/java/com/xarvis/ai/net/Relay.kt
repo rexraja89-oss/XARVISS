@@ -20,7 +20,8 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * XARVIS's relay (Rex, Nov 2026: "always connected, without Tailscale"): every XARVIS keeps one outgoing
- * connection to Rex's own free MQTT broker (HiveMQ Cloud) and gets a private mailbox there. A linked phone
+ * connection to Rex's own free MQTT broker (EMQX Serverless; HiveMQ dropped its free plan) and gets a private
+ * mailbox there. A linked phone
  * reaches it anywhere — mobile data, another country — by posting to that mailbox. It's not a VPN (no key
  * icon, banking apps don't object, Proton VPN can stay on), and what passes through is the link's own
  * AES-GCM frames, sealed with the pairing key, so the broker sees only scrambled data.
@@ -225,24 +226,45 @@ class Relay(context: Context, private val deviceId: String) {
 
     /** Adds what [m] has carried since the last count to this month's total. */
     private fun count(m: Mqtt) {
-        val add = synchronized(this) {
+        val warn = synchronized(this) {
             if (countedConn !== m) { countedConn = m; counted = 0 }
             val total = m.bytesIn.get() + m.bytesOut.get()
-            (total - counted).also { counted = total }
-        }
-        if (add <= 0) return
-        val used = usedThisMonth() + add
-        prefs.edit().putString("month", month()).putLong("bytes", used).apply()
-        if (used > FREE_BYTES_MONTH * 8 / 10 && prefs.getString("warned", "") != month()) {
-            prefs.edit().putString("warned", month()).apply()
-            onWarning?.invoke("The relay has used ${used / (1024 * 1024)} MB of its free 10 GB this month (this phone). Remote control away from home uses the most.")
-        }
+            val add = total - counted
+            counted = total
+            if (add <= 0) return
+            val used = usedThisMonth() + add
+            prefs.edit().putString("month", month()).putLong("bytes", used).apply()
+            if (used > WARN_BYTES && prefs.getString("warned", "") != month()) {
+                prefs.edit().putString("warned", month()).apply()
+                used
+            } else {
+                null
+            }
+        } ?: return
+        onWarning?.invoke(
+            "The relay has carried ${warn / MB} MB for this phone this month. Watching a screen through it stops at " +
+                "${SCREEN_LIMIT_BYTES / MB} MB, so the rest of the free 1 GB stays for guard alerts and messages.",
+        )
     }
 
-    /** Told once a month when this phone passes 80% of the free allowance. */
+    /** This month's relay data for this phone, including what the current connection carried just now. */
+    fun usedNow(): Long {
+        mqtt?.let { count(it) }
+        return usedThisMonth()
+    }
+
+    /**
+     * Whether a screen may still be watched through the relay this month. Screens are the only big user; this
+     * stops them early so the free 1 GB never runs out (with the spend limit at 0, EMQX would then pause the
+     * relay, guard alerts included, until next month). Both phones count the same stream, so each stops at
+     * its own [SCREEN_LIMIT_BYTES].
+     */
+    fun screenAllowed(): Boolean = usedNow() < SCREEN_LIMIT_BYTES
+
+    /** Told once a month when this phone's relay data passes [WARN_BYTES]. */
     @Volatile var onWarning: ((String) -> Unit)? = null
 
-    /** Splits big lines and puts them back together (the broker takes at most 5 MB per message). */
+    /** Splits big lines and puts them back together (EMQX Serverless takes at most 1 MB per message). */
     object Envelope {
         const val PART = 700_000
 
@@ -277,8 +299,18 @@ class Relay(context: Context, private val deviceId: String) {
         private const val USER = "relay_user"
         private const val PASS = "relay_pass"
         private const val PING_EVERY_MS = 45_000L
-        /** HiveMQ Cloud's free plan: 10 GB a month for all of Rex's devices. */
-        const val FREE_BYTES_MONTH = 10L * 1024 * 1024 * 1024
+        private const val MB = 1024L * 1024
+        /** EMQX Serverless's free plan: 1 GB a month for all of Rex's devices together (in and out). */
+        const val FREE_BYTES_MONTH = 1024 * MB
+        /** Past this (this phone, this month), watching a screen through the relay stops until next month. */
+        const val SCREEN_LIMIT_BYTES = 400 * MB
+        const val WARN_BYTES = 300 * MB
+
+        /** What the viewer is told when the month's screen allowance is used. */
+        fun screenLimitMessage(used: Long) =
+            "watching its screen through the relay is paused until next month: ${used / MB} MB of the relay's free " +
+                "1 GB is used, and the rest is kept for guard alerts and messages. On the same Wi-Fi (or with " +
+                "Tailscale on) it works as usual."
 
         /** A device's mailbox: a hash of its id, so nothing about Rex shows in the broker. */
         fun mailbox(deviceId: String): String {
@@ -286,7 +318,7 @@ class Relay(context: Context, private val deviceId: String) {
             return "xv/" + h.take(12).joinToString("") { "%02x".format(it) }
         }
 
-        /** "abc.s1.eu.hivemq.cloud", "abc.hivemq.cloud:8883", "mqtts://abc…:8883" → host and port. */
+        /** "abc.ala.asia-southeast1.emqxsl.com", "abc.emqxsl.com:8883", "mqtts://abc…:8883" → host and port. */
         fun splitHost(text: String): Pair<String, Int> {
             val t = text.trim().substringAfter("://").trimEnd('/')
             val host = t.substringBefore(':').substringBefore('/')

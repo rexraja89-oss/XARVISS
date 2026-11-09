@@ -25,7 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * ☰ → Always connected: Rex's relay login (his free HiveMQ Cloud broker), its status, data used this month, and
+ * ☰ → Always connected: Rex's relay login (his free EMQX Serverless broker), its status, data used this month, and
  * which linked phones are online. Saved here once, it's shared with his other phones over the link, sealed.
  */
 class RelayActivity : Activity() {
@@ -52,7 +52,7 @@ class RelayActivity : Activity() {
         usage = label("")
         phones = label("", Color.BLACK, 14f)
         val cfg = link.relay.config()
-        host = EditText(this).apply { hint = "e.g. 1a2b3c….s1.eu.hivemq.cloud"; setText(cfg?.let { "${it.host}:${it.port}" }.orEmpty()); inputType = InputType.TYPE_TEXT_VARIATION_URI }
+        host = EditText(this).apply { hint = "e.g. ab12cd34.ala.asia-southeast1.emqxsl.com"; setText(cfg?.let { "${it.host}:${it.port}" }.orEmpty()); inputType = InputType.TYPE_TEXT_VARIATION_URI }
         user = EditText(this).apply { hint = "username"; setText(cfg?.user.orEmpty()) }
         pass = EditText(this).apply {
             hint = "password"; setText(cfg?.pass.orEmpty())
@@ -66,8 +66,8 @@ class RelayActivity : Activity() {
             addView(status)
             addView(phones)
             addView(usage)
-            addView(label("YOUR RELAY (free HiveMQ Cloud)", teal, 13f, bold = true))
-            addView(label("Cluster address")); addView(host)
+            addView(label("YOUR RELAY (free EMQX Serverless)", teal, 13f, bold = true))
+            addView(label("Address")); addView(host)
             addView(label("Username")); addView(user)
             addView(label("Password")); addView(pass)
             addView(button("💾 Save and connect") { save() })
@@ -76,15 +76,17 @@ class RelayActivity : Activity() {
             addView(label("HOW TO GET IT (once, about 5 minutes)", teal, 13f, bold = true))
             addView(
                 label(
-                    "1. Open HiveMQ Cloud and sign up (Google sign-in works).\n" +
-                        "2. Create a free \"Serverless\" cluster.\n" +
-                        "3. In the cluster: Access Management → add a username and password (Publish and Subscribe).\n" +
-                        "4. Copy the cluster address from Overview (it ends in hivemq.cloud) and paste all three above.\n" +
-                        "Free: 10 GB a month for all your phones together. Everything passing through is sealed with your phones' linking key.",
+                    "1. Open EMQX Cloud and sign up (Google sign-in works).\n" +
+                        "2. Make a project, then a new deployment: choose \"Serverless\" (free) and keep the spend limit at 0.\n" +
+                        "3. In the deployment: Access Control → Authentication → + Add a username and password.\n" +
+                        "4. Copy the Address from Deployment Overview (it ends in emqxsl.com) and paste all three above.\n" +
+                        "Free: 1 GB a month for all your phones together. Messages and guard alerts use almost nothing; " +
+                        "watching a screen through the relay stops at ${Relay.SCREEN_LIMIT_BYTES / 1_048_576} MB a month so it never runs out. " +
+                        "Everything passing through is sealed with your phones' linking key.",
                     Color.BLACK, 13f,
                 ),
             )
-            addView(button("Open HiveMQ Cloud") { runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://console.hivemq.cloud/"))) } })
+            addView(button("Open EMQX Cloud") { runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://cloud-intl.emqx.com/"))) } })
         }
         setContentView(ScrollView(this).apply { addView(col) })
         scope.launch {
@@ -114,7 +116,10 @@ class RelayActivity : Activity() {
 
     private fun refresh() {
         val used = link.relay.usedThisMonth()
-        usage.text = "Data through the relay this month (this phone): ${"%.1f".format(used / 1_048_576.0)} MB of the free 10 GB"
+        val limit = Relay.SCREEN_LIMIT_BYTES / 1_048_576
+        usage.text = "Data through the relay this month (this phone): ${"%.1f".format(used / 1_048_576.0)} MB of the free 1 GB" +
+            if (used >= Relay.SCREEN_LIMIT_BYTES) "\nScreen watching through the relay is paused until next month (it passed $limit MB)."
+            else "\nScreen watching through the relay stops at $limit MB."
         val peers = link.pairedPeers()
         phones.text = if (peers.isEmpty()) {
             "No linked phones yet."
@@ -134,7 +139,7 @@ class RelayActivity : Activity() {
         val u = user.text.toString().trim()
         val p = pass.text.toString()
         if (h.isBlank() || u.isBlank() || p.isBlank()) {
-            toast("Fill in all three: cluster address, username and password.")
+            toast("Fill in all three: address, username and password.")
             return
         }
         val (hostName, port) = Relay.splitHost(h)

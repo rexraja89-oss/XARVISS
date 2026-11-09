@@ -855,12 +855,30 @@ class DeviceLink(context: Context, private val handler: Handler) {
                 // Remote control: the connection stays open for video and touches until either side closes it.
                 c.streaming(STREAM_READ_TIMEOUT_MS)
                 req.put("route", c.route) // through the relay: lighter pictures (data)
+                val viaRelay = c.route == "relay"
                 var started = false
                 val ch = Channel(c, peer.key, deviceId, peer.id)
                 try {
-                    handler.screenStream(peer.name, req, ch) { header ->
-                        started = true
-                        c.send(encryptFrame("res", peer.key, header))
+                    if (viaRelay && !relay.screenAllowed()) throw LinkException(Relay.screenLimitMessage(relay.usedNow()))
+                    kotlinx.coroutines.coroutineScope {
+                        // Through the relay: end the session before the month's free data runs out.
+                        val watch = if (!viaRelay) null else launch {
+                            while (!ch.closed) {
+                                delay(RELAY_SCREEN_CHECK_MS)
+                                if (!relay.screenAllowed()) {
+                                    ch.fail(Relay.screenLimitMessage(relay.usedNow()))
+                                    ch.close()
+                                }
+                            }
+                        }
+                        try {
+                            handler.screenStream(peer.name, req, ch) { header ->
+                                started = true
+                                c.send(encryptFrame("res", peer.key, header))
+                            }
+                        } finally {
+                            watch?.cancel()
+                        }
                     }
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
@@ -1131,6 +1149,7 @@ class DeviceLink(context: Context, private val handler: Handler) {
         private const val SNAP_READ_TIMEOUT_MS = 90_000 // the other phone may wait up to a minute for Rex to tap its notification
         private const val SCREEN_READ_TIMEOUT_MS = 15_000 // one screen picture or one tap
         private const val STREAM_READ_TIMEOUT_MS = 20_000 // both sides send something at least every 2 s
+        private const val RELAY_SCREEN_CHECK_MS = 10_000L // how often a screen through the relay checks the month's data
         private const val FILE_READ_TIMEOUT_MS = 180_000 // a file of up to 25 MB, over Tailscale on mobile data
         private const val PAIRING_TIMEOUT_MS = 5 * 60_000L
         private const val MAX_CLOCK_SKEW_MS = 5 * 60_000L

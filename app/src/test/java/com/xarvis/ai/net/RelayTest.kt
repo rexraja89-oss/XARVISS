@@ -70,11 +70,25 @@ class RelayEnvelopeTest {
     }
 
     @Test fun hostAndMailbox() {
-        assertEquals("abc.s1.eu.hivemq.cloud" to 8883, Relay.splitHost("abc.s1.eu.hivemq.cloud"))
-        assertEquals("abc.hivemq.cloud" to 8884, Relay.splitHost("mqtts://abc.hivemq.cloud:8884/"))
+        assertEquals("ab12.ala.asia-southeast1.emqxsl.com" to 8883, Relay.splitHost(" ab12.ala.asia-southeast1.emqxsl.com "))
+        assertEquals("abc.emqxsl.com" to 8884, Relay.splitHost("mqtts://abc.emqxsl.com:8884/"))
         val m = Relay.mailbox("device-1")
         assertTrue(m.startsWith("xv/") && m.length == 27)
         assertEquals(m, Relay.mailbox("device-1"))
         assertTrue(m != Relay.mailbox("device-2"))
+    }
+
+    @Test fun screenLimitLeavesRoomForAlerts() {
+        // Both phones count the same stream, so two phones at the limit stay inside the free 1 GB.
+        assertTrue(Relay.SCREEN_LIMIT_BYTES * 2 < Relay.FREE_BYTES_MONTH)
+        assertTrue(Relay.WARN_BYTES < Relay.SCREEN_LIMIT_BYTES)
+        assertTrue(Relay.screenLimitMessage(Relay.SCREEN_LIMIT_BYTES).contains("400 MB"))
+    }
+
+    @Test fun relayPartsFitTheBroker() {
+        // EMQX Serverless takes at most 1 MB per message; a part plus its envelope must stay under it.
+        val line = "x".repeat(Relay.Envelope.PART)
+        val part = Relay.Envelope.split("a-long-device-id-0123456789", "cid-0123456789", "d", line + "y")[0]
+        assertTrue(part.toByteArray().size < 1_000_000)
     }
 }
