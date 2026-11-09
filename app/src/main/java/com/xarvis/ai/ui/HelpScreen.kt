@@ -31,33 +31,74 @@ fun HelpScreen(onBack: () -> Unit) {
         Section("🗣️ Talk & think", listOf(
             "Ask me anything — facts, advice, maths, ideas, explanations.",
             "I remember our past chats and the facts you tell me (\"remember my sister is Sara\").",
-            "I reply with a bit of wit, and in Hinglish when you write Hindi.",
+            "I reply with a bit of wit, in Hinglish when you write Hindi, and calmly when you sound stressed.",
+            "Brains: Gemma on the phone, plus free cloud brains in ☰ → BRAIN. 🔒 keeps a chat on the phone; the AI council double-checks answers.",
         ))
         Section("🎙️ Voice", listOf(
             "Say \"Hey Jarvis\" to wake me with the screen off (S22).",
             "Tap the mic to speak instead of type; I can speak my answers back.",
+            "Long-press the XARVIS icon → \"Talk to XARVIS\", or make me the phone's assistant (☰).",
             "British voice, your own trained voice, or Hindi — set in ☰ → voice options.",
+        ))
+        Section("🚨 Emergency", listOf(
+            "\"Call the police\" / \"I need an ambulance\" — I dial your country's number at once, on speaker.",
         ))
         Section("📞 Calls & messages", listOf(
             "\"Call Atiq\" — places the call. \"Ali ko call karo\" works too.",
             "\"WhatsApp Sara: running late\" / \"text mum I'm on my way\" — opens it pre-typed.",
-            "\"Open imo and call baarish\" — taps through the app itself (needs XARVIS Hands).",
+            "\"Call baarish on imo\" or a WhatsApp call — I tap through the app myself (XARVIS Hands).",
         ))
         Section("📱 Apps & phone", listOf(
             "\"Open YouTube\", \"directions to Dubai Mall\", \"turn on the torch\".",
             "\"Set an alarm for 6:30\", \"timer 10 minutes\", \"how much battery?\".",
             "Wi-Fi / Bluetooth / flashlight on or off.",
         ))
+        Section("🤖 I use the phone myself", listOf(
+            "\"Send hi to Atiq on WhatsApp\", \"check my last message on imo\", or \"do this for me: …\" — I look at the screen and tap through the app.",
+            "Add \"on my S22\" and I do it on your other phone.",
+            "I ask before Send, Call, Delete or Buy, and never touch payments, OTPs or passwords. A red STOP shows while I work.",
+        ))
+        Section("🌅 Briefing & reminders", listOf(
+            "Morning briefing (☰): weather, calendar, Gmail and battery — spoken every day at your time.",
+            "\"Remind me to call Atiq at 6\", \"my reminders\", \"cancel my reminders\".",
+            "I warn you before calendar events and when the battery is low.",
+        ))
+        Section("💼 Job Hunter (☰ → Job Hunter)", listOf(
+            "\"Hunt jobs\" (top 10 countries), \"hunt jobs in Nigeria\", \"full job hunt\" (all 33) — Blasting & Painting Supervisor, Superintendent, Instructor and Trainer jobs.",
+            "Every job is checked: ✅ authentic / ⚠️ suspicious / 🚫 scam with reasons, salary in ₹ (under ₹1.5 lakh skipped), and what it asks that you lack.",
+            "\"Show my job drafts\" — read each email, edit, ✓ approve. Nothing is sent without your tick.",
+            "\"Send 10 job applications\" — from your Gmail, the right CV attached, never the same address twice. \"Stop sending\" anytime.",
+            "\"Any job replies?\" — I also tell you myself when an employer replies. \"Job hunter status\" for the totals.",
+            "\"Trust agency X\" / \"block X.com\". Your LinkedIn job-alert emails are read in every hunt.",
+        ))
         Section("🌐 Web & research", listOf(
             "\"Search the web for…\" — I answer right here with real results.",
             "\"Read this link and summarise it\" (paste a URL).",
             "\"Best phones under 30000 with pictures\" — specs, prices and photos.",
-            "\"Find painting supervisor jobs\" — opens real listings to apply.",
         ))
-        Section("📷 Photos & seeing", listOf(
-            "Send a photo or a screenshot (the 📷 chip or +) and ask \"what's this?\".",
-            "\"Take a photo\" / \"take a selfie\" — opens the camera, then ask about it.",
-            "\"Show me pictures of…\" — fetches real images.",
+        Section("👁 Eyes, photos & faces", listOf(
+            "\"Look\" opens XARVIS Eyes — point the camera and ask what I see, or read text.",
+            "\"Take a photo\" / \"take a selfie\" — I count down and shoot it myself.",
+            "\"Who is this?\" / \"who am I?\" — I recognise faces you taught me (Eyes → ➕ Teach a face).",
+            "Send a photo and ask \"what's this?\" or \"who is in this photo?\". \"Show me pictures of…\" fetches real images.",
+        ))
+        Section("🛡 Guard mode (S22)", listOf(
+            "\"Guard my phone\" — if anyone else picks it up: their photo, a red warning and a deep voice alarm.",
+            "To stop it: your fingerprint (the 👆 button), or say \"It's alright XARVIS\" after the beep, then the fingerprint. \"Guard mode off\" ends guarding.",
+            "Your benco gets an alert with the intruder's photo.",
+        ))
+        Section("🔗 Your other phone", listOf(
+            "Link phones (\"pair with…\"); ask one phone the other's battery or gallery. The benco uses the S22's brain.",
+            "\"Take a photo\" on the benco uses the S22's camera — even with its screen off.",
+            "\"Who is this?\" on the benco — the S22 recognises the faces.",
+            "☰ → 🛡 Guard my other phone: speak or type a warning out loud on the S22, send your voice, stop the alarm (with your benco's lock) or sound it now. Or say \"stop the alarm on my S22\", \"warn the intruder: …\".",
+        ))
+        Section("🖥 Remote control (like TeamViewer)", listOf(
+            "\"Control my S22\" or ☰ → Control linked phone — see its screen and use it with your finger.",
+            "⚡ Make it smooth for live video. Type, paste to it, copy from it, send a file. Share any file → \"Send to my other phone\".",
+            "🔒 Lock, then 🔓 Unlock and draw its pattern on the picture.",
+            "\"Open WhatsApp on my S22 and read my last message\", \"tap Settings on S22\", \"what's on my S22 screen?\".",
+            "Only after you tick \"Let my linked phone see and control this phone\" on that phone (☰ → XARVIS Hands). It shows a small red ✱ — tap it for STOP.",
         ))
         Section("📄 Files & documents", listOf(
             "I read your PDFs, Word, Excel and text files — attach with +.",
@@ -68,17 +109,20 @@ fun HelpScreen(onBack: () -> Unit) {
             "\"Remember…\" keeps facts for good; \"what do you remember about me?\".",
             "\"Add to my health record…\", \"show/export my health record\".",
         ))
-        Section("🔗 Your other phone", listOf(
-            "Link phones (\"pair with…\"); ask one phone the other's battery or gallery.",
+        Section("🔐 Your control (☰ → CONTROL)", listOf(
+            "Permissions: choose what I may do alone, ask first, or never. Everything I do is in the activity log.",
         ))
         Section("💻 XARVIS Code (☰ → CONTROL)", listOf(
             "Build web apps & games, now with 3D (Three.js) — it publishes them live.",
             "Open any of your GitHub repos and edit the code; it works on a safe branch.",
             "Research the web and make a PDF/report; attach photos or files with +.",
         ))
-        Section("✋ XARVIS Hands (separate app)", listOf(
-            "Lets me tap inside imo / WhatsApp to place a call for you.",
-            "It never taps anything to do with payments, OTPs or passwords.",
+        Section("✋ XARVIS Hands (☰ → XARVIS Hands)", listOf(
+            "Built into XARVIS on the S22 (switch it on once); the benco uses the separate Hands app.",
+            "It lets me tap inside apps — calls, remote control, doing tasks for you. Never payments, OTPs or passwords.",
+        ))
+        Section("⬆ Updates", listOf(
+            "When a new version is ready an UPDATE button appears — tap it, download, install.",
         ))
 
         Text(
