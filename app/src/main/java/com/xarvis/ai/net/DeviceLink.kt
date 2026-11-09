@@ -602,7 +602,9 @@ class DeviceLink(context: Context, private val handler: Handler) {
         var failure: Exception? = null
         val routes = buildList {
             val lan = peer.host
-            if (lan != null && onWifi() && System.currentTimeMillis() - (wifiFailedAt[peer.id] ?: 0L) > WIFI_RETRY_MS) add(lan to "wifi")
+            // After a recent miss, go straight to the relay — but only when the relay is there to take over.
+            val missedRecently = System.currentTimeMillis() - (wifiFailedAt[peer.id] ?: 0L) < WIFI_RETRY_MS
+            if (lan != null && onWifi() && !(missedRecently && relay.connected)) add(lan to "wifi")
             if (peer.tailnetHost != null && tailnetAddress() != null) add(peer.tailnetHost!! to "tailscale")
         }.distinctBy { it.first }
         for ((host, route) in routes) {
