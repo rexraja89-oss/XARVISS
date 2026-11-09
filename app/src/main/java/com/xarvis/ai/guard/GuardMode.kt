@@ -92,12 +92,15 @@ object GuardMode : SensorEventListener {
         HandsBridge.log("Guard mode: guarding.")
     }
 
-    private fun stopWatching() {
+    /** Stop reading the sensor; [keepAwake] keeps the CPU awake (the alarm must survive the power button). */
+    private fun stopWatching(keepAwake: Boolean = false) {
         val c = app ?: return
         runCatching { c.getSystemService(SensorManager::class.java)?.unregisterListener(this) }
         runCatching { c.unregisterReceiver(unlocked) }
-        runCatching { wake?.takeIf { it.isHeld }?.release() }
-        wake = null
+        if (!keepAwake) {
+            runCatching { wake?.takeIf { it.isHeld }?.release() }
+            wake = null
+        }
     }
 
     override fun onSensorChanged(event: SensorEvent) {
@@ -151,9 +154,12 @@ object GuardMode : SensorEventListener {
         HandsBridge.log("Guard mode: it was Rex — guard off.")
     }
 
-    /** Someone else: the alarm takes over (watching stops; the alarm keeps the screen and voice going). */
+    /**
+     * Someone else: the alarm takes over. Watching stops, but the phone stays awake until Rex disarms it, so
+     * pressing the power button can't put the alarm to sleep (it relaunches the red screen each warning).
+     */
     fun intruder() {
-        stopWatching()
+        stopWatching(keepAwake = true)
         state = State.ALARM
     }
 
