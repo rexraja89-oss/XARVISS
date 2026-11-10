@@ -49,6 +49,9 @@ object HandsBridge {
         /** Opens the app [packageName] (Hands may start apps from the background; XARVIS itself may not). */
         fun openApp(packageName: String): Boolean
 
+        /** Opens a web address in the browser (Task mode); false where it can't. */
+        fun openUrl(url: String): Boolean = false
+
         // ---- XARVIS using the phone by itself (PhoneAgent) ----
         /**
          * What's on the screen, for the brain: JSON {"app","w","h","els":[{"t":label,"c":tappable,"e":editable,

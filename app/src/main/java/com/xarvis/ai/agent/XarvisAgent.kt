@@ -155,6 +155,15 @@ class XarvisAgent(
                     )
                 }
                 ?: OtherPhoneCommands.parse(message, otherPhoneWords())?.let { onOtherPhone(it, onPartial) }
+                ?: taskGoal(message)?.let { goal ->
+                    // A big job for Task mode: plan it now; Rex approves it on the Task screen.
+                    val missing = com.xarvis.ai.task.TaskManager.notReady(appContext)
+                    if (missing != null) Reply("🧠 Task mode can't start yet, sir: $missing")
+                    else {
+                        com.xarvis.ai.task.TaskManager.plan(appContext, goal)
+                        Reply("🧠 Planning it now, sir. When the plan is ready you'll get a notification — read it in ☰ → 🧠 Task mode and approve it, and I'll get to work.")
+                    }
+                }
                 ?: PhoneTask.parse(message, otherPhoneWords())?.let { runPhoneTask(it, onPartial) }
                 ?: (if (OPEN_EYES.matches(message.trim().trimEnd('.', '!', '?'))) run(listOf(Step.OpenEyes)) else null)
                 ?: photoCommand(message, deviceWords())?.let { run(listOf(it)) }
@@ -739,6 +748,12 @@ class XarvisAgent(
     }
 
     companion object {
+        /** A big job for Task mode, written as "task: …". */
+        private val TASK_GOAL = Regex("""(?is)^(?:hey\s+jarvis[,\s]+)?(?:big\s+|complex\s+)?task\s*[:\-–]\s*(.+)$""")
+
+        /** "task: make a YouTube Short about Mars" (also "big task -", "complex task:") → the goal for Task mode. */
+        internal fun taskGoal(message: String): String? =
+            TASK_GOAL.find(message.trim())?.groupValues?.get(1)?.trim()?.takeIf { it.length >= 8 }
         internal fun buildPrompt(facts: List<String>, history: String = "", health: String = ""): String = buildString {
             append(SYSTEM_PROMPT)
             if (facts.isNotEmpty()) {

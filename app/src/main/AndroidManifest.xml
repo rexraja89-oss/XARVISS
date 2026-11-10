@@ -173,6 +173,13 @@
             android:exported="false"
             android:label="Always connected"
             android:theme="@android:style/Theme.DeviceDefault.Light" />
+        <!-- ☰ → Task mode: big jobs planned by the cloud brain, approved once, done on the phone with Hands. -->
+        <activity
+            android:name=".TaskActivity"
+            android:exported="false"
+            android:label="Task mode"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.DeviceDefault.Light" />
         <!-- ☰ → Help a family phone: invite a phone with XARVIS Helper, see and help it when it asks. -->
         <activity
             android:name=".HelperLinkActivity"

@@ -299,6 +299,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 onJobHunter = { context.startActivity(Intent(context, com.xarvis.ai.JobHunterActivity::class.java)) },
                 onRelay = { context.startActivity(Intent(context, com.xarvis.ai.RelayActivity::class.java)) },
                 onHelper = { context.startActivity(Intent(context, com.xarvis.ai.HelperLinkActivity::class.java)) },
+                onTask = { context.startActivity(Intent(context, com.xarvis.ai.TaskActivity::class.java)) },
                 onActivityLog = {
                     context.startActivity(Intent(context, com.xarvis.ai.PolicyActivity::class.java).putExtra(com.xarvis.ai.PolicyActivity.EXTRA_LOG, true))
                 },

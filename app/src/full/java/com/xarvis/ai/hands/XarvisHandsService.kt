@@ -265,6 +265,13 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
         return runCatching { startActivity(launch) }.isSuccess
     }
 
+    override fun openUrl(url: String): Boolean {
+        val view = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        // Chrome when it's there (sites behave as Rex knows them), else any browser.
+        return runCatching { startActivity(Intent(view).setPackage("com.android.chrome")) }.isSuccess ||
+            runCatching { startActivity(view) }.isSuccess
+    }
+
     override fun selectedText(): String? {
         val field = findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return null
         if (field.isShowingHintText) return null
