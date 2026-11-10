@@ -301,7 +301,9 @@ object HelperSession {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             setInteger(MediaFormat.KEY_FRAME_RATE, 30)
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 3)
+            // A full picture every 10 s, not 3: on 4G each one is a burst that stalls the stream (the viewer asks
+            // for one itself when it starts or falls behind).
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 10)
             setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 200_000L)
         }
         val codec = runCatching { MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC) }.getOrNull() ?: return null

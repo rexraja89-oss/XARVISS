@@ -3,12 +3,16 @@ package com.xarvis.ai.hands
 /**
  * Live video's bit rate, following what the connection can carry (Rex's first 4G test: a game at the full 4 Mbit/s
  * backed up to 4–5 pictures a second, 0.4–0.7 s behind, then stalled). After each frame the host reports how long
- * sending it had to wait for room on the line; when the line can't keep up the rate drops at once (a softer picture
- * that stays live), and it creeps back up while sending is easy.
+ * sending it had to wait for room on the line; when the line can't keep up the rate drops (a softer picture that
+ * stays live), and it creeps back up while sending is easy. Gentle on purpose: v1.0.241 dropped faster and
+ * further (×0.6 down to 0.3 Mbit/s) and Rex found the video worse than before.
  */
-class BitrateControl(private val max: Int, private val min: Int = MIN_BPS, start: Int = max) {
+class BitrateControl(private val max: Int, min: Int = MIN_BPS, start: Int = max) {
+    /** The floor, never above the cap (a relay stream's cap can be lower than [MIN_BPS]). */
+    private val low = minOf(min, max)
+
     /** The bit rate the encoder should use now. */
-    var current: Int = start.coerceIn(min, max)
+    var current: Int = start.coerceIn(low, max)
         private set
 
     private var windowStart = -1L
@@ -41,20 +45,20 @@ class BitrateControl(private val max: Int, private val min: Int = MIN_BPS, start
                 easyWindows = 0
                 current
             }
-        }.coerceIn(min, max)
+        }.coerceIn(low, max)
         if (next == current) return null
         current = next
         return next
     }
 
     companion object {
-        const val MIN_BPS = 300_000
+        const val MIN_BPS = 500_000
         private const val WINDOW_NS = 1_000_000_000L
         /** Waiting more than this share of the time: the line is full. */
-        private const val BUSY = 0.2
+        private const val BUSY = 0.3
         /** Waiting less than this: there's room. */
         private const val EASY = 0.03
-        private const val DOWN = 0.6
+        private const val DOWN = 0.75
         private const val UP = 1.2
         /** Easy seconds in a row before going up again (up slowly, down fast). */
         private const val EASY_WINDOWS = 3
