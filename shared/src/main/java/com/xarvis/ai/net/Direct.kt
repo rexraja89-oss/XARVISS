@@ -229,8 +229,15 @@ class Direct private constructor(private val socket: DatagramSocket) : AutoClose
 
         val isClosed: Boolean get() = closed
 
+        /** One line at a time: a line waiting for queue space keeps its turn (another thread's line can't slip in). */
+        private val writer = Object()
+
         fun sendLine(text: String) {
             val bytes = (text + "\n").toByteArray(Charsets.UTF_8)
+            synchronized(writer) { queueLine(bytes) }
+        }
+
+        private fun queueLine(bytes: ByteArray) {
             synchronized(lock) {
                 var off = 0
                 while (off < bytes.size) {

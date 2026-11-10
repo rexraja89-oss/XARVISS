@@ -90,6 +90,37 @@ class DirectTest {
         assertTrue("lost packets were re-sent", a.resent > 0)
     }
 
+    @Test fun linesFromSeveralSendersNeverMix() {
+        // Remote control sends video frames, pong replies and lock info from different threads at once; a big
+        // frame waiting for queue space must not let another thread's line slip into its middle (v1.0.237 bug:
+        // "illegal base64 character 2e" on the viewer).
+        val (a, b) = connected(lossy = true)
+        val senders = 4
+        val perSender = 40
+        val done = (1..senders).map { t ->
+            pool.submit {
+                repeat(perSender) { i ->
+                    val size = if (t == 1) 60_000 else 200 // one thread sends big "frames", the others small lines
+                    a.sendLine("t$t-$i:" + String(CharArray(size) { 'a' + (it + i + t) % 26 }) + ":end")
+                }
+            }
+        }
+        val got = HashMap<Int, Int>()
+        repeat(senders * perSender) {
+            val line = b.receiveLine()
+            val m = Regex("""^t(\d+)-(\d+):([a-z]+):end$""").matchEntire(line)
+            assertTrue("a mixed-up line: ${line.take(60)}…${line.takeLast(20)}", m != null)
+            val t = m!!.groupValues[1].toInt()
+            val i = m.groupValues[2].toInt()
+            // Each sender's own lines stay in order.
+            assertEquals(got[t] ?: 0, i)
+            got[t] = i + 1
+            val expect = String(CharArray(m.groupValues[3].length) { 'a' + (it + i + t) % 26 })
+            assertEquals(expect, m.groupValues[3])
+        }
+        done.forEach { it.get(30, TimeUnit.SECONDS) }
+    }
+
     @Test fun lastAnswerArrivesEvenWhenClosedRightAway() {
         val (a, b) = connected(lossy = true)
         // Like DeviceLink's server: send the answer, close at once. The answer must still arrive.
