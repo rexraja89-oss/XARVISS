@@ -98,10 +98,13 @@ object ScreenHost {
 
     private fun command(context: Context, hands: HandsBridge.Hands, cmd: JSONObject): Boolean {
         val (w, h) = size(context)
-        fun px(key: String, size: Int) = (cmd.optDouble(key, 0.5).coerceIn(0.0, 1.0) * (size - 1)).toFloat()
         return when (val kind = cmd.optString("kind")) {
-            "tap", "long", "swipe" ->
-                hands.gesture(kind, px("x", w), px("y", h), px("x2", w), px("y2", h), cmd.optLong("ms", 300))
+            "tap", "long", "swipe" -> {
+                // Through the picture's black bars when the phone turned (see ScreenMap); a tap on a bar does nothing.
+                val from = ScreenMap.toScreen(cmd.optDouble("x", 0.5), cmd.optDouble("y", 0.5), w, h, videoW, videoH) ?: return false
+                val to = ScreenMap.toScreen(cmd.optDouble("x2", 0.5), cmd.optDouble("y2", 0.5), w, h, videoW, videoH, clamp = true)!!
+                hands.gesture(kind, from.first, from.second, to.first, to.second, cmd.optLong("ms", 300))
+            }
             "key" -> hands.globalAction(cmd.optString("name"))
             "text" -> hands.typeText(cmd.optString("text"), cmd.optBoolean("enter"))
             // Smooth mode: show Android's screen-sharing prompt here, for Rex to tap "Start now" himself.
@@ -139,8 +142,12 @@ object ScreenHost {
         context.getSystemService(PowerManager::class.java)?.isInteractive == false ||
             context.getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true
 
-    private fun size(context: Context): Pair<Int, Int> =
-        if (screenW > 0 && screenH > 0) screenW to screenH else ScreenVideo.realSize(context)
+    /** The screen's size now (it changes when the phone turns: a game going landscape). */
+    private fun size(context: Context): Pair<Int, Int> = ScreenVideo.realSize(context)
+
+    /** The live video's size while one runs (0: still pictures), for mapping touches through its black bars. */
+    @Volatile private var videoW = 0
+    @Volatile private var videoH = 0
 
     /**
      * Smooth remote control for [from] over [ch]: live H.264 video when screen sharing is allowed (else
@@ -159,9 +166,13 @@ object ScreenHost {
         val viaRelay = req.optString("route") == "relay"
         val maxSide = req.optInt("max", 1440).coerceIn(480, 2400).let { if (viaRelay) minOf(it, RELAY_MAX_SIDE) else it }
         val kbps = req.optInt("kbps", 4000).coerceIn(500, 20_000).let { if (viaRelay) minOf(it, RELAY_KBPS) else it }
+        // Away from home the video starts lighter and follows what the line carries (BitrateControl).
+        val rate = BitrateControl(max = kbps * 1000, start = BitrateControl.startFor(req.optString("route"), kbps * 1000))
         val video = withContext(Dispatchers.Main) {
-            ScreenVideo.start(context, maxSide, kbps * 1000)
+            ScreenVideo.start(context, maxSide, rate.current)
         }
+        videoW = video?.width ?: 0
+        videoH = video?.height ?: 0
         accept(
             JSONObject().put("ok", true).put("mode", if (video != null) "video" else "jpeg")
                 .put("w", w).put("h", h).put("vw", video?.width ?: 0).put("vh", video?.height ?: 0)
@@ -218,7 +229,10 @@ object ScreenHost {
                     try {
                         if (video != null) {
                             video.pump { type, bytes ->
+                                val t0 = System.nanoTime()
                                 ch.send(type, bytes)
+                                val now = System.nanoTime()
+                                rate.sent(now - t0, now)?.let { video.setBitrate(it) }
                                 lastUse = System.currentTimeMillis()
                             }
                         } else {
@@ -261,7 +275,11 @@ object ScreenHost {
             // The viewer left or the network dropped: nothing to report back.
         } finally {
             video?.stop()
-            if (live === ch) live = null
+            if (live === ch) {
+                live = null
+                videoW = 0
+                videoH = 0
+            }
             ch.close()
             if (controller == from) end()
         }
@@ -270,9 +288,10 @@ object ScreenHost {
     /** A live finger from the viewer: {"a":"down"|"move"|"up","x":0–1,"y":0–1}. */
     private fun finger(context: Context, hands: HandsBridge.Hands, t: JSONObject) {
         val (w, h) = size(context)
-        val x = (t.optDouble("x", 0.5).coerceIn(0.0, 1.0) * (w - 1)).toFloat()
-        val y = (t.optDouble("y", 0.5).coerceIn(0.0, 1.0) * (h - 1)).toFloat()
-        when (t.optString("a")) {
+        val a = t.optString("a")
+        // A finger going down on the black bars (the phone turned) touches nothing; moves and lifts are kept on screen.
+        val (x, y) = ScreenMap.toScreen(t.optDouble("x", 0.5), t.optDouble("y", 0.5), w, h, videoW, videoH, clamp = a != "down") ?: return
+        when (a) {
             "down" -> hands.touchDown(x, y)
             "move" -> hands.touchMove(x, y)
             "up" -> hands.touchUp(x, y)

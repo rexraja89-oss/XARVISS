@@ -82,6 +82,11 @@ object ScreenVideo {
             }
         }
 
+        /** A new bit rate, live (the stream follows what the connection carries: BitrateControl). */
+        fun setBitrate(bps: Int) {
+            runCatching { codec.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bps) }) }
+        }
+
         /** Make the next frame a full picture (a new viewer can start from it). */
         fun keyFrame() {
             runCatching { codec.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0) }) }

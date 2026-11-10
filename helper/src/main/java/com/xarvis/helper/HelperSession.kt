@@ -15,6 +15,8 @@ import android.os.Handler
 import android.os.Looper
 import android.util.DisplayMetrics
 import android.view.Display
+import com.xarvis.ai.hands.BitrateControl
+import com.xarvis.ai.hands.ScreenMap
 import com.xarvis.ai.hands.StreamMsg
 import com.xarvis.ai.net.DeviceLink
 import com.xarvis.ai.net.LinkException
@@ -138,7 +140,9 @@ object HelperSession {
         val maxSide = req.optInt("max", 1440).coerceIn(480, 1920).let { if (viaRelay) minOf(it, 720) else it }
         val kbps = req.optInt("kbps", 4000).coerceIn(300, 8000).let { if (viaRelay) minOf(it, 500) else it }
         val (w, h) = realSize(context)
-        val enc = withContext(Dispatchers.Main) { startEncoder(context, p, w, h, maxSide, kbps * 1000) }
+        // Away from home the video starts lighter and follows what the line carries.
+        val rate = BitrateControl(max = kbps * 1000, start = BitrateControl.startFor(req.optString("route"), kbps * 1000))
+        val enc = withContext(Dispatchers.Main) { startEncoder(context, p, w, h, maxSide, rate.current) }
             ?: throw LinkException("their phone couldn't start sharing its screen")
         accept(
             JSONObject().put("ok", true).put("mode", "video").put("w", w).put("h", h).put("vw", enc.width).put("vh", enc.height)
@@ -156,8 +160,8 @@ object HelperSession {
                             val (type, payload) = ch.receive()
                             lastViewer = System.currentTimeMillis()
                             when (type) {
-                                StreamMsg.TOUCH -> finger(JSONObject(String(payload)), w, h)
-                                StreamMsg.INPUT -> command(context, ch, JSONObject(String(payload)), w, h)
+                                StreamMsg.TOUCH -> finger(context, JSONObject(String(payload)), enc)
+                                StreamMsg.INPUT -> command(context, ch, JSONObject(String(payload)), enc)
                                 StreamMsg.PING -> ch.send(StreamMsg.PONG, payload)
                                 StreamMsg.KEY_FRAME -> {
                                     enc.config?.let { ch.send(StreamMsg.VIDEO_CONFIG, it) }
@@ -175,7 +179,10 @@ object HelperSession {
                 launch(Dispatchers.IO) {
                     try {
                         enc.pump { type, bytes ->
+                            val t0 = System.nanoTime()
                             ch.send(type, bytes)
+                            val now = System.nanoTime()
+                            rate.sent(now - t0, now)?.let { enc.setBitrate(it) }
                             lastViewer = System.currentTimeMillis()
                         }
                     } finally {
@@ -201,12 +208,13 @@ object HelperSession {
         }
     }
 
-    /** A live finger from the helper: {"a":"down"|"move"|"up","x":0–1,"y":0–1}. */
-    private fun finger(t: JSONObject, w: Int, h: Int) {
+    /** A live finger from the helper: {"a":"down"|"move"|"up","x":0–1,"y":0–1} of the video (see ScreenMap). */
+    private fun finger(context: Context, t: JSONObject, enc: Encoder) {
         val hands = HelperHands.instance ?: return
-        val x = (t.optDouble("x", 0.5).coerceIn(0.0, 1.0) * (w - 1)).toFloat()
-        val y = (t.optDouble("y", 0.5).coerceIn(0.0, 1.0) * (h - 1)).toFloat()
-        when (t.optString("a")) {
+        val (w, h) = realSize(context) // now: she may have turned the phone
+        val a = t.optString("a")
+        val (x, y) = ScreenMap.toScreen(t.optDouble("x", 0.5), t.optDouble("y", 0.5), w, h, enc.width, enc.height, clamp = a != "down") ?: return
+        when (a) {
             "down" -> hands.touchDown(x, y)
             "move" -> hands.touchMove(x, y)
             "up" -> hands.touchUp(x, y)
@@ -214,13 +222,17 @@ object HelperSession {
     }
 
     /** Taps, keys, text, paste and copy from the helper's buttons. Lock/unlock aren't offered on a helped phone. */
-    private fun command(context: Context, ch: DeviceLink.Channel, cmd: JSONObject, w: Int, h: Int) {
+    private fun command(context: Context, ch: DeviceLink.Channel, cmd: JSONObject, enc: Encoder) {
         val hands = HelperHands.instance ?: return
-        fun px(key: String, size: Int) = (cmd.optDouble(key, 0.5).coerceIn(0.0, 1.0) * (size - 1)).toFloat()
         ui.post {
             runCatching {
                 when (val kind = cmd.optString("kind")) {
-                    "tap", "long", "swipe" -> hands.gesture(kind, px("x", w), px("y", h), px("x2", w), px("y2", h), cmd.optLong("ms", 300))
+                    "tap", "long", "swipe" -> {
+                        val (w, h) = realSize(context)
+                        val from = ScreenMap.toScreen(cmd.optDouble("x", 0.5), cmd.optDouble("y", 0.5), w, h, enc.width, enc.height)
+                        val to = ScreenMap.toScreen(cmd.optDouble("x2", 0.5), cmd.optDouble("y2", 0.5), w, h, enc.width, enc.height, clamp = true)!!
+                        if (from != null) hands.gesture(kind, from.first, from.second, to.first, to.second, cmd.optLong("ms", 300))
+                    }
                     "key" -> hands.globalAction(cmd.optString("name"))
                     "text" -> hands.typeText(cmd.optString("text"), cmd.optBoolean("enter"))
                     "paste" -> {
@@ -266,6 +278,10 @@ object HelperSession {
                 if (isConfig) config = bytes
                 out(if (isConfig) StreamMsg.VIDEO_CONFIG else StreamMsg.VIDEO_FRAME, bytes)
             }
+        }
+
+        fun setBitrate(bps: Int) {
+            runCatching { codec.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bps) }) }
         }
 
         fun keyFrame() {

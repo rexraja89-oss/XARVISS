@@ -168,6 +168,7 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
             return null
         }
         channel = ch
+        lastFrameAt = System.currentTimeMillis()
         screenW = head.optInt("w")
         screenH = head.optInt("h")
         mode = head.optString("mode")
@@ -201,8 +202,12 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
                 val (type, payload) = ch.receive()
                 when (type) {
                     StreamMsg.VIDEO_CONFIG -> feed(payload, MediaCodec.BUFFER_FLAG_CODEC_CONFIG)
-                    StreamMsg.VIDEO_FRAME -> feed(payload, 0)
+                    StreamMsg.VIDEO_FRAME -> {
+                        lastFrameAt = System.currentTimeMillis()
+                        feed(payload, 0)
+                    }
                     StreamMsg.JPEG -> {
+                        lastFrameAt = System.currentTimeMillis()
                         val bmp = BitmapFactory.decodeByteArray(payload, 0, payload.size) ?: continue
                         framesShown++
                         runOnUiThread {
@@ -350,12 +355,24 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
         if (mode == "poll") return pollTouch(e, nx, ny)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                // A frozen picture (slow line) isn't what's on the other screen any more: a tap now would land blind
+                // (Rex's 4G test: taps on a stuck game picture opened Ludo on the S22).
+                if (frozen()) {
+                    tracking = false
+                    status.text = FROZEN_NOTE
+                    return true
+                }
                 tracking = r.contains(e.x, e.y)
                 if (tracking) finger("down", nx, ny)
             }
             MotionEvent.ACTION_MOVE -> {
                 val now = System.currentTimeMillis()
-                if (tracking && now - lastMoveAt >= MOVE_EVERY_MS) {
+                if (tracking && frozen()) {
+                    // The picture froze mid-drag: lift the finger there.
+                    tracking = false
+                    finger("up", nx, ny)
+                    status.text = FROZEN_NOTE
+                } else if (tracking && now - lastMoveAt >= MOVE_EVERY_MS) {
                     lastMoveAt = now
                     finger("move", nx, ny)
                 }
@@ -518,6 +535,13 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
         else -> ""
     }
 
+    /** When the last picture arrived: taps wait while the picture is frozen. */
+    @Volatile private var lastFrameAt = 0L
+
+    /** Live video comes several times a second even on a still screen; still pictures are slower. */
+    private fun frozen(): Boolean =
+        channel != null && System.currentTimeMillis() - lastFrameAt > if (mode == "video") FROZEN_VIDEO_MS else FROZEN_PICTURE_MS
+
     /** XARVIS Helper on the other phone without its Accessibility switch: seeing works, tapping doesn't. */
     @Volatile private var viewOnly = false
 
@@ -532,7 +556,7 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
             val p = peer
             if (p != null && channel != null) {
                 val delay = if (rttMs >= 0) " · ${rttMs} ms delay" else ""
-                status.text = when (mode) {
+                status.text = if (frozen()) FROZEN_NOTE else when (mode) {
                     "video" -> "⚡ ${p.name} · live · $fps fps$delay${routeLabel()}" +
                         if (viewOnly) "\n👀 View only: to let you tap, they use \"✋ Allow tapping\" in XARVIS Helper" else ""
                     "jpeg" -> "🖥 ${p.name} · $fps pictures/s$delay${routeLabel()}" + if (smoothButton.visibility == View.VISIBLE) " · tap ⚡ for live video" else ""
@@ -610,6 +634,9 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
     companion object {
         /** The linked phone to control, by name (optional: else the first one that answers). */
         const val EXTRA_DEVICE = "device"
+        private const val FROZEN_VIDEO_MS = 2_500L
+        private const val FROZEN_PICTURE_MS = 8_000L
+        private const val FROZEN_NOTE = "⏸ The picture is frozen (slow connection). Taps are paused until it moves, so nothing is tapped blind."
         /** Or by id (a family phone with XARVIS Helper, from ☰ → Help a family phone or its help notification). */
         const val EXTRA_PEER_ID = "peer_id"
         /** Video: long side and bit rate — sharp text, and light enough for Tailscale on mobile data. */

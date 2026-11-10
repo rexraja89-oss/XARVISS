@@ -197,6 +197,12 @@ class Direct private constructor(private val socket: DatagramSocket) : AutoClose
         private var rttvarNs = srttNs / 2
         /** The shortest round trip seen: the line's own delay, with nothing queued anywhere. */
         private var minRttNs = srttNs
+        // The line's own delay is the smallest round trip of the last 5–10 s (it can change: Wi-Fi ↔ 4G).
+        private var minNowNs = srttNs
+        private var minBeforeNs = Long.MAX_VALUE
+        private var minSinceNs = System.nanoTime()
+        /** When the window was last cut because round trips grew (a queue building up in the network). */
+        private var delayCutNs = 0L
         private var rtoNs = rto()
         private var nextSendNs = 0L
         private var lastSendNs = System.nanoTime()
@@ -241,7 +247,7 @@ class Direct private constructor(private val socket: DatagramSocket) : AutoClose
             synchronized(lock) {
                 var off = 0
                 while (off < bytes.size) {
-                    while (queuedBytes >= MAX_QUEUED_BYTES && !closed && !closing) lock.wait(100)
+                    while (queuedBytes >= queueLimit() && !closed && !closing) lock.wait(100)
                     if (closed || closing) throw IOException(failure ?: "connection closed")
                     val n = minOf(MAX_DATA, bytes.size - off)
                     queue.addLast(Out(nextSeq++, bytes.copyOfRange(off, off + n)))
@@ -370,20 +376,41 @@ class Direct private constructor(private val socket: DatagramSocket) : AutoClose
                     if (b[TOKEN_BYTES + 5 + i / 8].toInt() and (1 shl (i % 8)) == 0) continue
                     flight.remove(cum + 1 + i)?.let { take(it) }
                 }
+                var queueing = 0L
                 if (sample > 0) {
-                    if (sample < minRttNs) minRttNs = sample
+                    if (now - minSinceNs > MIN_RTT_WINDOW_NS) {
+                        minBeforeNs = minNowNs
+                        minNowNs = sample
+                        minSinceNs = now
+                    } else if (sample < minNowNs) {
+                        minNowNs = sample
+                    }
+                    minRttNs = minOf(minNowNs, minBeforeNs)
+                    queueing = sample - minRttNs
                     val err = Math.abs(srttNs - sample)
                     rttvarNs = (3 * rttvarNs + err) / 4
                     srttNs = (7 * srttNs + sample) / 8
                     rtoNs = rto()
                 }
-                repeat(acked) { cwnd += if (cwnd < ssthresh) 1.0 else GROWTH / cwnd }
+                // Keep the network's queues short (4G links buffer seconds of data, and every byte waiting there is
+                // lag on the remote screen): grow only while round trips stay near the line's own delay, and ease
+                // off once per round trip when they've clearly grown.
+                val allowed = maxOf(minRttNs / 2, QUEUE_ALLOW_NS)
+                if (queueing > 2 * allowed && now - delayCutNs > srttNs) {
+                    cwnd = maxOf(MIN_CWND, cwnd * DELAY_BETA)
+                    delayCutNs = now
+                } else if (queueing <= allowed) {
+                    repeat(acked) { cwnd += if (cwnd < ssthresh) 1.0 else GROWTH / cwnd }
+                }
                 if (cwnd > MAX_CWND) cwnd = MAX_CWND
                 if (acked > 0) lock.notifyAll()
             }
         }
 
         private fun rto() = (srttNs + 4 * rttvarNs).coerceIn(MIN_RTO_NS, MAX_RTO_NS)
+
+        /** About one window's worth may wait to be sent: more is just lag (live video then gets a lower bit rate). */
+        private fun queueLimit(): Int = (cwnd * MAX_DATA).toInt().coerceIn(MIN_QUEUED_BYTES, MAX_QUEUED_BYTES)
 
         // ---- the sender ----
 
@@ -437,7 +464,8 @@ class Direct private constructor(private val socket: DatagramSocket) : AutoClose
             for (o in flight.values) {
                 if (o.seq in lost) continue
                 val byOrder = ackedSentNs - o.sentNs > reorder
-                val byTime = now - o.sentNs > rtoNs shl minOf(o.sends - 1, 4)
+                // Each re-send waits longer, but never more than a second: a long wait stalls the whole stream.
+                val byTime = now - o.sentNs > minOf(rtoNs shl minOf(o.sends - 1, 3), MAX_RESEND_WAIT_NS)
                 if (!byOrder && !byTime) continue
                 lost += o.seq
                 if (o.seq >= recoverFrom) {
@@ -601,6 +629,12 @@ class Direct private constructor(private val socket: DatagramSocket) : AutoClose
         private const val MAX_REORDER = 4_096
         /** At most this much waits to be sent (more makes live video lag; [sendLine] waits instead). */
         private const val MAX_QUEUED_BYTES = 96 * 1024
+        private const val MIN_QUEUED_BYTES = 24 * 1024
+        /** Queuing delay allowed in the network before the window stops growing (or half the line's own delay). */
+        private const val QUEUE_ALLOW_NS = 40_000_000L
+        private const val DELAY_BETA = 0.85
+        private const val MIN_RTT_WINDOW_NS = 5_000_000_000L
+        private const val MAX_RESEND_WAIT_NS = 1_000_000_000L
         private const val INITIAL_CWND = 16.0
         private const val MIN_CWND = 4.0
         private const val MAX_CWND = WINDOW.toDouble()

@@ -121,6 +121,29 @@ class DirectTest {
         done.forEach { it.get(30, TimeUnit.SECONDS) }
     }
 
+    @Test fun recoversQuicklyAfterTheNetworkDropsOut() {
+        // Rex's first live-video test froze, then closed: after losses on a slow 4G link the re-send wait kept
+        // doubling (up to 48 s). Now it's at most a second, so the line picks up soon after the network does.
+        val (a, b) = connected(lossy = false, delayMs = 300)
+        val net = network!!
+        val stop = java.util.concurrent.atomic.AtomicBoolean()
+        pool.submit {
+            var i = 0
+            while (!stop.get()) a.sendLine("n${i++}:" + "x".repeat(1_000))
+        }
+        repeat(50) { b.receiveLine() }
+        net.down = true
+        Thread.sleep(4_000)
+        net.down = false
+        val back = System.currentTimeMillis()
+        b.receiveLine()
+        // Whatever was already on its way may arrive first; keep reading until fresh data flows.
+        repeat(20) { b.receiveLine() }
+        val ms = System.currentTimeMillis() - back
+        stop.set(true)
+        assertTrue("took $ms ms to recover", ms < 3_000)
+    }
+
     @Test fun lastAnswerArrivesEvenWhenClosedRightAway() {
         val (a, b) = connected(lossy = true)
         // Like DeviceLink's server: send the answer, close at once. The answer must still arrive.
@@ -153,15 +176,17 @@ class DirectTest {
         assertEquals("hello", b.receiveLine())
     }
 
+    private var network: Network? = null
+
     /** Two connected ends, punched through a local UDP "network" (lossy: 4% loss, 15–45 ms delay, reordering). */
-    private fun connected(lossy: Boolean): Pair<Direct.Conn, Direct.Conn> {
+    private fun connected(lossy: Boolean, delayMs: Int = if (lossy) 15 else 0): Pair<Direct.Conn, Direct.Conn> {
         val da = Direct.open().also { closeLater += it }
         val db = Direct.open().also { closeLater += it }
         val net = Network(
             InetSocketAddress(InetAddress.getLoopbackAddress(), da.port),
             InetSocketAddress(InetAddress.getLoopbackAddress(), db.port),
-            if (lossy) 0.04 else 0.0, if (lossy) 15 else 0, if (lossy) 30 else 0,
-        ).also { closeLater += it }
+            if (lossy) 0.04 else 0.0, delayMs, if (lossy) 30 else 0,
+        ).also { closeLater += it; network = it }
         val token = ByteArray(16) { (it * 3).toByte() }
         val target = listOf("127.0.0.1:${net.port}")
         val fa = pool.submit(Callable { da.connect(token, target, initiator = true, timeoutMs = 5_000) })
@@ -186,6 +211,8 @@ class DirectTest {
         private val timer = Executors.newSingleThreadScheduledExecutor()
         private val random = Random(42)
         val port: Int get() = socket.localPort
+        /** A dropout: nothing gets through either way. */
+        @Volatile var down = false
 
         init {
             Thread {
@@ -194,7 +221,7 @@ class DirectTest {
                     val p = DatagramPacket(buf, buf.size)
                     try { socket.receive(p) } catch (e: Exception) { break }
                     val to = if (p.socketAddress == a) b else a
-                    if (random.nextDouble() < loss) continue
+                    if (down || random.nextDouble() < loss) continue
                     val copy = p.data.copyOf(p.length)
                     val wait = delayMs + if (jitterMs > 0) random.nextInt(jitterMs) else 0
                     val send = Runnable { runCatching { socket.send(DatagramPacket(copy, copy.size, to)) } }
