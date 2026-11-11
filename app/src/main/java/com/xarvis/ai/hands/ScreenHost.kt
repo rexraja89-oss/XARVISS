@@ -157,6 +157,9 @@ object ScreenHost {
     suspend fun stream(context: Context, from: String, req: JSONObject, ch: DeviceLink.Channel, accept: (JSONObject) -> Unit) {
         val hands = hands(context)
         touch(context, from, hands)
+        // A new connection always wakes the screen (Rex locked it from the viewer, ended, then came back: it stayed
+        // dark and the viewer only said "frozen", 12 Nov 2026).
+        wakeScreen(context)
         live?.close()
         live = ch
         val (w, h) = ScreenVideo.realSize(context)
@@ -414,8 +417,13 @@ object ScreenHost {
     /** Turn the screen on (if it was off) and keep it on while the session lasts. */
     @Suppress("DEPRECATION") // SCREEN_BRIGHT + ACQUIRE_CAUSES_WAKEUP still work on Android 13 and are the way to wake it
     private fun wakeScreen(context: Context) = synchronized(this) {
-        if (wake?.isHeld == true) return@synchronized
         val power = context.getSystemService(PowerManager::class.java) ?: return@synchronized
+        if (wake?.isHeld == true) {
+            // Still held, but the screen went off anyway (🔒 Lock from the viewer): only a new lock wakes it.
+            if (power.isInteractive) return@synchronized
+            runCatching { wake?.release() }
+            wake = null
+        }
         // The benco build has no WAKE_LOCK permission (its banner keeps the screen on instead).
         wake = runCatching {
             power.newWakeLock(

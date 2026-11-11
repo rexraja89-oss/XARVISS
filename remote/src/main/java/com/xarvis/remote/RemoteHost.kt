@@ -349,8 +349,14 @@ object RemoteHost {
     /** Screen on (if it was off) and kept on while someone is connected. */
     @Suppress("DEPRECATION") // SCREEN_BRIGHT + ACQUIRE_CAUSES_WAKEUP still work, and are how to wake it from here
     private fun wakeScreen(context: Context) = synchronized(this) {
-        if (wake?.isHeld == true) return@synchronized
         val power = context.getSystemService(PowerManager::class.java) ?: return@synchronized
+        if (wake?.isHeld == true) {
+            // Still held, but the screen went off anyway (🔒 Lock, then a new connection): only a new lock wakes it
+            // (Rex, 12 Nov 2026: locked, ended, came back to a dark screen the viewer called "frozen").
+            if (power.isInteractive) return@synchronized
+            runCatching { wake?.release() }
+            wake = null
+        }
         wake = runCatching {
             power.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "xarvis:remote")
                 .apply { acquire(WAKE_MAX_MS) }

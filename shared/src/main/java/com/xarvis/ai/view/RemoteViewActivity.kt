@@ -481,7 +481,7 @@ abstract class RemoteViewActivity : Activity(), SurfaceHolder.Callback {
                 // (Rex's 4G test: taps on a stuck game picture opened Ludo on the S22).
                 if (frozen()) {
                     tracking = false
-                    status.text = FROZEN_NOTE
+                    status.text = stillNote()
                     return true
                 }
                 tracking = r.contains(e.x, e.y)
@@ -493,7 +493,7 @@ abstract class RemoteViewActivity : Activity(), SurfaceHolder.Callback {
                     // The picture froze mid-drag: lift the finger there.
                     tracking = false
                     finger("up", nx, ny)
-                    status.text = FROZEN_NOTE
+                    status.text = stillNote()
                 } else if (tracking && now - lastMoveAt >= MOVE_EVERY_MS) {
                     lastMoveAt = now
                     finger("move", nx, ny)
@@ -672,6 +672,11 @@ abstract class RemoteViewActivity : Activity(), SurfaceHolder.Callback {
         channel != null && padView.pad == null && // on a hidden pattern screen the dots show where to touch
             System.currentTimeMillis() - lastFrameAt > if (mode == "video") FROZEN_VIDEO_MS else FROZEN_PICTURE_MS
 
+    /** Why the picture isn't moving: the other phone is locked with its screen off (🔓 Unlock wakes it), or a slow line. */
+    private fun stillNote(): String =
+        if (remoteLocked) "🔒 ${peer?.name ?: "The other phone"} is locked and its screen is off. Tap 🔓 Unlock: it wakes up and shows its pattern for you to draw."
+        else FROZEN_NOTE
+
     /** XARVIS Helper on the other phone without its Accessibility switch: seeing works, tapping doesn't. */
     @Volatile private var viewOnly = false
 
@@ -686,7 +691,7 @@ abstract class RemoteViewActivity : Activity(), SurfaceHolder.Callback {
             val p = peer
             if (p != null && channel != null) {
                 val delay = if (rttMs >= 0) " · ${rttMs} ms delay" else ""
-                val line = if (frozen()) FROZEN_NOTE else when (mode) {
+                val line = if (frozen()) stillNote() else when (mode) {
                     "video" -> "⚡ ${p.name} · live · $fps fps$delay${routeLabel()}" +
                         if (viewOnly) "\n👀 View only: to let you tap, they use \"✋ Allow tapping\" in XARVIS Helper" else ""
                     "jpeg" -> "🖥 ${p.name} · $fps pictures/s$delay${routeLabel()}" + if (smoothButton.visibility == View.VISIBLE) " · tap ⚡ for live video" else ""
