@@ -154,8 +154,9 @@ class XarvisAgent(
                         ),
                     )
                 }
+                // Before "open X on my S22 and …": a job with real actions in it is for Task mode.
+                ?: com.xarvis.ai.task.TaskCommands.parse(message)?.takeIf { taskPlausible(it) }?.let { taskCommand(it) }
                 ?: OtherPhoneCommands.parse(message, otherPhoneWords())?.let { onOtherPhone(it, onPartial) }
-                ?: com.xarvis.ai.task.TaskCommands.parse(message)?.let { taskCommand(it) }
                 ?: PhoneTask.parse(message, otherPhoneWords())?.let { runPhoneTask(it, onPartial) }
                 ?: (if (OPEN_EYES.matches(message.trim().trimEnd('.', '!', '?'))) run(listOf(Step.OpenEyes)) else null)
                 ?: photoCommand(message, deviceWords())?.let { run(listOf(it)) }
@@ -585,6 +586,18 @@ class XarvisAgent(
      * (the benco) or when Rex names the other phone — "task on my S22: …". Progress, questions and the result of a task
      * sent elsewhere come back into this chat (Handler.taskNews), and "answer: …" / "stop the task" go back to it.
      */
+    /**
+     * A job said without "task:" ("open Ninja VPN and connect it…") is taken only when it can be done: it names the other
+     * phone, or this phone runs Task mode and has that app. Otherwise the message goes on as before (the brain, "open").
+     */
+    private fun taskPlausible(cmd: com.xarvis.ai.task.TaskCommands.Cmd): Boolean {
+        if (cmd !is com.xarvis.ai.task.TaskCommands.Cmd.Start || !cmd.implicit) return true
+        if (cmd.where?.let { DeviceLink.namedIn(it, link.pairedPeers().map { p -> p.name }) } != null) return true
+        val app = cmd.app ?: return false
+        return com.xarvis.ai.hands.HandsBridge.builtIn &&
+            runCatching { com.xarvis.ai.device.DeviceCapabilityManager(appContext).findApp(app) != null }.getOrDefault(false)
+    }
+
     private suspend fun taskCommand(cmd: com.xarvis.ai.task.TaskCommands.Cmd): Reply {
         val tasks = com.xarvis.ai.task.TaskManager
         val canHere = com.xarvis.ai.hands.HandsBridge.builtIn
