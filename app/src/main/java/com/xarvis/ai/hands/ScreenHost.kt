@@ -128,12 +128,9 @@ object ScreenHost {
             wake = null
         }
         wakeScreen(context)
-        ui.postDelayed({
-            if (context.getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true) {
-                val (w, h) = size(context)
-                hands.gesture("swipe", w / 2f, h * 0.80f, w / 2f, h * 0.30f, 300)
-            }
-        }, 800)
+        // Home brings up the pattern / PIN pad (Rex found that's what works on his S22, 12 Nov 2026); the old swipe up
+        // could cross the pad if it was already showing and count as a wrong pattern.
+        ui.postDelayed({ hands.globalAction("home") }, 300)
         return true
     }
 

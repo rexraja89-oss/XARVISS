@@ -674,7 +674,7 @@ abstract class RemoteViewActivity : Activity(), SurfaceHolder.Callback {
 
     /** Why the picture isn't moving: the other phone is locked with its screen off (🔓 Unlock wakes it), or a slow line. */
     private fun stillNote(): String =
-        if (remoteLocked) "🔒 ${peer?.name ?: "The other phone"} is locked and its screen is off. Tap 🔓 Unlock: it wakes up and shows its pattern for you to draw."
+        if (remoteLocked) "🔒 ${peer?.name ?: "The other phone"} is locked and its screen is off. Tap 🔓 Unlock (or ⬤ Home): it wakes up and shows its pattern for you to draw."
         else FROZEN_NOTE
 
     /** XARVIS Helper on the other phone without its Accessibility switch: seeing works, tapping doesn't. */

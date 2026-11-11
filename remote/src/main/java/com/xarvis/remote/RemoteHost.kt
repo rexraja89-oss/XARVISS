@@ -326,19 +326,18 @@ object RemoteHost {
         }
     }
 
-    /** "🔓 Unlock": screen on, then a swipe up to the pattern / PIN pad, which Rex draws from the other phone. */
+    /**
+     * "🔓 Unlock": screen on, then Home, which brings up the pattern / PIN pad for Rex to draw from the other phone.
+     * (Rex found Home is what works on his S22, 12 Nov 2026; the old swipe up could cross the pattern pad if it was
+     * already showing, and count as a wrong pattern.)
+     */
     private fun unlock(context: Context, hands: RemoteHands): Boolean {
         synchronized(this) {
             runCatching { wake?.takeIf { it.isHeld }?.release() }
             wake = null
         }
         wakeScreen(context)
-        ui.postDelayed({
-            if (context.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true) {
-                val (w, h) = realSize(context)
-                hands.gesture("swipe", w / 2f, h * 0.80f, w / 2f, h * 0.30f, 300)
-            }
-        }, 800)
+        ui.postDelayed({ hands.globalAction("home") }, 300)
         return true
     }
 
