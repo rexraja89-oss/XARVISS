@@ -212,14 +212,22 @@ object ScreenHost {
                         ch.close()
                     }
                 }
-                // Locked or not, so the viewer shows 🔒 Lock or 🔓 Unlock.
+                // Locked or not, so the viewer shows 🔒 Lock or 🔓 Unlock; and a pattern / PIN screen's dots, which
+                // Android hides from the picture (the viewer draws them over the black for Rex to draw on).
                 launch(Dispatchers.IO) {
                     var last: Boolean? = null
+                    var lastPad: String? = null
                     while (!ch.closed) {
                         val now = lockedOrAsleep(context)
                         if (now != last) {
                             ch.send(StreamMsg.INFO, JSONObject().put("locked", now).toString().toByteArray())
                             last = now
+                        }
+                        val (sw, sh) = size(context)
+                        val pad = runCatching { hands.lockPad(sw, sh) }.getOrNull()
+                        if (pad != lastPad) {
+                            ch.send(StreamMsg.INFO, JSONObject().put("pad", pad?.let { JSONObject(it) } ?: JSONObject.NULL).toString().toByteArray())
+                            lastPad = pad
                         }
                         delay(700)
                     }

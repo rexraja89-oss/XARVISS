@@ -272,6 +272,13 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
             runCatching { startActivity(view) }.isSuccess
     }
 
+    override fun lockPad(w: Int, h: Int): String? = runCatching {
+        val roots = ArrayList<AccessibilityNodeInfo>()
+        rootInActiveWindow?.let { roots += it }
+        runCatching { windows }.getOrNull()?.forEach { win -> win.root?.let { roots += it } }
+        com.xarvis.ai.hands.LockPad.scan(roots, w, h)?.toString()
+    }.getOrNull()
+
     override fun selectedText(): String? {
         val field = findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return null
         if (field.isShowingHintText) return null

@@ -46,6 +46,11 @@ object HandsBridge {
         fun tapText(label: String): Boolean
         /** The selected text in the field with the cursor (or all of it); null if none. */
         fun selectedText(): String?
+        /**
+         * Where a lock pattern's dots / PIN keys are on screen [w]×[h] (LockPad JSON), or null: Android hides those
+         * screens from pictures, not from Accessibility, so the viewer can draw them for Rex. Positions only.
+         */
+        fun lockPad(w: Int, h: Int): String? = null
         /** Opens the app [packageName] (Hands may start apps from the background; XARVIS itself may not). */
         fun openApp(packageName: String): Boolean
 

@@ -97,6 +97,14 @@ class RemoteHands : AccessibilityService() {
         return if (start in 0 until end && end <= all.length) all.substring(start, end) else all
     }
 
+    /** Where a pattern's dots / PIN keys are (Android hides those screens from pictures, not from Accessibility). */
+    fun lockPad(w: Int, h: Int): String? = runCatching {
+        val roots = ArrayList<AccessibilityNodeInfo>()
+        rootInActiveWindow?.let { roots += it }
+        runCatching { windows }.getOrNull()?.forEach { win -> win.root?.let { roots += it } }
+        com.xarvis.ai.hands.LockPad.scan(roots, w, h)?.toString()
+    }.getOrNull()
+
     // ---- a picture of the screen (Android 11+; Android allows about 3 a second) ----
 
     fun screenshot(onFrame: (Bitmap?) -> Unit) {

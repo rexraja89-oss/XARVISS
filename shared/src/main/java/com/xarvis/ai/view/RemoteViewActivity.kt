@@ -31,6 +31,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.xarvis.ai.hands.LockPad
 import com.xarvis.ai.hands.Reconnect
 import com.xarvis.ai.hands.StreamMsg
 import com.xarvis.ai.net.DeviceLink
@@ -68,6 +69,8 @@ abstract class RemoteViewActivity : Activity(), SurfaceHolder.Callback {
     private lateinit var stage: FrameLayout
     private lateinit var video: SurfaceView
     private lateinit var picture: ImageView
+    /** The other phone's pattern dots / PIN keys when Android hides that screen from the picture. */
+    private lateinit var padView: PadOverlay
     private lateinit var smoothButton: Button
     private lateinit var lockButton: Button
     @Volatile private var remoteLocked = false
@@ -117,12 +120,17 @@ abstract class RemoteViewActivity : Activity(), SurfaceHolder.Callback {
         }
         video = SurfaceView(this).apply { holder.addCallback(this@RemoteViewActivity) }
         picture = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+        padView = PadOverlay(this) { content() }
         stage = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
             addView(picture, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             addView(video, FrameLayout.LayoutParams(1, 1, Gravity.CENTER))
+            addView(padView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             setOnTouchListener { _, e -> onTouch(e) }
-            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitVideo() }
+            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                fitVideo()
+                padView.invalidate()
+            }
         }
         smoothButton = button("⚡ Make it smooth (live video)") { makeSmooth() }.apply { visibility = View.GONE }
         val col = LinearLayout(this).apply {
@@ -293,6 +301,7 @@ abstract class RemoteViewActivity : Activity(), SurfaceHolder.Callback {
         channel = null
         ch.close()
         stopDecoder()
+        padView.pad = null
         return next
     }
 
@@ -314,6 +323,7 @@ abstract class RemoteViewActivity : Activity(), SurfaceHolder.Callback {
                         runOnUiThread {
                             picture.setImageBitmap(bmp)
                             shown = bmp
+                            if (padView.pad != null) padView.invalidate()
                         }
                     }
                     StreamMsg.PONG -> if (payload.size == 8) rttMs = (System.nanoTime() - ByteBuffer.wrap(payload).long) / 1_000_000
@@ -322,6 +332,10 @@ abstract class RemoteViewActivity : Activity(), SurfaceHolder.Callback {
                         if (info.optString("switch") == "video") return End.VIDEO
                         if (info.has("clip")) runOnUiThread { gotClip(if (info.isNull("clip")) null else info.optString("clip")) }
                         if (info.has("locked")) info.optBoolean("locked").let { locked -> runOnUiThread { setLocked(locked) } }
+                        if (info.has("pad")) {
+                            val pad = if (info.isNull("pad")) null else runCatching { LockPad.fromJson(info.getJSONObject("pad")) }.getOrNull()
+                            runOnUiThread { padView.pad = pad }
+                        }
                     }
                 }
             }
@@ -655,7 +669,8 @@ abstract class RemoteViewActivity : Activity(), SurfaceHolder.Callback {
 
     /** Live video comes several times a second even on a still screen; still pictures are slower. */
     private fun frozen(): Boolean =
-        channel != null && System.currentTimeMillis() - lastFrameAt > if (mode == "video") FROZEN_VIDEO_MS else FROZEN_PICTURE_MS
+        channel != null && padView.pad == null && // on a hidden pattern screen the dots show where to touch
+            System.currentTimeMillis() - lastFrameAt > if (mode == "video") FROZEN_VIDEO_MS else FROZEN_PICTURE_MS
 
     /** XARVIS Helper on the other phone without its Accessibility switch: seeing works, tapping doesn't. */
     @Volatile private var viewOnly = false
@@ -671,11 +686,14 @@ abstract class RemoteViewActivity : Activity(), SurfaceHolder.Callback {
             val p = peer
             if (p != null && channel != null) {
                 val delay = if (rttMs >= 0) " · ${rttMs} ms delay" else ""
-                status.text = if (frozen()) FROZEN_NOTE else when (mode) {
+                val line = if (frozen()) FROZEN_NOTE else when (mode) {
                     "video" -> "⚡ ${p.name} · live · $fps fps$delay${routeLabel()}" +
                         if (viewOnly) "\n👀 View only: to let you tap, they use \"✋ Allow tapping\" in XARVIS Helper" else ""
                     "jpeg" -> "🖥 ${p.name} · $fps pictures/s$delay${routeLabel()}" + if (smoothButton.visibility == View.VISIBLE) " · tap ⚡ for live video" else ""
-                    else -> status.text
+                    else -> null
+                }
+                if (line != null) {
+                    status.text = line + if (padView.pad != null) "\n🔐 This screen is hidden from pictures: draw your pattern on the dots shown." else ""
                 }
             }
             ui.postDelayed(this, 1000)
