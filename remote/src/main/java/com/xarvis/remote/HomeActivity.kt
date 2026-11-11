@@ -72,14 +72,29 @@ class HomeActivity : Activity() {
                 delay(2_000)
             }
         }
+    }
+
+    /**
+     * Looks for a newer XARVIS Remote. Every time the screen comes back, not only when it's first made: on the S22
+     * the screen stayed alive from its install, so a check made then never saw the later versions (Rex, 12 Nov 2026:
+     * the benco showed UPDATE, the S22 didn't).
+     */
+    private fun checkForUpdate() {
+        val now = System.currentTimeMillis()
+        if (now - lastUpdateCheck < UPDATE_CHECK_GAP_MS) return
+        lastUpdateCheck = now
         scope.launch {
             val newer = withContext(Dispatchers.IO) { Updates.newerVersion(version()) }
             if (newer != null) {
                 updateButton.text = "⬆ UPDATE TO v$newer"
                 updateButton.visibility = View.VISIBLE
+            } else {
+                updateButton.visibility = View.GONE
             }
         }
     }
+
+    private var lastUpdateCheck = 0L
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -89,6 +104,7 @@ class HomeActivity : Activity() {
     override fun onResume() {
         super.onResume()
         build()
+        checkForUpdate()
     }
 
     // ---- the screen ----
@@ -340,5 +356,6 @@ class HomeActivity : Activity() {
 
     companion object {
         private const val COPY_LOGIN = 7503
+        private const val UPDATE_CHECK_GAP_MS = 60_000L
     }
 }
