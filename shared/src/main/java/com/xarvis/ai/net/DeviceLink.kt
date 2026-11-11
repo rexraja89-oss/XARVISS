@@ -74,8 +74,15 @@ class LinkException(message: String) : Exception(message)
  * A family phone with XARVIS Helper links by an invite Rex sends on WhatsApp ([createInvite], [acceptInvite]).
  *
  * [helperApp]: this is XARVIS Helper (no home-network server, and it only answers the ops a helped phone needs).
+ * [remoteApp]: this is XARVIS Remote (like the Helper, but it also gives invites: the same app controls one phone
+ * and is controlled on another).
  */
-class DeviceLink(context: Context, private val handler: Handler, private val helperApp: Boolean = false) {
+class DeviceLink(
+    context: Context,
+    private val handler: Handler,
+    private val helperApp: Boolean = false,
+    private val remoteApp: Boolean = false,
+) {
 
     interface Handler {
         /** Device status to report to a linked device. */
@@ -675,7 +682,8 @@ class DeviceLink(context: Context, private val handler: Handler, private val hel
                     return QueuedOnce(c)
                 }
                 throw LinkException(
-                    if (peer.kind == Peer.KIND_HELPER) "${peer.name} has XARVIS Helper closed. Ask them to open it and tap \"Ask for help\"."
+                    if (peer.kind == Peer.KIND_HELPER && remoteApp) "${peer.name} is offline (XARVIS Remote there isn't connected: is that phone on, with internet?)."
+                    else if (peer.kind == Peer.KIND_HELPER) "${peer.name} has XARVIS Helper closed. Ask them to open it and tap \"Ask for help\"."
                     else "${peer.name} is offline (its XARVIS isn't connected to the internet right now).",
                 )
             }
@@ -885,7 +893,10 @@ class DeviceLink(context: Context, private val handler: Handler, private val hel
         )
         handler.onPeersChanged()
         handler.onInviteUsed(peer)
-        _events.tryEmit("Linked with $peerName (XARVIS Helper). When they tap \"Ask for help\", you'll be told here.")
+        _events.tryEmit(
+            if (remoteApp) "Linked with $peerName: you can control it now."
+            else "Linked with $peerName (XARVIS Helper). When they tap \"Ask for help\", you'll be told here.",
+        )
     }
 
     /** On XARVIS Helper: tells the helping phone its owner asks for help (it shows Rex a notification). */
@@ -978,7 +989,7 @@ class DeviceLink(context: Context, private val handler: Handler, private val hel
                 val first = c.receive()
                 when (first.optString("t")) {
                     "pair1" -> if (helperApp) c.send(error("XARVIS Helper links by invite only")) else servePairing(first, c)
-                    "ipair1" -> if (helperApp) c.send(error("not here")) else serveInvite(first, c)
+                    "ipair1" -> if (helperApp && !remoteApp) c.send(error("not here")) else serveInvite(first, c)
                     "req" -> serveRequest(first, c)?.let { c.send(it) } // null: a stream that answered itself
                     else -> c.send(error("unknown frame"))
                 }
@@ -1039,7 +1050,7 @@ class DeviceLink(context: Context, private val handler: Handler, private val hel
 
         // A family phone Rex helps may only ask for help (and say hello); on XARVIS Helper, only remote help is answered.
         if (peer.kind == Peer.KIND_HELPER && op !in FROM_HELPER) return error("not allowed from XARVIS Helper")
-        if (helperApp && op !in HELPER_ANSWERS) return error("XARVIS Helper doesn't do \"$op\"")
+        if (helperApp && op !in HELPER_ANSWERS) return error("${if (remoteApp) "XARVIS Remote" else "XARVIS Helper"} doesn't do \"$op\"")
 
         // Remember its Tailscale address, to reach it later from outside home Wi-Fi.
         req.optString("tailnet").takeIf { it.isNotEmpty() && it != peer.tailnetHost }?.let {

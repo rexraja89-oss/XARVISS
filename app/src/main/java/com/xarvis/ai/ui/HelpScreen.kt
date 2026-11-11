@@ -106,7 +106,12 @@ fun HelpScreen(onBack: () -> Unit) {
             "When they tap \"Ask for help\", you get a notification: tap it to see their screen (and tap for them, if they switched on \"Allow tapping\").",
             "They allow it every time and can press STOP any time. Works UAE ↔ India. Their phone can't see or touch yours.",
         ))
-        Section("🖥 Remote control (like TeamViewer)", listOf(
+        Section("🛟 XARVIS Remote — the emergency way in", listOf(
+            "A separate small app (XARVIS-Remote.apk) for your own phones: it keeps working when XARVIS on the S22 is down or being updated.",
+            "On the benco: XARVIS Remote → ➕ Link a phone to control → send the invite. On the S22: paste it, then do the short checklist (Accessibility, battery Unrestricted).",
+            "Then from anywhere: XARVIS Remote → 🖥 Control Galaxy S22 Ultra — the same screen as here, nobody needs to be at the S22. Tap ⚡ for live video, and \"Start now\" on the picture.",
+        ))
+        Section("🖥 Remote control (from XARVIS)", listOf(
             "\"Control my S22\" or ☰ → Control linked phone — see its screen and use it with your finger.",
             "⚡ Make it smooth for live video. Type, paste to it, copy from it, send a file. Share any file → \"Send to my other phone\".",
             "🔒 Lock, then 🔓 Unlock and draw its pattern on the picture.",

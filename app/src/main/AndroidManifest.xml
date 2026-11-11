@@ -211,6 +211,13 @@
             </intent-filter>
         </activity>
         <!-- Remote control of the linked phone's screen (like TeamViewer), over the encrypted link. -->
+        <!-- XARVIS Remote copies the relay login from here (one tap): only same-key apps may open it. -->
+        <activity
+            android:name=".RelayLoginExportActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:permission="com.xarvis.ai.permission.EYES"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <activity
             android:name=".RemoteScreenActivity"
             android:exported="false"

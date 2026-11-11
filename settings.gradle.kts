@@ -26,3 +26,6 @@ include(":eyes")
 // XARVIS Helper: a tiny separate app for a family phone (Rex's wife's): she taps "Ask for help" and
 // Rex sees (and, if she allows, controls) her screen from his XARVIS, from anywhere.
 include(":helper")
+// XARVIS Remote: a separate remote-control app for Rex's own phones, so the S22 stays reachable from the benco
+// while XARVIS there is down or being updated (it controls on one phone and is controlled on the other).
+include(":remote")

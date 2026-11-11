@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">XARVIS Remote</string>
+    <string name="hands_description">Lets your own linked phone (with XARVIS Remote) see this screen, tap, swipe, type and press Back or Home on it, for when XARVIS can\'t. Only phones you linked with an invite can connect; a red ✱ shows while one does, and tapping it gives STOP.</string>
+</resources>

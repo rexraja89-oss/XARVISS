@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A lifebuoy: XARVIS Remote is the way back in when XARVIS itself can't help. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- The white ring. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M54,30 A24,24 0 1,1 53.99,30 Z M54,42 A12,12 0 1,0 54.01,42 Z" />
+    <!-- Four red bands across the ring. -->
+    <path
+        android:fillColor="#B71C1C"
+        android:pathData="M49,30 L59,30 L57,42 L51,42 Z M49,78 L59,78 L57,66 L51,66 Z M30,49 L30,59 L42,57 L42,51 Z M78,49 L78,59 L66,57 L66,51 Z" />
+</vector>
