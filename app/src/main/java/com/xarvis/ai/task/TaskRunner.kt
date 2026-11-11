@@ -3,14 +3,17 @@ package com.xarvis.ai.task
 import com.xarvis.ai.agent.PhoneAgent
 
 /**
- * Runs an approved [Plan] on the phone, step by step, for as long as it takes (up to [Limits.maxMinutes]): each turn
+ * Runs a [Plan] on the phone, step by step, for as long as it takes (up to [Limits.maxMinutes]): each turn
  * it reads the screen (text + a numbered screenshot), asks the brain for 1–3 actions, does them, and looks again.
  * A step ends with DONE; when it's stuck the rest of the plan is re-made ([Limits.replans] times), then Rex is asked.
  * It learns: NOTE lines and a look back after the task go into the [LessonBook].
  *
- * Safety, always (on top of what the brain is told): money and passwords are never touched (the action is refused and
- * the brain must find another way); signing in, sending, posting, publishing, uploading, deleting and installing ask
- * Rex first; STOP ends it at once.
+ * Rex's goal is his permission for every step it needs (Nov 2026: "one prompt and it should accomplish the task"), so
+ * nothing asks him along the way except what only he can do (a password he types, a captcha, being stuck). Safety,
+ * always (on top of what the brain is told): money and passwords are never touched and banking / payment apps are
+ * never used (the action is refused and the brain must find another way); sending, posting, uploading, deleting,
+ * installing and calling happen only when the goal asks for that kind of thing (else skipped, without asking); STOP
+ * ends it at once.
  */
 class TaskRunner(private val env: Env, private val lessons: LessonBook, private val limits: Limits = Limits()) {
 
@@ -47,7 +50,8 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
         val settleMs: Long = 1_500,
     )
 
-    data class Outcome(val finished: Boolean, val summary: String, val stepsDone: Int, val plan: Plan)
+    /** How it went; [replans] and [asked] (times Rex had to answer) tell a clean run from a struggle (practice). */
+    data class Outcome(val finished: Boolean, val summary: String, val stepsDone: Int, val plan: Plan, val replans: Int = 0, val asked: Int = 0)
 
     private sealed interface StepEnd {
         data class Done(val result: String) : StepEnd
@@ -59,9 +63,13 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
     val log = ArrayList<String>()
     private val guidance = ArrayList<String>()
     private var startedAt = 0L
+    /** Rex's goal: what decides whether a Send / Upload / Install button is part of the task. */
+    private var goalText = ""
+    private var asked = 0
 
     suspend fun run(goal: String, approved: Plan): Outcome {
         startedAt = env.now()
+        goalText = goal
         var plan = approved
         val results = ArrayList<String>()
         var index = 0
@@ -90,6 +98,7 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
                         say("🔁 New plan from step ${index + 1}:\n" + newPlan.steps.joinToString("\n") { "· ${it.title}" })
                     } else {
                         // Out of ideas: Rex decides.
+                        asked++
                         val answer = env.ask(
                             "I'm stuck on step ${index + 1} (${step.title}): ${end.why}\nTell me what to do — or answer \"skip\" or \"stop\".",
                             yesNo = false,
@@ -106,7 +115,8 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
                 }
             }
         }
-        val result = outcome ?: Outcome(true, "All ${plan.steps.size} steps done.\n" + results.joinToString("\n"), plan.steps.size, plan)
+        val result = (outcome ?: Outcome(true, "All ${plan.steps.size} steps done.\n" + results.joinToString("\n"), plan.steps.size, plan))
+            .copy(replans = replans, asked = asked)
         reflect(goal, result)
         say(if (result.finished) "🏁 Task finished." else "⏹ ${result.summary}")
         return result
@@ -123,6 +133,14 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
             if (minutes >= limits.maxMinutes) return StepEnd.Ended("Time's up after ${limits.maxMinutes} minutes (stopped at step ${index + 1}).")
             if (actions >= limits.actionsPerStep) return StepEnd.Stuck("this step took more than ${limits.actionsPerStep} actions")
             val screen = env.screen()
+            if (Safety.moneyApp(screen.app)) {
+                // Never inside a banking or payment app (Rex's rule), whatever led here.
+                env.key("home")
+                settle()
+                history += "(${screen.app} is a banking/payment app: XARVIS never uses those — went Home; do the task another way)"
+                if (++blocked >= 3) return StepEnd.Stuck("the only way forward was through a banking or payment app")
+                continue
+            }
             val image = runCatching { env.screenshot(screen) }.getOrNull()
             val app = screen.app
             val prompt = TaskPrompts.runPrompt(
@@ -145,7 +163,7 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
                     is Act.Did -> history += r.line
                     is Act.Blocked -> {
                         history += r.line
-                        if (++blocked >= 3) return StepEnd.Stuck("the only ways forward were payments, passwords or things you didn't allow")
+                        if (++blocked >= 3) return StepEnd.Stuck("the only ways forward were payments, passwords, banking apps or things the task didn't ask for")
                         break // the screen didn't change: look again
                     }
                     is Act.End -> return r.end
@@ -168,6 +186,7 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
             is TaskAction.Done -> Act.End(StepEnd.Done(action.result))
             is TaskAction.Stuck -> Act.End(StepEnd.Stuck(action.why))
             is TaskAction.Ask -> {
+                asked++
                 say("❓ Asking you: ${action.question}")
                 val answer = env.ask(action.question, yesNo = false) ?: return Act.End(StepEnd.Ended("Stopped — you pressed STOP."))
                 guidance += answer.trim()
@@ -179,6 +198,7 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
                 Act.Did("NOTE (saved for next time)")
             }
             is TaskAction.Open -> {
+                if (Safety.moneyApp(action.app)) return Act.Blocked("OPEN ${action.app} → refused: XARVIS never opens banking or payment apps")
                 say("📱 Opening ${action.app}")
                 Act.Did("OPEN ${action.app} → ${env.open(action.app)}").also { settle() }
             }
@@ -203,7 +223,7 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
             is TaskAction.Type -> {
                 val el = action.n?.let { element(it) ?: return Act.Did("TYPE ${action.n} → there's no [${action.n}] on this screen") }
                 if (el != null && !el.editable) return Act.Did("TYPE ${el.n} → [${el.n}] isn't a text box")
-                if (el?.password == true || Safety.secret(action.text) || (el != null && Safety.check(el.label) == Safety.Verdict.NEVER)) {
+                if (el?.password == true || Safety.secret(action.text) || (el != null && Safety.check(el.label, goalText) == PhoneAgent.Safety.Verdict.NEVER)) {
                     return Act.Blocked("TYPE → refused: that's a password, PIN, OTP or payment box (Rex types those himself)")
                 }
                 if (el != null) {
@@ -250,17 +270,12 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
     }
 
     private suspend fun tapChecked(label: String, x: Int, y: Int, long: Boolean, app: String, line: String): Act {
-        when (Safety.check(label)) {
-            Safety.Verdict.NEVER -> return Act.Blocked("$line → refused: \"${label.take(40)}\" is about money, a password or a subscription; find the free way or ASK")
-            Safety.Verdict.ASK -> {
-                val answer = env.ask("May I tap \"${label.take(60)}\" in ${app.ifBlank { "this app" }}?", yesNo = true)
-                    ?: return Act.End(StepEnd.Ended("Stopped — you pressed STOP."))
-                if (!answer.trim().startsWith("y", ignoreCase = true)) {
-                    guidance += "Don't tap \"${label.take(60)}\" (Rex said no)."
-                    return Act.Blocked("$line → Rex said no")
-                }
-            }
-            Safety.Verdict.OK -> {}
+        when (Safety.check(label, goalText)) {
+            PhoneAgent.Safety.Verdict.NEVER -> return Act.Blocked("$line → refused: \"${label.take(40)}\" is about money, a password or a subscription; find the free way")
+            PhoneAgent.Safety.Verdict.OUT_OF_SCOPE -> return Act.Blocked(
+                "$line → skipped: \"${label.take(40)}\" in ${app.ifBlank { "this app" }} isn't part of Rex's task (close it or go around it)",
+            )
+            PhoneAgent.Safety.Verdict.OK -> {}
         }
         say("👆 ${if (long) "Long-pressing" else "Tapping"} ${label.take(50).ifBlank { "a spot" }}")
         env.tap(x, y, long)
@@ -321,36 +336,16 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
         return last.all { it == last[0] } && !last[0].startsWith("WAIT")
     }
 
-    /** What Task mode may do by itself (stricter than PhoneAgent's: money is never touched, sign-ins ask). */
+    /** What Task mode may do by itself: the same rules as XARVIS using the phone (PhoneAgent.Safety), plus payment pages. */
     object Safety {
-        enum class Verdict { OK, ASK, NEVER }
-
-        private val NEVER_WORDS = Regex(
-            """(?i)\b(?:pay|payment|pay now|otp|one[- ]time code|password|passcode|pin|upi|send money|transfer money|bank|card number|""" +
-                """cvv|wallet|net ?banking|buy|purchase|checkout|check out|subscribe|subscription|upgrade|go pro|get pro|premium|""" +
-                """start (?:free )?trial|free trial|add card|billing)\b""",
-        )
-        private val ASK_WORDS = Regex(
-            """(?i)\b(?:send|post|share|forward|publish|upload|go live|delete|remove|uninstall|install|reset|sign in|log in|""" +
-                """login|sign up|continue with google|continue with facebook|accept|confirm|block|report|call)\b""",
-        )
-
-        /** NEVER for money, passwords and subscriptions; ASK for things that can't be taken back and for signing in. */
-        fun check(label: String): Verdict = when {
-            label.isBlank() -> Verdict.OK
-            NEVER_WORDS.containsMatchIn(label) && label.length <= LONG_TEXT -> Verdict.NEVER
-            label.length <= BUTTON_MAX && ASK_WORDS.containsMatchIn(label) -> Verdict.ASK
-            else -> Verdict.OK
-        }
+        fun check(label: String, goal: String): PhoneAgent.Safety.Verdict = PhoneAgent.Safety.check(label, goal)
 
         /** Only digits (4+), like an OTP, PIN or card number. */
         fun secret(text: String): Boolean = PhoneAgent.Safety.secret(text)
 
-        fun money(url: String): Boolean = Regex("""(?i)(checkout|billing|/pay(?:ment)?\b|/subscribe|/upgrade|/pricing/buy)""").containsMatchIn(url)
+        fun moneyApp(app: String): Boolean = PhoneAgent.Safety.moneyApp(app)
 
-        private const val BUTTON_MAX = 30
-        /** Long text (a paragraph that merely mentions "premium") isn't a button. */
-        private const val LONG_TEXT = 60
+        fun money(url: String): Boolean = Regex("""(?i)(checkout|billing|/pay(?:ment)?\b|/subscribe|/upgrade|/pricing/buy)""").containsMatchIn(url)
     }
 
     companion object {

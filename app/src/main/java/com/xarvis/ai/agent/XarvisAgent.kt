@@ -155,15 +155,7 @@ class XarvisAgent(
                     )
                 }
                 ?: OtherPhoneCommands.parse(message, otherPhoneWords())?.let { onOtherPhone(it, onPartial) }
-                ?: taskGoal(message)?.let { goal ->
-                    // A big job for Task mode: plan it now; Rex approves it on the Task screen.
-                    val missing = com.xarvis.ai.task.TaskManager.notReady(appContext)
-                    if (missing != null) Reply("🧠 Task mode can't start yet, sir: $missing")
-                    else {
-                        com.xarvis.ai.task.TaskManager.plan(appContext, goal)
-                        Reply("🧠 Planning it now, sir. When the plan is ready you'll get a notification — read it in ☰ → 🧠 Task mode and approve it, and I'll get to work.")
-                    }
-                }
+                ?: com.xarvis.ai.task.TaskCommands.parse(message)?.let { taskCommand(it) }
                 ?: PhoneTask.parse(message, otherPhoneWords())?.let { runPhoneTask(it, onPartial) }
                 ?: (if (OPEN_EYES.matches(message.trim().trimEnd('.', '!', '?'))) run(listOf(Step.OpenEyes)) else null)
                 ?: photoCommand(message, deviceWords())?.let { run(listOf(it)) }
@@ -588,20 +580,73 @@ class XarvisAgent(
      * linked one over the link. Its screens are Rex's private data, so the brain is Gemma on the S22, never
      * the cloud. Confirmations go where Rex is looking: on top of the app here, or the Ask card for the other phone.
      */
+    /**
+     * Task mode: here on the phone with XARVIS Hands built in (the S22), or sent over the link from a phone without it
+     * (the benco) or when Rex names the other phone — "task on my S22: …". Progress, questions and the result of a task
+     * sent elsewhere come back into this chat (Handler.taskNews), and "answer: …" / "stop the task" go back to it.
+     */
+    private suspend fun taskCommand(cmd: com.xarvis.ai.task.TaskCommands.Cmd): Reply {
+        val tasks = com.xarvis.ai.task.TaskManager
+        val canHere = com.xarvis.ai.hands.HandsBridge.builtIn
+        val named = (cmd as? com.xarvis.ai.task.TaskCommands.Cmd.Start)?.where
+            ?.let { DeviceLink.namedIn(it, link.pairedPeers().map { p -> p.name }) }
+            ?.let { name -> link.pairedPeers().firstOrNull { it.name == name } }
+        val busyHere = tasks.state.value.phase.let {
+            it == com.xarvis.ai.task.TaskManager.Phase.PLANNING || it == com.xarvis.ai.task.TaskManager.Phase.RUNNING ||
+                it == com.xarvis.ai.task.TaskManager.Phase.WAITING
+        }
+        val here = named == null && when (cmd) {
+            is com.xarvis.ai.task.TaskCommands.Cmd.Start -> canHere
+            else -> canHere && busyHere
+        }
+        if (here) {
+            return when (cmd) {
+                is com.xarvis.ai.task.TaskCommands.Cmd.Start -> tasks.start(appContext, cmd.goal)
+                    ?.let { Reply("🧠 Task mode can't start yet, sir: $it") }
+                    ?: Reply("🧠 On it, sir — planning it and doing it now. Follow along in ☰ → 🧠 Task mode or the notification; STOP any time.")
+                is com.xarvis.ai.task.TaskCommands.Cmd.Answer -> if (tasks.waitingForAnswer()) {
+                    tasks.answer(cmd.text)
+                    Reply("🧠 Got it, carrying on.")
+                } else Reply("🧠 There's no question waiting, sir. ${tasks.statusLine()}")
+                com.xarvis.ai.task.TaskCommands.Cmd.Stop -> {
+                    tasks.stop()
+                    Reply("⏹ Stopping the task.")
+                }
+                com.xarvis.ai.task.TaskCommands.Cmd.Status -> Reply("🧠 ${tasks.statusLine()}")
+            }
+        }
+        if (cmd !is com.xarvis.ai.task.TaskCommands.Cmd.Start && canHere && named == null && link.pairedPeers().isEmpty()) {
+            return Reply("🧠 ${tasks.statusLine()}")
+        }
+        val peer = named ?: link.reachable().firstOrNull()?.first
+            ?: return Reply("🧠 I can't reach your S22 to do that, sir. Make sure XARVIS is running on it and ☰ → 🌐 Always connected says Connected on both phones.")
+        val body = when (cmd) {
+            is com.xarvis.ai.task.TaskCommands.Cmd.Start -> org.json.JSONObject().put("action", "start").put("goal", cmd.goal)
+            is com.xarvis.ai.task.TaskCommands.Cmd.Answer -> org.json.JSONObject().put("action", "answer").put("text", cmd.text)
+            com.xarvis.ai.task.TaskCommands.Cmd.Stop -> org.json.JSONObject().put("action", "stop")
+            com.xarvis.ai.task.TaskCommands.Cmd.Status -> org.json.JSONObject().put("action", "status")
+        }
+        return try {
+            val text = link.remoteTask(peer, body)
+            Reply(
+                if (cmd is com.xarvis.ai.task.TaskCommands.Cmd.Start) "🧠 ${peer.name} is on it, sir. Its progress, any question and the result will show up here."
+                else "🧠 ${peer.name}: $text",
+            )
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Reply("🧠 ${peer.name} couldn't: ${e.message ?: e.javaClass.simpleName}")
+        }
+    }
+
     private suspend fun runPhoneTask(task: PhoneTask.Task, onPartial: (String) -> Unit): Reply {
         forceLocalThisTurn = true
         brainReady(onPartial)
+        // Rex's request is his permission for the steps it needs: no Yes/No questions on the way (Nov 2026).
         val target: PhoneAgent.Target
-        val confirm: suspend (String) -> Boolean
         if (task.onOtherPhone) {
             val peer = link.reachable().firstOrNull()?.first
                 ?: return Reply("I can't reach your other phone, sir. Make sure XARVIS is running on it and ☰ → 🌐 Always connected says Connected on both phones.")
             target = LinkedPhone(link, peer)
-            confirm = { question ->
-                engine.confirm(com.xarvis.ai.policy.Category.OPEN_APP, question).let {
-                    it == com.xarvis.ai.policy.Answer.ONCE || it == com.xarvis.ai.policy.Answer.ALWAYS
-                }
-            }
         } else {
             val here = LocalPhone(appContext, link.deviceName)
             if (!here.available()) {
@@ -611,13 +656,11 @@ class XarvisAgent(
                 )
             }
             target = here
-            confirm = { question -> here.ask(question) }
         }
         onPartial("🤖 On it, sir — working on ${target.name}. The red banner's STOP stops me.")
         val agent = PhoneAgent(
             target = target,
             think = { prompt -> agentThink(prompt, onPartial) },
-            confirm = confirm,
             progress = onPartial,
             pause = { ms -> kotlinx.coroutines.delay(ms) },
         )
@@ -748,12 +791,9 @@ class XarvisAgent(
     }
 
     companion object {
-        /** A big job for Task mode, written as "task: …". */
-        private val TASK_GOAL = Regex("""(?is)^(?:hey\s+jarvis[,\s]+)?(?:big\s+|complex\s+)?task\s*[:\-–]\s*(.+)$""")
-
         /** "task: make a YouTube Short about Mars" (also "big task -", "complex task:") → the goal for Task mode. */
         internal fun taskGoal(message: String): String? =
-            TASK_GOAL.find(message.trim())?.groupValues?.get(1)?.trim()?.takeIf { it.length >= 8 }
+            (com.xarvis.ai.task.TaskCommands.parse(message) as? com.xarvis.ai.task.TaskCommands.Cmd.Start)?.goal
         internal fun buildPrompt(facts: List<String>, history: String = "", health: String = ""): String = buildString {
             append(SYSTEM_PROMPT)
             if (facts.isNotEmpty()) {

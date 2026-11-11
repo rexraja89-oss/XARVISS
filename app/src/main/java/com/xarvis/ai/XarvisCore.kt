@@ -308,6 +308,39 @@ class XarvisCore(context: Context) {
         override suspend fun act(from: String, kind: String, arg: String): String =
             withContext(Dispatchers.Main) { com.xarvis.ai.hands.ScreenHost.act(appContext, from, kind, arg) }
 
+        // Task mode for the other phone ("task on my S22: …" typed on the benco): it runs here, the news goes back there.
+        override suspend fun task(peer: com.xarvis.ai.net.Peer, req: org.json.JSONObject): org.json.JSONObject {
+            val tasks = com.xarvis.ai.task.TaskManager
+            val text = when (req.optString("action")) {
+                "start" -> {
+                    val goal = req.optString("goal").trim()
+                    if (goal.length < 4) throw com.xarvis.ai.net.LinkException("say what to do")
+                    tasks.start(appContext, goal, from = com.xarvis.ai.task.TaskManager.Reporter(peer.name, taskNewsTo(peer)))
+                        ?.let { throw com.xarvis.ai.net.LinkException(it) }
+                    post("🧠 ${peer.name} asked me to: $goal")
+                    "On it."
+                }
+                "answer" -> if (tasks.waitingForAnswer()) {
+                    tasks.answer(req.optString("text"))
+                    "Got it, carrying on."
+                } else {
+                    "there's no question waiting. ${tasks.statusLine()}"
+                }
+                "stop" -> {
+                    tasks.stop()
+                    "Stopping the task."
+                }
+                "status" -> tasks.statusLine()
+                else -> throw com.xarvis.ai.net.LinkException("unknown task request")
+            }
+            return org.json.JSONObject().put("text", text)
+        }
+
+        override fun taskNews(from: String, text: String) {
+            post("🧠 $from: $text")
+            com.xarvis.ai.task.TaskManager.notice(appContext, "🧠 Task on $from", text)
+        }
+
         override suspend fun facesInPhoto(jpeg: ByteArray): String {
             val file = java.io.File(appContext.cacheDir, "photos/faces-${System.currentTimeMillis()}.jpg")
             return try {
@@ -853,6 +886,21 @@ class XarvisCore(context: Context) {
 
     private fun post(text: String) {
         _state.update { it.copy(messages = it.messages + ChatMessage(false, text)) }
+    }
+
+    /**
+     * Sends a task's news to [peer] one at a time, in order (it waits at the relay if that phone is offline); the
+     * sender ends with the result.
+     */
+    private fun taskNewsTo(peer: com.xarvis.ai.net.Peer): (String) -> Unit {
+        val queue = kotlinx.coroutines.channels.Channel<String>(capacity = 64)
+        scope.launch(Dispatchers.IO) {
+            for (text in queue) {
+                runCatching { link.sendTaskNews(peer, text) }
+                if (text.startsWith("🏁") || text.startsWith("⏹") || text.startsWith("⚠ I couldn't make a plan")) break
+            }
+        }
+        return { text -> queue.trySend(text) }
     }
 
     private fun replaceMessage(id: Long, text: String) = updateMessage(id) { it.copy(text = text) }

@@ -95,11 +95,12 @@ fun HelpScreen(onBack: () -> Unit) {
             "☰ → 🌐 Always connected: reach your other phones anywhere (mobile data, another country) through your own free relay — no VPN, banking apps stay happy. Guard alerts wait there if the other phone is offline.",
             "⚡ XARVIS Direct: away from home, remote control and files go straight between the phones when the networks allow (fast, and no relay data). The remote view shows ⚡ Direct or 🌐 Relay.",
         ))
-        Section("🧠 Task mode — big jobs, planned and done for you", listOf(
-            "☰ → 🧠 Task mode (or say \"task: …\"): e.g. \"make a 45-second YouTube Short about Mars with AI pictures and voice, edit in CapCut, upload as private\".",
-            "XARVIS writes a step-by-step plan; you approve it once; then it works on the S22 by itself — opening apps and sites, tapping, typing, waiting for AI generators — for hours if needed.",
-            "It asks you only to sign in, solve a captcha, make a creative choice or before publishing. It never pays or types passwords. STOP any time.",
-            "It learns: tips about each app are kept and used next time (you can delete them on the Task screen). Needs the cloud brain (Gemini key) and XARVIS Hands on.",
+        Section("🧠 Task mode — jobs done for you, from one message", listOf(
+            "\"task: open Ninja VPN and connect, tell me when it's connected\" — or something big: \"task: make a 45-second YouTube Short about Mars with AI pictures and voice, edit in CapCut, upload as private\".",
+            "One message is enough: XARVIS plans it and does it on the S22 by itself — opening apps and sites, tapping, typing, waiting out ads and AI generators — for hours if needed. Your task is the permission; it doesn't ask along the way.",
+            "From the benco: \"task on my S22: …\". The S22 does it; its progress, any question and the result come to the benco's chat. Reply \"answer: …\", or \"stop the task\" / \"task status\".",
+            "It comes to you only for what only you can do (a password, a captcha). It never pays, subscribes, types passwords or opens banking apps, and it skips buttons the task didn't ask for (an ad's Install). STOP any time.",
+            "🎓 Practice ladder on the Task screen: small jobs first (Ninja VPN, a search, a timer), bigger ones unlock as it passes. It learns tips about each app and uses them next time.",
         ))
         Section("🤝 Help a family phone", listOf(
             "☰ → 🤝 Help a family phone → Invite a phone: send the invite on WhatsApp. They install the small XARVIS Helper app and paste it.",

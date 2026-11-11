@@ -5,14 +5,16 @@ package com.xarvis.ai.agent
  * Ali replied on imo"): look at the screen (XARVIS Hands reads it as a numbered list), ask the brain for ONE
  * action, do it, repeat — at most [MAX_STEPS] times.
  *
- * Safety, always: it never touches payments, passwords, OTPs, PINs or bank/card details (it stops instead);
- * before anything that can't be taken back (Send, Call, Delete, Buy, Post…) it asks Rex; a red banner on that
- * phone shows while it works and its STOP ends it, as does STOP in the chat.
+ * Rex's request is his permission for every step it needs (Rex, Nov 2026: "when I already gave a task, I already
+ * authorised the steps required to complete it"): no Yes/No questions along the way. Safety, always: it never touches
+ * money, passwords, OTPs, PINs or bank/card details, and never opens banking or payment apps (it stops instead);
+ * buttons that reach other people or can't be undone (Send, Call, Delete, Post, Install…) are pressed only when the
+ * request asks for that kind of thing — otherwise they're skipped, without asking. A red banner on that phone shows
+ * while it works and its STOP ends it, as does STOP in the chat.
  */
 class PhoneAgent(
     private val target: Target,
     private val think: suspend (String) -> String?,
-    private val confirm: suspend (String) -> Boolean,
     private val progress: (String) -> Unit,
     private val pause: suspend (Long) -> Unit,
 ) {
@@ -56,6 +58,10 @@ class PhoneAgent(
             for (step in 1..MAX_STEPS) {
                 if (target.stopped()) return "Stopped — you pressed STOP on ${target.name}."
                 val screen = target.screen()
+                if (Safety.moneyApp(screen.app)) {
+                    target.key("home")
+                    return "I stopped: ${screen.app} is a banking or payment app, and I never use those for you."
+                }
                 progress("🤖 Step $step on ${target.name}: thinking… (${screen.app})")
                 val raw = think(prompt(goal, did, screen)) ?: return "My brain isn't available right now, so I stopped."
                 val action = parse(raw)
@@ -68,6 +74,7 @@ class PhoneAgent(
                     is Action.Done -> return action.text.ifBlank { "Done." }
                     is Action.Fail -> return "I couldn't finish: ${action.why}. " + summary(did)
                     is Action.Open -> {
+                        if (Safety.moneyApp(action.app)) return "I don't open banking or payment apps (${action.app}), sir — that one's yours alone."
                         progress("🤖 Step $step: opening ${action.app}…")
                         did += "OPEN ${action.app} → ${target.open(action.app)}"
                     }
@@ -77,10 +84,11 @@ class PhoneAgent(
                             did += "TAP ${action.n} → there is no [${action.n}] on this screen"
                             continue
                         }
-                        when (Safety.check(el.label)) {
+                        when (Safety.check(el.label, goal)) {
                             Safety.Verdict.NEVER -> return "I stopped: \"${el.label}\" looks like a payment, password or bank step, and I never do those for you."
-                            Safety.Verdict.ASK -> if (!confirm("Tap \"${el.label}\" in ${screen.app} on ${target.name}?")) {
-                                return "OK, I didn't tap \"${el.label}\". " + summary(did)
+                            Safety.Verdict.OUT_OF_SCOPE -> {
+                                did += "TAP ${el.n} \"${el.label.take(40)}\" → skipped: that isn't part of what Rex asked"
+                                continue
                             }
                             Safety.Verdict.OK -> {}
                         }
@@ -94,7 +102,7 @@ class PhoneAgent(
                             did += "TYPE ${action.n} → [${action.n}] isn't a text box"
                             continue
                         }
-                        if (el.password || Safety.check(el.label) == Safety.Verdict.NEVER || Safety.secret(action.text)) {
+                        if (el.password || Safety.check(el.label, goal) == Safety.Verdict.NEVER || Safety.secret(action.text)) {
                             return "I stopped: that box looks like a password, PIN, OTP or payment detail, and I never type those."
                         }
                         progress("🤖 Step $step: typing \"${action.text.take(40)}\"")
@@ -142,7 +150,9 @@ class PhoneAgent(
             "DONE <short answer or result for Rex>\nFAIL <short reason>\n" +
             "Rules: start with OPEN if the right app isn't on the screen. Only TAP numbers marked (tap); only TYPE into " +
             "numbers marked (type). When the goal is to find something out and the answer is on the screen, reply DONE " +
-            "with the answer. When the goal is done, reply DONE. Never enter passwords, PINs, OTPs or payment details."
+            "with the answer. When the goal is done, reply DONE. Rex's goal is his permission for the steps it needs: just " +
+            "do them. Don't press things the goal didn't ask for (an ad's Install, invite contacts) — close or skip them. " +
+            "Never enter passwords, PINs, OTPs or payment details; never buy or subscribe; never open banking or payment apps."
 
         fun prompt(goal: String, did: List<String>, screen: Screen): String = buildString {
             append("GOAL: ").append(goal).append('\n')
@@ -180,32 +190,57 @@ class PhoneAgent(
         }
     }
 
-    /** What XARVIS may tap or type by itself. */
+    /** What XARVIS may tap or type by itself (Task mode uses the same rules). */
     object Safety {
-        enum class Verdict { OK, ASK, NEVER }
+        enum class Verdict { OK, OUT_OF_SCOPE, NEVER }
 
         private val NEVER_WORDS = Regex(
             """(?i)\b(?:pay|payment|pay now|otp|one[- ]time|password|passcode|pin|upi|send money|transfer money|money transfer|""" +
-                """bank|card number|cvv|wallet|net ?banking)\b""",
-        )
-        private val ASK_WORDS = Regex(
-            """(?i)\b(?:send|post|share|forward|publish|call|video call|voice call|delete|remove|clear|uninstall|reset|buy|""" +
-                """purchase|order|checkout|subscribe|sign out|log out|logout|block|report|unfriend|accept|confirm|install)\b""",
+                """bank|card number|cvv|wallet|net ?banking|buy|buy now|purchase|checkout|check out|place order|order now|""" +
+                """subscribe|subscription|upgrade|go pro|get pro|premium|free trial|start (?:free )?trial|add card|billing)\b""",
         )
 
         /**
-         * NEVER for anything about money, passwords or codes; ASK for a button that can't be taken back (short
-         * labels only — a chat row like "Ali: send me the file" is just text to open).
+         * Buttons that reach other people or can't be undone, each with the words in Rex's request that allow it: "send
+         * hi to Ali" allows Send, "upload it as private" allows Upload — an ad's "Install" in "connect Ninja VPN" doesn't.
          */
-        fun check(label: String): Verdict = when {
-            NEVER_WORDS.containsMatchIn(label) -> Verdict.NEVER
-            label.length <= BUTTON_MAX && ASK_WORDS.containsMatchIn(label) -> Verdict.ASK
+        private val SCOPED = listOf(
+            Regex("""(?i)\b(?:send|forward|reply)\b""") to
+                Regex("""(?i)\b(?:send|sends|sending|sent|message|messages|msg|text|whatsapp|imo|telegram|reply|forward|mail|email|tell|wish|say)\b"""),
+            Regex("""(?i)\b(?:post|publish|upload|share|go live)\b""") to Regex("""(?i)\b(?:post|publish|upload|share|go live)\b"""),
+            Regex("""(?i)\b(?:delete|remove|clear|erase|reset|uninstall)\b""") to Regex("""(?i)\b(?:delete|remove|clear|erase|reset|uninstall|clean)\b"""),
+            Regex("""(?i)\binstall\b""") to Regex("""(?i)\b(?:install|download)\b"""),
+            Regex("""(?i)\b(?:call|video call|voice call)\b""") to Regex("""(?i)\b(?:call|ring|phone)\b"""),
+            Regex("""(?i)\b(?:block|report|unfriend|unfollow)\b""") to Regex("""(?i)\b(?:block|report|unfriend|unfollow)\b"""),
+            Regex("""(?i)\b(?:sign out|log out|logout)\b""") to Regex("""(?i)\b(?:sign out|log out|logout)\b"""),
+        )
+
+        /**
+         * NEVER for anything about money, passwords or codes; OUT_OF_SCOPE for a button that reaches people or can't be
+         * undone when [request] didn't ask for that (short labels only — a chat row like "Ali: send me the file" is
+         * just text to open); OK otherwise — including signing in with an account, Allow, OK and Accept.
+         */
+        fun check(label: String, request: String): Verdict = when {
+            label.isBlank() -> Verdict.OK
+            NEVER_WORDS.containsMatchIn(label) && label.length <= LONG_TEXT -> Verdict.NEVER
+            label.length <= BUTTON_MAX && SCOPED.any { (button, asked) -> button.containsMatchIn(label) && !asked.containsMatchIn(request) } -> Verdict.OUT_OF_SCOPE
             else -> Verdict.OK
         }
 
         /** Text that is just a code or card number (only digits, 4 or more — an OTP, PIN or card). */
         fun secret(text: String): Boolean = Regex("""^[\d\s-]*\d{4,}[\d\s-]*$""").matches(text.trim())
 
+        /** Banking, payment and money apps (by name or package): never opened or used, even when asked (Rex's rule). */
+        fun moneyApp(app: String): Boolean = MONEY_APP.containsMatchIn(app)
+
+        private val MONEY_APP = Regex(
+            """(?i)(?:\bbank|banking|\bpay(?!slip)|wallet|\bupi\b|bhim|phonepe|gpay|paisa|paytm|paypal|venmo|cash ?app|""" +
+                """binance|crypto|coinbase|\bcred\b|western union|exchange house|yono|\bnbd\b|adcb|mashreq|rakbank|hdfc|icici|kotak|""" +
+                """\bsbi\b|axis bank|emirates islamic|\bfab\b|al ansari|lulu exchange|\bwise\b|revolut|payoneer|skrill)""",
+        )
+
         private const val BUTTON_MAX = 30
+        /** Long text (a paragraph that merely mentions "premium") isn't a button. */
+        private const val LONG_TEXT = 60
     }
 }

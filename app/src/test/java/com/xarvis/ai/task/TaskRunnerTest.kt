@@ -113,24 +113,50 @@ class TaskRunnerTest {
         assertEquals(listOf("Export is the arrow at the top right"), book.forApp("CapCut"))
     }
 
-    @Test fun moneyIsNeverTouchedAndSignInAsksFirst() = runBlocking {
+    @Test fun moneyIsNeverTouchedAndSigningInNeedsNoQuestion() = runBlocking {
         val fake = Fake(mutableListOf("TAP 1", "TAP 2", "DONE signed in"))
         fake.app = "AI Video"
         fake.screens["AI Video"] = listOf(el(1, "Upgrade to Pro"), el(2, "Sign in"))
-        fake.answers = ArrayDeque(listOf("yes"))
         val out = TaskRunner(fake, lessons()).run("make a clip", Plan("Clip", listOf(PlanStep("Sign in", "AI Video", "", ""))))
         assertTrue(out.finished)
-        assertEquals(listOf("tap 200,200"), fake.did) // only Sign in, after Rex said yes; never Upgrade
-        assertTrue(fake.asked.single().contains("Sign in"))
+        assertEquals(listOf("tap 200,200"), fake.did) // Sign in, never Upgrade
+        assertTrue(fake.asked.isEmpty()) // the task was the permission
+        assertEquals(0, out.asked)
     }
 
-    @Test fun rexSayingNoMeansNoTap() = runBlocking {
-        val fake = Fake(mutableListOf("TAP 1", "DONE left it"))
-        fake.app = "YT Studio"
-        fake.screens["YT Studio"] = listOf(el(1, "Publish"))
-        fake.answers = ArrayDeque(listOf("no"))
-        TaskRunner(fake, lessons()).run("upload", Plan("Up", listOf(PlanStep("Upload", "YT Studio", "", ""))))
-        assertTrue(fake.did.isEmpty())
+    @Test fun publishingOnlyWhenTheTaskSaysSo() = runBlocking {
+        val asked = Fake(mutableListOf("TAP 1", "DONE uploaded"))
+        asked.app = "YT Studio"
+        asked.screens["YT Studio"] = listOf(el(1, "Publish"))
+        TaskRunner(asked, lessons()).run("upload my Mars video to YouTube as private", Plan("Up", listOf(PlanStep("Upload", "YT Studio", "", ""))))
+        assertEquals(listOf("tap 100,200"), asked.did)
+
+        val notAsked = Fake(mutableListOf("TAP 1", "DONE left it"))
+        notAsked.app = "YT Studio"
+        notAsked.screens["YT Studio"] = listOf(el(1, "Publish"))
+        TaskRunner(notAsked, lessons()).run("check my channel's views", Plan("Views", listOf(PlanStep("Look", "YT Studio", "", ""))))
+        assertTrue(notAsked.did.isEmpty()) // skipped, and nobody was asked
+        assertTrue(notAsked.asked.isEmpty())
+    }
+
+    @Test fun ninjaVpnConnectsThroughTheAdsWithoutQuestions() = runBlocking {
+        // Rex's first practice job: open, Connect, wait out the ad (its Install is skipped), close it, check, report.
+        val fake = Fake(mutableListOf("OPEN Ninja VPN", "TAP 1", "WAIT 10 ad", "TAP 3", "TAP 2", "DONE Ninja VPN is connected"))
+        fake.screens["Ninja VPN"] = listOf(el(1, "Connect"), el(2, "Close ad"), el(3, "Install"))
+        val out = TaskRunner(fake, lessons()).run(
+            "open Ninja VPN and connect, wait for the ads, tell me when it's connected",
+            Plan("Ninja VPN", listOf(PlanStep("Connect Ninja VPN", "Ninja VPN", "", "it says Connected"))),
+        )
+        assertTrue(out.summary, out.finished)
+        assertEquals(listOf("open Ninja VPN", "tap 100,200", "tap 200,200"), fake.did) // never the ad's Install
+        assertTrue(fake.asked.isEmpty())
+        assertTrue(out.summary.contains("Ninja VPN is connected"))
+    }
+
+    @Test fun bankingAppsAreNeverOpened() = runBlocking {
+        val fake = Fake(mutableListOf("OPEN HDFC Bank", "DONE checked another way"))
+        TaskRunner(fake, lessons()).run("note my salary date", Plan("Salary", listOf(PlanStep("Find it", "", "", ""))))
+        assertTrue(fake.did.none { it.startsWith("open") })
     }
 
     @Test fun aStuckStepGetsANewPlan() = runBlocking {

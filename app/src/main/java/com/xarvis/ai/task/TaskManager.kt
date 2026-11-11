@@ -39,13 +39,14 @@ import java.io.File
 import kotlin.coroutines.resume
 
 /**
- * Task mode on this phone (the S22): ☰ → 🧠 Task mode. Rex writes a goal → the cloud brain plans → he approves once →
- * [TaskRunner] works through it with XARVIS Hands, seeing the screen as numbered elements plus a screenshot with the
+ * Task mode on this phone (the S22): ☰ → 🧠 Task mode, "task: …", or "task on my S22: …" from the benco. Rex writes a
+ * goal → the cloud brain plans → [TaskRunner] does it straight away (his task is his permission for the steps it needs:
+ * Rex, Nov 2026, "just one prompt and it should accomplish the task") with XARVIS Hands, seeing the screen as numbered elements plus a screenshot with the
  * same numbers drawn on it (the brain points at them). While it runs: the screen is kept on, Hands' ✱ banner and a
  * notification have STOP, and questions for Rex come as a notification that opens the Task screen.
  */
 object TaskManager {
-    enum class Phase { IDLE, PLANNING, REVIEW, RUNNING, WAITING, DONE }
+    enum class Phase { IDLE, PLANNING, RUNNING, WAITING, DONE }
 
     data class State(
         val phase: Phase = Phase.IDLE,
@@ -57,7 +58,12 @@ object TaskManager {
         val result: String = "",
         val error: String? = null,
         val startedAt: Long = 0,
+        /** The linked phone that asked for this task (it gets the progress, questions and result), or null. */
+        val from: String? = null,
     )
+
+    /** The linked phone that asked for the task: progress, questions and the result go back to it with [send]. */
+    class Reporter(val name: String, val send: (String) -> Unit)
 
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state
@@ -68,6 +74,8 @@ object TaskManager {
     @Volatile private var answer: CompletableDeferred<String?>? = null
     private var wake: PowerManager.WakeLock? = null
     @Volatile private var book: LessonBook? = null
+    @Volatile private var reporter: Reporter? = null
+    @Volatile private var practiceId: String? = null
 
     fun lessons(context: Context): LessonBook =
         book ?: synchronized(this) { book ?: LessonBook(File(context.filesDir, "tasks/lessons.json")).also { book = it } }
@@ -83,75 +91,94 @@ object TaskManager {
         }
     }
 
-    // ---- planning ----
+    // ---- planning, then doing it ----
 
-    fun plan(context: Context, goal: String) {
-        if (job?.isActive == true) return
-        val app = context.applicationContext
-        _state.value = State(Phase.PLANNING, goal = goal.trim())
-        job = scope.launch {
-            val p = runCatching { askPlan(app, goal.trim(), null, null) }.getOrElse { null }
-            _state.value = if (p != null) State(Phase.REVIEW, goal = goal.trim(), plan = p)
-            else State(Phase.IDLE, goal = goal.trim(), error = "I couldn't make a plan just now (is the internet on, and the Gemini key working?). Try again.")
-            if (p != null) notify(app, "🧠 Plan ready: ${p.title}", "${p.steps.size} steps. Tap to read it and approve.", high = true)
+    /**
+     * Rex's task: plan it, then do it straight away — no approval step. [from] is the linked phone that asked (the
+     * benco); [practice] a practice task's id. Returns null when it started, else why it can't.
+     */
+    fun start(context: Context, goal: String, from: Reporter? = null, practice: String? = null): String? {
+        val g = goal.trim()
+        if (job?.isActive == true) {
+            return "I'm already doing a task (${_state.value.plan?.title ?: _state.value.goal.take(60)}). Say \"stop the task\" first."
         }
+        notReady(context)?.let { return it }
+        val app = context.applicationContext as XarvisApp
+        stop = false
+        reporter = from
+        practiceId = practice
+        _state.value = State(Phase.PLANNING, goal = g, startedAt = System.currentTimeMillis(), from = from?.name)
+        job = scope.launch {
+            val plan = runCatching { askPlan(app, g) }.getOrNull()
+            if (plan == null) {
+                val why = "I couldn't make a plan just now (is the internet on, and the Gemini key working?). Try again."
+                _state.value = State(Phase.IDLE, goal = g, error = why)
+                report("⚠ $why")
+                reporter = null
+                practiceId = null
+                return@launch
+            }
+            report("🧠 On it: ${plan.title} — " + plan.steps.mapIndexed { i, st -> "${i + 1}. ${st.title}" }.joinToString(" · "))
+            run(app, g, plan)
+        }
+        return null
     }
 
-    /** Rex wants the plan changed ("use Leonardo instead", "make it 30 seconds"). */
-    fun revise(context: Context, feedback: String) {
-        val s = _state.value
-        val previous = s.plan ?: return
-        val app = context.applicationContext
-        _state.value = s.copy(phase = Phase.PLANNING, error = null)
-        job = scope.launch {
-            val p = runCatching { askPlan(app, s.goal, feedback, previous) }.getOrNull()
-            _state.value = s.copy(phase = Phase.REVIEW, plan = p ?: previous, error = if (p == null) "I couldn't change it just now; here's the last plan." else null)
-        }
-    }
-
-    private suspend fun askPlan(context: Context, goal: String, feedback: String?, previous: Plan?): Plan? {
+    private suspend fun askPlan(context: Context, goal: String): Plan? {
         val core = (context as XarvisApp).core
         val apps = runCatching { com.xarvis.ai.device.DeviceCapabilityManager(context).launchableApps().map { it.label } }.getOrDefault(emptyList())
-        val prompt = TaskPrompts.planPrompt(goal, apps, lessons(context).promptFor(emptyList(), 15), feedback, previous)
+        val prompt = TaskPrompts.planPrompt(goal, apps, lessons(context).promptFor(emptyList(), 15))
         return Plan.parse(core.generateCode(TaskPrompts.PLAN_SYSTEM, prompt))
     }
 
-    fun cancel() {
-        if (_state.value.phase == Phase.RUNNING || _state.value.phase == Phase.WAITING) return
-        job?.cancel()
-        _state.value = State()
+    private suspend fun run(app: XarvisApp, goal: String, plan: Plan) {
+        _state.value = _state.value.copy(
+            phase = Phase.RUNNING, plan = plan, error = null,
+            log = listOf("🧠 Plan: ${plan.title}") + plan.steps.mapIndexed { i, st -> "   ${i + 1}. ${st.title}" },
+        )
+        keepAwake(app, true)
+        HandsBridge.service?.controlBanner("XARVIS (task)") { stop = true }
+        val env = PhoneEnv(app, plan.title)
+        val runner = TaskRunner(env, lessons(app))
+        val outcome = runCatching { runner.run(goal, plan) }.getOrElse { e ->
+            if (e is kotlinx.coroutines.CancellationException) null else TaskRunner.Outcome(false, "It broke off: ${e.message ?: e.javaClass.simpleName}", 0, plan)
+        }
+        runCatching { HandsBridge.service?.controlBanner(null) {} }
+        keepAwake(app, false)
+        val finished = outcome?.finished == true
+        val summary = outcome?.summary ?: "Stopped."
+        remember(app, goal, plan, finished, summary)
+        practiceId?.let { id -> Practice.record(app, id, outcome) }
+        _state.value = _state.value.copy(phase = Phase.DONE, question = null, result = summary)
+        notify(app, if (finished) "🏁 Task finished" else "⏹ Task ended", summary.lineSequence().first(), high = true)
+        report(if (finished) "🏁 Done — $summary" else "⏹ $summary")
+        reporter = null
+        practiceId = null
     }
 
-    // ---- running ----
+    /** Tells the phone that asked for the task (if another one did). */
+    private fun report(text: String) {
+        reporter?.let { r -> runCatching { r.send(text) } }
+    }
 
-    fun approve(context: Context) {
+    /** A line for "task status" (here or from the other phone). */
+    fun statusLine(): String {
         val s = _state.value
-        val plan = s.plan ?: return
-        if (s.phase != Phase.REVIEW) return
-        notReady(context)?.let {
-            _state.value = s.copy(error = it)
-            return
-        }
-        val app = context.applicationContext as XarvisApp
-        stop = false
-        _state.value = s.copy(phase = Phase.RUNNING, log = emptyList(), startedAt = System.currentTimeMillis(), error = null)
-        job = scope.launch {
-            keepAwake(app, true)
-            val hands = HandsBridge.service
-            hands?.controlBanner("XARVIS (task)") { stop = true }
-            val env = PhoneEnv(app, plan.title)
-            val runner = TaskRunner(env, lessons(app))
-            val outcome = runCatching { runner.run(s.goal, plan) }.getOrElse { e ->
-                if (e is kotlinx.coroutines.CancellationException) null else TaskRunner.Outcome(false, "It broke off: ${e.message ?: e.javaClass.simpleName}", 0, plan)
-            }
-            runCatching { HandsBridge.service?.controlBanner(null) {} }
-            keepAwake(app, false)
-            val summary = outcome?.summary ?: "Stopped."
-            remember(app, s.goal, plan, outcome?.finished == true, summary)
-            _state.value = _state.value.copy(phase = Phase.DONE, question = null, result = summary)
-            notify(app, if (outcome?.finished == true) "🏁 Task finished" else "⏹ Task ended", summary.lineSequence().first(), high = true)
+        return when (s.phase) {
+            Phase.IDLE -> "No task running." + (s.error?.let { " Last time: $it" } ?: "")
+            Phase.PLANNING -> "Planning: ${s.goal.take(80)}"
+            Phase.RUNNING -> "Working on ${s.plan?.title ?: "the task"} (${(System.currentTimeMillis() - s.startedAt) / 60_000} min): " +
+                (s.log.lastOrNull() ?: "starting")
+            Phase.WAITING -> "Waiting for your answer: ${s.question}"
+            Phase.DONE -> "Finished: ${s.result.lineSequence().first().take(200)}"
         }
     }
+
+    /** Whether a question is waiting for Rex's answer. */
+    fun waitingForAnswer(): Boolean = answer != null
+
+    /** A notification from Task mode (also used for news from the other phone's task). */
+    fun notice(context: Context, title: String, text: String) = notify(context, title, text, high = true)
 
     /** STOP (Task screen, notification, or Hands' banner). */
     fun stop() {
@@ -342,6 +369,7 @@ object TaskManager {
             answer = d
             _state.value = _state.value.copy(phase = Phase.WAITING, question = question, yesNo = yesNo)
             notify(app, "🧠 XARVIS needs you", question, high = true)
+            report("❓ $question\nAnswer from here: \"answer: …\" (or \"answer: skip\", or \"stop the task\").")
             val a = d.await()
             answer = null
             clearNotice(app, ID_ASK)
@@ -352,6 +380,8 @@ object TaskManager {
         override fun progress(line: String) {
             TaskManager.progress(line)
             notify(app, "🧠 XARVIS is working: $project", line.take(120), high = false)
+            // The phone that asked hears the milestones (not every tap).
+            if (MILESTONE.containsMatchIn(line)) report(line.take(300))
         }
 
         override fun stopped(): Boolean = stop
@@ -367,4 +397,6 @@ object TaskManager {
     private const val ID_ASK = 7302
     private const val MAX_LOG = 300
     private const val SHOT_SIDE = 1024
+    /** Progress lines worth sending to the phone that asked: steps starting, being stuck, a new plan, waiting to unlock. */
+    private val MILESTONE = Regex("""^(?:▶|⚠|🔁|🔒|📝)""")
 }

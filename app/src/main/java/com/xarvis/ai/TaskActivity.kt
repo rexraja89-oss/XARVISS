@@ -23,8 +23,8 @@ import kotlinx.coroutines.launch
 
 /**
  * ☰ → 🧠 Task mode (Rex, Nov 2026: complex tasks "from planning to execution" — YouTube videos, comics with free AI
- * tools). Write the goal → XARVIS plans → approve once → it works by itself on the phone, asking only when it must
- * (signing in, captchas, publishing); STOP any time. Shows what it learned per app.
+ * tools). Write the goal → ▶ Do it: XARVIS plans and does it straight away (the task is the permission), asking only
+ * for what only Rex can do (a password, a captcha); STOP any time. Shows the practice ladder and what it learned.
  */
 class TaskActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -56,9 +56,11 @@ class TaskActivity : Activity() {
             addView(TextView(this@TaskActivity).apply { text = "🧠 Task mode"; textSize = 24f; setTextColor(teal) })
             addView(
                 label(
-                    "Give XARVIS a big job. It plans it in steps, you approve once, then it works on this phone by itself — " +
-                        "for hours if needed — and asks you only to sign in, solve a captcha or before publishing. " +
-                        "It never pays or types passwords. STOP any time (here, in the notification, or the ✱ at the top).",
+                    "Give XARVIS a job, from small (\"open Ninja VPN and connect\") to big (a YouTube Short). It plans it and does " +
+                        "it on this phone by itself — your task is the permission, so it doesn't ask along the way. It comes to " +
+                        "you only for what only you can do (a password, a captcha). It never pays, types passwords or opens " +
+                        "banking apps. STOP any time (here, in the notification, or the ✱ at the top). From the benco: " +
+                        "\"task on my S22: …\".",
                 ),
             )
             addView(body)
@@ -86,10 +88,10 @@ class TaskActivity : Activity() {
         when (s.phase) {
             TaskManager.Phase.IDLE -> idle(s)
             TaskManager.Phase.PLANNING -> {
-                body.addView(label("🧠 Planning: ${s.goal.take(200)}", Color.BLACK, 15f))
+                body.addView(label("🧠 Planning: ${s.goal.take(200)}" + (s.from?.let { "\n(asked from $it)" } ?: ""), Color.BLACK, 15f))
                 body.addView(ProgressBar(this))
+                body.addView(button("⏹ Stop") { TaskManager.stop() })
             }
-            TaskManager.Phase.REVIEW -> review(s)
             TaskManager.Phase.RUNNING, TaskManager.Phase.WAITING -> running(s)
             TaskManager.Phase.DONE -> {
                 body.addView(label("RESULT", teal, 13f, bold = true))
@@ -108,15 +110,16 @@ class TaskActivity : Activity() {
         if (goal.text.isEmpty() && s.goal.isNotEmpty()) goal.setText(s.goal)
         body.addView(goal)
         body.addView(
-            button("🧠 Make a plan") {
+            button("▶ Do it") {
                 val g = goal.text.toString().trim()
                 if (g.length < 8) {
                     goal.error = "Say what you want done (a sentence or two)."
                 } else {
-                    TaskManager.plan(this, g)
+                    TaskManager.start(this, g)?.let { why -> goal.error = why }
                 }
             },
         )
+        practice()
         val book = TaskManager.lessons(this).all()
         body.addView(label("WHAT I'VE LEARNED (used in every plan; tap ✕ to forget one)", teal, 13f, bold = true))
         if (book.isEmpty()) body.addView(label("Nothing yet — I write things down as I work.", grey, 13f))
@@ -154,36 +157,37 @@ class TaskActivity : Activity() {
         }
     }
 
-    private fun review(s: TaskManager.State) {
-        val plan = s.plan ?: return
-        s.error?.let { body.addView(label("⚠ $it", red, 14f)) }
-        body.addView(label("THE PLAN: ${plan.title}", teal, 15f, bold = true))
-        plan.steps.forEachIndexed { i, step ->
-            body.addView(label("${i + 1}. ${step.title}" + if (step.app.isNotBlank()) "   [${step.app}]" else "", Color.BLACK, 15f, bold = true))
-            if (step.how.isNotBlank()) body.addView(label(step.how, grey, 13f))
+    /** The practice ladder: small jobs first, bigger ones as the small ones pass. */
+    private fun practice() {
+        val scores = com.xarvis.ai.task.Practice.scores(this)
+        val open = com.xarvis.ai.task.Practice.openLevel(scores)
+        body.addView(label("🎓 PRACTICE (level $open open — a job passes after ${com.xarvis.ai.task.Practice.PASSES} clean runs)", teal, 13f, bold = true))
+        com.xarvis.ai.task.Practice.ladder.forEach { d ->
+            val sc = scores[d.id]
+            val mark = when {
+                sc?.passed == true -> "✅"
+                d.level > open -> "🔒"
+                else -> "▶"
+            }
+            val line = "$mark L${d.level}: ${d.goal.take(90)}${if (d.goal.length > 90) "…" else ""}" +
+                (sc?.takeIf { it.runs > 0 }?.let { "  (${it.clean}/${com.xarvis.ai.task.Practice.PASSES} clean, ${it.runs} runs)" } ?: "")
+            if (d.level > open) {
+                body.addView(label(line, grey, 13f))
+            } else {
+                body.addView(
+                    Button(this).apply {
+                        text = line; isAllCaps = false; textSize = 13f
+                        setOnClickListener { TaskManager.start(this@TaskActivity, d.goal, practice = d.id)?.let { why -> goal.error = why } }
+                    },
+                )
+            }
         }
-        TaskManager.notReady(this)?.let { body.addView(label("⚠ $it", red, 14f)) }
-        body.addView(
-            button("✅ Approve and run") {
-                TaskManager.approve(this)
-                // Out of the way: XARVIS works in the other apps (the notification and ✱ bring you back).
-                if (TaskManager.state.value.phase == TaskManager.Phase.RUNNING) moveTaskToBack(true)
-            },
-        )
-        body.addView(
-            button("✏️ Change it") {
-                val box = EditText(this).apply { hint = "e.g. use Leonardo for the pictures, make it 30 seconds" }
-                AlertDialog.Builder(this).setTitle("What should change?").setView(box)
-                    .setPositiveButton("Re-plan") { _, _ -> box.text.toString().trim().takeIf { it.isNotEmpty() }?.let { TaskManager.revise(this, it) } }
-                    .setNegativeButton("Cancel", null).show()
-            },
-        )
-        body.addView(button("Cancel") { TaskManager.cancel() })
     }
 
     private fun running(s: TaskManager.State) {
         status.text = runningLine(s)
         body.addView(status)
+        s.from?.let { body.addView(label("Asked from $it — it gets the progress and the result.", grey, 13f)) }
         val q = s.question
         if (s.phase == TaskManager.Phase.WAITING && q != null) {
             body.addView(label("❓ XARVIS asks:", red, 15f, bold = true))

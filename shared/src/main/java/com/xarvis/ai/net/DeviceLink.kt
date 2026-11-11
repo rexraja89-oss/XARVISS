@@ -162,6 +162,15 @@ class DeviceLink(
 
         /** A new phone linked through an invite (XARVIS Helper on a family phone). */
         fun onInviteUsed(peer: Peer) {}
+
+        /**
+         * Task mode for Rex's other phone ([peer], e.g. the benco asking the S22): {"action": "start", "goal"} |
+         * {"action": "answer", "text"} | {"action": "stop"} | {"action": "status"}. Answers {"text"}; throws with a reason.
+         */
+        suspend fun task(peer: Peer, req: JSONObject): JSONObject = throw LinkException("Task mode doesn't run on this phone")
+
+        /** News of a task this phone asked the other one to do (progress, a question, the result). */
+        fun taskNews(from: String, text: String) {}
     }
 
     /** A linked phone's screen: the picture, and the size of the real screen it shows. */
@@ -460,6 +469,14 @@ class DeviceLink(
 
     suspend fun sendNote(peer: Peer, text: String) {
         request(peer, "note", JSONObject().put("text", text))
+    }
+
+    /** Task mode on [peer] (see [Handler.task]); its answer's text. */
+    suspend fun remoteTask(peer: Peer, body: JSONObject): String = request(peer, "task", body).optString("text")
+
+    /** Progress / a question / the result of a task [peer] asked for (waits at the relay if it's offline). */
+    suspend fun sendTaskNews(peer: Peer, text: String) {
+        request(peer, "task_news", JSONObject().put("text", text))
     }
 
     suspend fun remoteChat(peer: Peer, facts: List<String>, devices: List<String>, text: String, history: String = ""): String =
@@ -1097,6 +1114,11 @@ class DeviceLink(
                 handler.onNote(peer.name, req.getString("text"))
                 reply.put("ok", true)
             }
+            "task" -> reply.put("text", handler.task(peer, req).optString("text"))
+            "task_news" -> {
+                handler.taskNews(peer.name, req.getString("text"))
+                reply.put("ok", true)
+            }
             "chat" -> {
                 val text = handler.brainChat(peer.id, req.optJSONArray("facts").toStrings(),
                     req.optJSONArray("devices").toStrings(), req.getString("text"), req.optString("history"))
@@ -1427,7 +1449,7 @@ class DeviceLink(
         /** After the home Wi-Fi address didn't answer, don't try it again for this long (straight to the relay). */
         private const val WIFI_RETRY_MS = 60_000L
         /** One-way messages that may wait at the relay for a phone that's offline. */
-        private val DELIVER_LATER = setOf("guard_alert", "note")
+        private val DELIVER_LATER = setOf("guard_alert", "note", "task_news")
         /** What goes over XARVIS Direct when the phones aren't on the same Wi-Fi (the rest is small: the relay). */
         private val DIRECT_OPS = setOf("stream", "file")
         /** Swapping addresses through the relay (the other phone asks STUN servers first). */

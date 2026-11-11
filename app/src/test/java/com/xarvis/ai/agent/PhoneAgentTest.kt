@@ -22,15 +22,27 @@ class PhoneAgentParseTest {
     }
 
     @Test fun safetyNeverTouchesMoneyOrPasswords() {
-        listOf("Pay now", "Enter OTP", "Password", "UPI PIN", "Send money", "Bank account", "Card number")
-            .forEach { assertEquals(it, PhoneAgent.Safety.Verdict.NEVER, PhoneAgent.Safety.check(it)) }
-        listOf("Send", "Delete chat", "Buy now", "Post", "Voice call", "Log out")
-            .forEach { assertEquals(it, PhoneAgent.Safety.Verdict.ASK, PhoneAgent.Safety.check(it)) }
-        listOf("Chats", "Search", "Ali: send me the file when you get home please", "Settings")
-            .forEach { assertEquals(it, PhoneAgent.Safety.Verdict.OK, PhoneAgent.Safety.check(it)) }
+        listOf("Pay now", "Enter OTP", "Password", "UPI PIN", "Send money", "Bank account", "Card number", "Buy now", "Start free trial", "Go Pro")
+            .forEach { assertEquals(it, PhoneAgent.Safety.Verdict.NEVER, PhoneAgent.Safety.check(it, "do anything you need")) }
+        // Buttons that reach people or can't be undone: only when Rex's request asks for that kind of thing.
+        listOf("Send", "Delete chat", "Post", "Voice call", "Log out", "Install")
+            .forEach { assertEquals(it, PhoneAgent.Safety.Verdict.OUT_OF_SCOPE, PhoneAgent.Safety.check(it, "open Ninja VPN and connect")) }
+        assertEquals(PhoneAgent.Safety.Verdict.OK, PhoneAgent.Safety.check("Send", "send hi to Ali on WhatsApp"))
+        assertEquals(PhoneAgent.Safety.Verdict.OK, PhoneAgent.Safety.check("Upload", "upload the video to YouTube as private"))
+        assertEquals(PhoneAgent.Safety.Verdict.OK, PhoneAgent.Safety.check("Delete", "delete the old screenshots"))
+        // Signing in, Allow, OK, Connect: part of using an app, never asked.
+        listOf("Chats", "Search", "Ali: send me the file when you get home please", "Settings", "Sign in", "Continue with Google", "OK", "Allow", "Connect")
+            .forEach { assertEquals(it, PhoneAgent.Safety.Verdict.OK, PhoneAgent.Safety.check(it, "open Ninja VPN and connect")) }
         assertTrue(PhoneAgent.Safety.secret("482913"))
         assertTrue(PhoneAgent.Safety.secret("4111 1111 1111 1111"))
         assertFalse(PhoneAgent.Safety.secret("meet at 1030 near gate 2"))
+    }
+
+    @Test fun bankingAndPaymentAppsAreNeverUsed() {
+        listOf("Emirates NBD", "HDFC Bank", "Google Pay", "PhonePe", "Paytm", "Samsung Wallet", "BHIM UPI", "com.phonepe.app", "PayPal", "Binance")
+            .forEach { assertTrue(it, PhoneAgent.Safety.moneyApp(it)) }
+        listOf("Ninja VPN", "WhatsApp", "CapCut", "YouTube", "Chrome", "Play Store", "payslip", "Spotify", "Settings")
+            .forEach { assertFalse(it, PhoneAgent.Safety.moneyApp(it)) }
     }
 }
 
@@ -55,32 +67,36 @@ class PhoneAgentRunTest {
         override suspend fun stopped() = false
     }
 
-    private fun agent(phone: FakePhone, answers: List<String>, allow: Boolean = true, asked: MutableList<String> = mutableListOf()): PhoneAgent {
+    private fun agent(phone: FakePhone, answers: List<String>): PhoneAgent {
         val queue = ArrayDeque(answers)
-        return PhoneAgent(phone, think = { queue.removeFirstOrNull() }, confirm = { q -> asked += q; allow }, progress = {}, pause = {})
+        return PhoneAgent(phone, think = { queue.removeFirstOrNull() }, progress = {}, pause = {})
     }
 
-    @Test fun sendsAMessageAskingBeforeSend() = runBlocking {
+    @Test fun sendsAMessageWithoutAskingBecauseRexAskedForIt() = runBlocking {
         val home = PhoneAgent.Screen("XARVIS", listOf(el(1, "Ask XARVIS")), 1080, 2340)
         val chats = PhoneAgent.Screen("WhatsApp", listOf(el(1, "Search", edit = true), el(2, "Ali"), el(3, "Mom")), 1080, 2340)
         val chat = PhoneAgent.Screen("WhatsApp", listOf(el(1, "Message", edit = true), el(2, "Send")), 1080, 2340)
         val phone = FakePhone(listOf(home, chats, chat, chat, chat))
-        val asked = mutableListOf<String>()
-        val result = agent(phone, listOf("OPEN WhatsApp", "TAP 2", "TYPE 1 I'm on my way", "TAP 2", "DONE Sent \"I'm on my way\" to Ali."), asked = asked)
+        val result = agent(phone, listOf("OPEN WhatsApp", "TAP 2", "TYPE 1 I'm on my way", "TAP 2", "DONE Sent \"I'm on my way\" to Ali."))
             .run("message Ali on WhatsApp that I'm on my way")
         assertEquals("Sent \"I'm on my way\" to Ali.", result)
         assertEquals(listOf("begin", "open WhatsApp", "tap 20,40", "tap 10,20", "type I'm on my way", "tap 20,40"), phone.did)
-        assertEquals(1, asked.size) // only before tapping Send
-        assertTrue(asked[0].contains("Send"))
         assertTrue(phone.ended)
     }
 
-    @Test fun stopsWhenRexSaysNo() = runBlocking {
-        val chat = PhoneAgent.Screen("WhatsApp", listOf(el(1, "Message", edit = true), el(2, "Send")), 1080, 2340)
-        val phone = FakePhone(listOf(chat))
-        val result = agent(phone, listOf("TAP 2"), allow = false).run("send it")
-        assertTrue(result.startsWith("OK, I didn't tap"))
-        assertFalse(phone.did.any { it.startsWith("tap") })
+    @Test fun skipsWhatTheRequestDidntAskFor() = runBlocking {
+        // "Install" on an ad while connecting a VPN: not tapped, not asked about; XARVIS carries on.
+        val vpn = PhoneAgent.Screen("Ninja VPN", listOf(el(1, "Install"), el(2, "Connect")), 1080, 2340)
+        val phone = FakePhone(listOf(vpn, vpn, vpn))
+        val result = agent(phone, listOf("TAP 1", "TAP 2", "DONE Ninja VPN is connected")).run("open Ninja VPN and connect")
+        assertEquals("Ninja VPN is connected", result)
+        assertEquals(listOf("begin", "tap 20,40"), phone.did)
+    }
+
+    @Test fun neverOpensBankingApps() = runBlocking {
+        val phone = FakePhone(listOf(PhoneAgent.Screen("XARVIS", listOf(el(1, "Ask XARVIS")), 1080, 2340)))
+        assertTrue(agent(phone, listOf("OPEN Emirates NBD")).run("check my balance").startsWith("I don't open banking"))
+        assertFalse(phone.did.any { it.startsWith("open") })
     }
 
     @Test fun neverTypesPasswordsOrTapsPayments() = runBlocking {
