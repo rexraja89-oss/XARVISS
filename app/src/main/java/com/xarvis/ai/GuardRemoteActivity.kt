@@ -84,7 +84,7 @@ class GuardRemoteActivity : Activity() {
         scope.launch {
             peer = withContext(Dispatchers.IO) { runCatching { link.reachable().firstOrNull()?.first }.getOrNull() }
             if (peer == null) {
-                status.text = "⚠ I can't reach your other phone. Make sure XARVIS is running on it with Tailscale on."
+                status.text = "⚠ I can't reach your other phone. Make sure XARVIS is running on it and ☰ → 🌐 Always connected says Connected on both phones."
                 return@launch
             }
             ui.post(poll)

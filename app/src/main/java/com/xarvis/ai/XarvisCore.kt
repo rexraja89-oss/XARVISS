@@ -538,7 +538,7 @@ class XarvisCore(context: Context) {
         if (here) return Reply(facesHere(file))
         val peers = link.reachable().map { it.first }
         if (peers.isEmpty()) {
-            return Reply("Face recognition runs on the S22, sir, and I can't reach it right now. Make sure XARVIS is running there with Tailscale on.")
+            return Reply("Face recognition runs on the S22, sir, and I can't reach it right now. Make sure XARVIS is running there and ☰ → 🌐 Always connected says Connected on both phones.")
         }
         val problems = mutableListOf<String>()
         for (peer in peers) {

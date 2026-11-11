@@ -39,7 +39,7 @@ class ShareToLinkedActivity : Activity() {
     private suspend fun send(uris: List<Uri>, text: String?): String = withContext(Dispatchers.IO) {
         val link = (application as XarvisApp).core.deviceLink
         val peer = link.reachable().firstOrNull()?.first
-            ?: return@withContext "I can't reach your other phone. Make sure XARVIS is running on it with Tailscale on."
+            ?: return@withContext "I can't reach your other phone. Make sure XARVIS is running on it and ☰ → 🌐 Always connected says Connected on both phones."
         if (uris.isEmpty()) {
             link.sendClip(peer, text.orEmpty())
             return@withContext "Sent to ${peer.name}: it's on its clipboard."

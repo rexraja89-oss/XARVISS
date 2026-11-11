@@ -8,6 +8,8 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.RectF
 import android.media.MediaCodec
+import android.net.ConnectivityManager
+import android.net.Network
 import android.media.MediaFormat
 import android.os.Build
 import android.os.Bundle
@@ -28,10 +30,12 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.xarvis.ai.hands.Reconnect
 import com.xarvis.ai.hands.StreamMsg
 import com.xarvis.ai.net.DeviceLink
 import com.xarvis.ai.net.Peer
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,6 +44,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import java.nio.ByteBuffer
 import java.util.concurrent.Executors
@@ -101,6 +106,8 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
         status = TextView(this).apply {
             text = "Connecting…"; textSize = 13f; setTextColor(Color.WHITE)
             setPadding((12 * d).toInt(), (6 * d).toInt(), (12 * d).toInt(), (6 * d).toInt())
+            // Tap the line to try again now (while waiting to reconnect, or after the other phone said no).
+            setOnClickListener { tryNow() }
         }
         video = SurfaceView(this).apply { holder.addCallback(this@RemoteScreenActivity) }
         picture = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
@@ -126,32 +133,112 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
         setContentView(col)
         scope.launch { run() }
         ui.postDelayed(ticker, 1000)
+        watchNetwork()
     }
 
     // ---- connecting ----
 
     private suspend fun run() {
-        val wanted = intent.getStringExtra(EXTRA_DEVICE)
-        val wantedId = intent.getStringExtra(EXTRA_PEER_ID)
-        val p = withContext(Dispatchers.IO) {
-            wantedId?.let { link.peerById(it) }
-                ?: wanted?.let { link.findPeer(it) } ?: runCatching { link.reachable().firstOrNull()?.first }.getOrNull()
-        }
-        if (p == null) {
-            status.text = "⚠ I can't reach your linked phone. Make sure XARVIS is running on it with Tailscale on."
-            return
-        }
-        peer = p
-        // Reconnect when the other phone switches to video (Rex just allowed smooth mode there).
-        while (scope.isActive && !leaving) {
-            if (session(p) != "video") break
-            status.text = "⚡ Switching to live video…"
+        running = true
+        try {
+            connectAndStay()
+        } finally {
+            running = false
         }
     }
 
-    /** One connection to [p]; returns "video" when the other phone asks to reconnect for smooth video. */
-    private suspend fun session(p: Peer): String? {
-        status.text = "Connecting to ${p.name}…"
+    /**
+     * Finds the phone, then keeps a session going: when the line drops (Wi-Fi ↔ mobile data, a call pausing data, the
+     * direct line going quiet) it reconnects by itself, keeping the last picture on screen. Only a "no" from the other
+     * phone (STOP, a switch off) or leaving the screen ends it.
+     */
+    private suspend fun connectAndStay() {
+        val wanted = intent.getStringExtra(EXTRA_DEVICE)
+        val wantedId = intent.getStringExtra(EXTRA_PEER_ID)
+        var tries = 0
+        var found: Peer? = null
+        while (found == null && scope.isActive && !leaving) {
+            found = withContext(Dispatchers.IO) {
+                wantedId?.let { link.peerById(it) }
+                    ?: wanted?.let { link.findPeer(it) }
+                    ?: runCatching { link.reachable().firstOrNull()?.first }.getOrNull()
+                    // Just one linked phone: keep trying it (the sessions below retry until it answers).
+                    ?: link.pairedPeers().singleOrNull()
+            }
+            if (found == null) {
+                if (link.pairedPeers().isEmpty()) {
+                    status.text = "⚠ No phone is linked yet. Link one first (say \"pair with …\" with both phones on the same Wi-Fi)."
+                    return
+                }
+                tries++
+                status.text = "🔄 I can't reach your linked phones yet. Trying again… ${Reconnect.hint(tries)}".trimEnd()
+                waitToRetry(tries)
+            }
+        }
+        val p = found ?: return
+        peer = p
+        var fails = 0
+        while (scope.isActive && !leaving) {
+            when (session(p, fails)) {
+                End.VIDEO -> {
+                    status.text = "⚡ Switching to live video…"
+                    fails = 0
+                }
+                End.LOST -> {
+                    fails = 1
+                    waitToRetry(fails)
+                }
+                End.DROPPED -> {
+                    fails++
+                    waitToRetry(fails)
+                }
+                End.STOP -> return
+            }
+        }
+    }
+
+    /** How a session ended: switch to video, lost after working, couldn't connect, or a "no" (don't retry). */
+    private enum class End { VIDEO, LOST, DROPPED, STOP }
+
+    @Volatile private var running = false
+    @Volatile private var retryNow: CompletableDeferred<Unit>? = null
+
+    private suspend fun waitToRetry(n: Int) {
+        val kick = CompletableDeferred<Unit>()
+        retryNow = kick
+        withTimeoutOrNull(Reconnect.waitMs(n)) { kick.await() }
+        retryNow = null
+    }
+
+    /** Tapping the status line: skip the wait, or start again after a "no". */
+    private fun tryNow() {
+        if (leaving) return
+        val waiting = retryNow
+        if (waiting != null) {
+            waiting.complete(Unit)
+        } else if (!running) {
+            status.text = "Connecting…"
+            scope.launch { run() }
+        }
+    }
+
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
+    /** A network came (back): Wi-Fi joined, mobile data back after a call — reconnect without waiting. */
+    private fun watchNetwork() {
+        val cm = getSystemService(ConnectivityManager::class.java) ?: return
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                // A moment for the relay to reconnect on the new network first.
+                ui.postDelayed({ retryNow?.complete(Unit) }, 1_500)
+            }
+        }
+        if (runCatching { cm.registerDefaultNetworkCallback(cb) }.isSuccess) networkCallback = cb
+    }
+
+    /** One connection to [p] ([attempt] > 0: reconnecting after [attempt] failed tries). */
+    private suspend fun session(p: Peer, attempt: Int): End {
+        status.text = if (attempt == 0) "Connecting to ${p.name}…" else "🔄 Reconnecting to ${p.name}…"
         val opened = runCatching {
             withContext(Dispatchers.IO) {
                 link.openChannel(p, "stream", JSONObject().put("max", MAX_SIDE).put("kbps", KBPS))
@@ -162,10 +249,15 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
             val why = e.message ?: e.javaClass.simpleName
             if (why.contains("unknown request", ignoreCase = true)) {
                 pollLoop(p) // the other phone has an older XARVIS
-            } else {
-                status.text = "⚠ ${p.name}: $why"
+                return End.STOP
             }
-            return null
+            return if (Reconnect.isRefusal(why)) {
+                status.text = "⚠ ${p.name}: $why\n(Tap here to try again.)"
+                End.STOP
+            } else {
+                status.text = "🔄 ${p.name}: $why. Trying again… ${Reconnect.hint(attempt + 1)}".trimEnd()
+                End.DROPPED
+            }
         }
         channel = ch
         lastFrameAt = System.currentTimeMillis()
@@ -196,7 +288,7 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
     }
 
     /** Everything the other phone sends, until the connection closes. Blocks: runs on an IO thread. */
-    private fun readLoop(p: Peer, ch: DeviceLink.Channel): String? {
+    private fun readLoop(p: Peer, ch: DeviceLink.Channel): End {
         try {
             while (true) {
                 val (type, payload) = ch.receive()
@@ -218,15 +310,22 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
                     StreamMsg.PONG -> if (payload.size == 8) rttMs = (System.nanoTime() - ByteBuffer.wrap(payload).long) / 1_000_000
                     StreamMsg.INFO -> {
                         val info = JSONObject(String(payload))
-                        if (info.optString("switch") == "video") return "video"
+                        if (info.optString("switch") == "video") return End.VIDEO
                         if (info.has("clip")) runOnUiThread { gotClip(if (info.isNull("clip")) null else info.optString("clip")) }
                         if (info.has("locked")) info.optBoolean("locked").let { locked -> runOnUiThread { setLocked(locked) } }
                     }
                 }
             }
         } catch (e: Exception) {
-            if (!leaving) runOnUiThread { status.text = "⚠ ${p.name}: ${e.message ?: "disconnected"}" }
-            return null
+            if (leaving) return End.STOP
+            val why = e.message ?: "disconnected"
+            if (Reconnect.isRefusal(why)) {
+                runOnUiThread { status.text = "⚠ ${p.name}: $why\n(Tap here to try again.)" }
+                return End.STOP
+            }
+            // The last picture stays; taps wait (no channel) until the line is back.
+            runOnUiThread { status.text = "🔄 ${p.name}: $why. Reconnecting…" }
+            return End.LOST
         }
     }
 
@@ -615,6 +714,8 @@ class RemoteScreenActivity : Activity(), SurfaceHolder.Callback {
     override fun onDestroy() {
         leaving = true
         ui.removeCallbacks(ticker)
+        networkCallback?.let { cb -> runCatching { getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(cb) } }
+        networkCallback = null
         scope.cancel()
         val ch = channel
         channel = null

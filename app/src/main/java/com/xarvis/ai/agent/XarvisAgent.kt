@@ -481,7 +481,7 @@ class XarvisAgent(
             link.remoteGallery(peer, REMOTE_GALLERY_COUNT)
         } catch (e: Exception) {
             if (e is CancellationException) throw e
-            return StepResult(false, "I couldn't reach ${peer.name}: ${e.message ?: e.javaClass.simpleName}. Make sure XARVIS is open on it with Tailscale on.")
+            return StepResult(false, "I couldn't reach ${peer.name}: ${e.message ?: e.javaClass.simpleName}. Make sure XARVIS is running on it and ☰ → 🌐 Always connected says Connected on both phones.")
         }
         if (photos.isEmpty()) return StepResult(
             false,
@@ -559,7 +559,7 @@ class XarvisAgent(
      */
     private suspend fun onOtherPhone(cmd: OtherPhoneCommands.Cmd, onPartial: (String) -> Unit): Reply {
         val peer = link.reachable().firstOrNull()?.first
-            ?: return Reply("I can't reach your other phone, sir. Make sure XARVIS is running on it with Tailscale on.")
+            ?: return Reply("I can't reach your other phone, sir. Make sure XARVIS is running on it and ☰ → 🌐 Always connected says Connected on both phones.")
         forceLocalThisTurn = true
         return try {
             when (cmd) {
@@ -595,7 +595,7 @@ class XarvisAgent(
         val confirm: suspend (String) -> Boolean
         if (task.onOtherPhone) {
             val peer = link.reachable().firstOrNull()?.first
-                ?: return Reply("I can't reach your other phone, sir. Make sure XARVIS is running on it with Tailscale on.")
+                ?: return Reply("I can't reach your other phone, sir. Make sure XARVIS is running on it and ☰ → 🌐 Always connected says Connected on both phones.")
             target = LinkedPhone(link, peer)
             confirm = { question ->
                 engine.confirm(com.xarvis.ai.policy.Category.OPEN_APP, question).let {
@@ -711,7 +711,7 @@ class XarvisAgent(
         LlmStatus.Loading -> "My AI model is still loading. Try again in a moment."
         is LlmStatus.Failed -> "My AI model couldn't start (${s.reason}), and no linked phone with one is reachable."
         else -> "There's no AI model on this phone and the linked phone with one isn't reachable. " +
-            "Make sure XARVIS is running on it, with Tailscale on (or both phones on the same Wi-Fi)."
+            "Make sure XARVIS is running on it and ☰ → 🌐 Always connected says Connected on both phones (or put both phones on the same Wi-Fi)."
     }
 
     /**

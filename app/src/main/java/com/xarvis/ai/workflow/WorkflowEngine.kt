@@ -382,7 +382,7 @@ class WorkflowEngine(
         is Step.GuardRemote -> if (step.action == "say") {
             val peer = link.reachable().firstOrNull()?.first
             if (peer == null) {
-                StepResult(false, "I can't reach your other phone, sir. Make sure XARVIS is running on it with Tailscale on.")
+                StepResult(false, "I can't reach your other phone, sir. Make sure XARVIS is running on it and ☰ → 🌐 Always connected says Connected on both phones.")
             } else {
                 runCatching { link.remoteGuard(peer, "say", org.json.JSONObject().put("text", step.text.orEmpty())).optString("text", "Said it.") }
                     .fold({ StepResult(true, "🗣 $it") }, { StepResult(false, "I couldn't say it on ${peer.name}: ${it.message}") })
@@ -718,7 +718,7 @@ class WorkflowEngine(
         // Only phones that answer (this also drops a stale old pairing, whose BAD_DECRYPT once hid the real error).
         val peers = link.reachable().map { it.first }
         if (peers.isEmpty()) return StepResult(
-            false, "This phone has no camera, and I can't reach the linked phone right now, sir. Make sure XARVIS is running on it with Tailscale on.",
+            false, "This phone has no camera, and I can't reach the linked phone right now, sir. Make sure XARVIS is running on it and ☰ → 🌐 Always connected says Connected on both phones.",
         )
         val lens = if (front) "front" else "back"
         val problems = mutableListOf<String>()
