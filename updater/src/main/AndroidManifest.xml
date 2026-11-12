@@ -2,8 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Downloads the patch (or the full APK) from GitHub. -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Hands the rebuilt APK to Android's installer (Rex still taps Install each time). Nothing else. -->
+    <!-- Hands the rebuilt APK to Android's installer. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Android 12+: updates of apps the Updater installed last time (and of itself) go in without the "update?"
+         prompt (13 Nov 2026, Rex: "update all at one time"). New installs still ask. -->
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
+    <!-- Keeps the phone awake for the minute an update takes when XARVIS asks for one in the background. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- The apps it updates: it reads their version and their installed APK (the patch's starting point). -->
     <queries>
@@ -31,6 +36,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- "Update everything" for XARVIS (only: it needs XARVIS's signature permission), e.g. Rex on the benco
+             saying "update my S22". -->
+        <service
+            android:name=".UpdateService"
+            android:exported="true"
+            android:permission="com.xarvis.ai.permission.EYES" />
         <!-- Android's answer about an install (needs Rex's tap / installed / failed). -->
         <receiver
             android:name=".InstallReceiver"

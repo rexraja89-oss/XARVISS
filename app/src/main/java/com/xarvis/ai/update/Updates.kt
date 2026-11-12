@@ -88,11 +88,84 @@ object Updates {
     fun updaterInstalled(context: Context): Boolean =
         runCatching { context.packageManager.getPackageInfo(UPDATER_PACKAGE, 0); true }.getOrDefault(false)
 
-    /** Opens XARVIS Updater (it finds the small update itself); false if it isn't installed. */
-    fun openUpdater(context: Context): Boolean {
+    /**
+     * Opens XARVIS Updater (it finds the small update itself); false if it isn't installed. [updateAll]: it updates
+     * XARVIS, XARVIS Remote and itself at once as soon as it has looked (13 Nov 2026, Rex: "update all at one time";
+     * an Updater from before that just opens).
+     */
+    fun openUpdater(context: Context, updateAll: Boolean = false): Boolean {
         val launch = context.packageManager.getLaunchIntentForPackage(UPDATER_PACKAGE) ?: return false
+        if (updateAll) {
+            launch.putExtra("auto", true).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
         return runCatching { context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); true }.getOrDefault(false)
     }
+
+    private const val UPDATER_SERVICE = "com.xarvis.updater.UpdateService"
+    private const val MSG_UPDATE_ALL = 1
+    private const val MSG_LINE = 2
+    private const val MSG_DONE = 3
+
+    /**
+     * "Update everything" with no screen, by XARVIS Updater's background service (Rex on the other phone: "update my
+     * S22"): [onLine] gets its milestones, [onEnd] the last line, both on the main thread. XARVIS is replaced on the
+     * way (then this process ends and [onEnd] never comes — XARVIS reports after its restart, see XarvisCore). Returns
+     * why it can't start, or null.
+     */
+    fun updateAllQuietly(context: Context, onLine: (String) -> Unit, onEnd: (String) -> Unit): String? {
+        if (!updaterInstalled(context)) return "XARVIS Updater isn't installed on this phone yet"
+        val app = context.applicationContext
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        var ended = false
+        var conn: android.content.ServiceConnection? = null
+        fun end(text: String) {
+            if (ended) return
+            ended = true
+            conn?.let { c -> runCatching { app.unbindService(c) } }
+            onEnd(text)
+        }
+        val replies = android.os.Messenger(object : android.os.Handler(android.os.Looper.getMainLooper()) {
+            override fun handleMessage(msg: android.os.Message) {
+                val text = msg.data?.getString("text") ?: return
+                when (msg.what) {
+                    MSG_LINE -> if (!ended) onLine(text)
+                    MSG_DONE -> end(text)
+                }
+            }
+        })
+        val c = object : android.content.ServiceConnection {
+            override fun onServiceConnected(name: android.content.ComponentName, binder: android.os.IBinder) {
+                runCatching {
+                    android.os.Messenger(binder).send(android.os.Message.obtain(null, MSG_UPDATE_ALL).apply { replyTo = replies })
+                }.onFailure { end("⚠ XARVIS Updater didn't answer (${it.message}). Nothing changed.") }
+            }
+
+            override fun onServiceDisconnected(name: android.content.ComponentName) {
+                // The Updater replacing itself (always its last step) ends its process.
+                main.postDelayed({ end("🏁 Update finished — the Updater restarted itself (its own update is the last step). Now: ${versions(app)}.") }, 15_000)
+            }
+
+            override fun onBindingDied(name: android.content.ComponentName) = onServiceDisconnected(name)
+        }
+        conn = c
+        val intent = Intent().setComponent(android.content.ComponentName(UPDATER_PACKAGE, UPDATER_SERVICE))
+        val flags = Context.BIND_AUTO_CREATE or Context.BIND_IMPORTANT or
+            (if (android.os.Build.VERSION.SDK_INT >= 29) Context.BIND_INCLUDE_CAPABILITIES else 0)
+        val bound = runCatching { app.bindService(intent, c, flags) }.getOrDefault(false)
+        if (!bound) {
+            runCatching { app.unbindService(c) }
+            return "its XARVIS Updater is too old for that — update the Updater there once by hand (open it, tap Update)"
+        }
+        main.postDelayed({ end("⚠ The update took over 15 minutes, so I stopped waiting. Now: ${versions(app)}.") }, 15 * 60_000L)
+        return null
+    }
+
+    /** "XARVIS v1.0.282 · Remote v1.0.280 · Updater v1.0.282" — what's installed here. */
+    fun versions(context: Context): String = listOf(
+        "XARVIS" to "com.xarvis.ai", "Remote" to "com.xarvis.remote", "Updater" to UPDATER_PACKAGE,
+    ).mapNotNull { (name, pkg) ->
+        runCatching { "$name v" + context.packageManager.getPackageInfo(pkg, 0).versionName }.getOrNull()
+    }.joinToString(" · ")
 
     /** Downloads XARVIS Updater (1.5 MB) in Chrome, to install once. */
     fun getUpdater(context: Context): Boolean = openInBrowser(context, UPDATER_APK)

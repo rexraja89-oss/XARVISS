@@ -358,6 +358,28 @@ class XarvisCore(context: Context) {
                     com.xarvis.ai.task.NightShiftRunner.clear(appContext)
                     "Night shift cleared."
                 }
+                // "update my S22" from the other phone: XARVIS Updater updates everything here in the background.
+                "update" -> {
+                    val news = taskNewsTo(peer)
+                    settings.edit().putString(
+                        UPDATE_ASKED,
+                        org.json.JSONObject().put("peer", peer.id).put("from", com.xarvis.ai.BuildConfig.VERSION_NAME)
+                            .put("at", System.currentTimeMillis()).toString(),
+                    ).commit()
+                    com.xarvis.ai.update.Updates.updateAllQuietly(
+                        appContext,
+                        onLine = { news(it) },
+                        onEnd = { end ->
+                            settings.edit().remove(UPDATE_ASKED).apply()
+                            news(if (end.startsWith("🏁")) end else "🏁 $end")
+                        },
+                    )?.let {
+                        settings.edit().remove(UPDATE_ASKED).apply()
+                        throw com.xarvis.ai.net.LinkException(it)
+                    }
+                    post("⬆ ${peer.name} asked me to update XARVIS, XARVIS Remote and the Updater here.")
+                    "Updating XARVIS, XARVIS Remote and the Updater with the small updates. Progress shows up here; XARVIS restarts on the way and says when it's back."
+                }
                 else -> throw com.xarvis.ai.net.LinkException("unknown task request")
             }
             return org.json.JSONObject().put("text", text)
@@ -439,6 +461,7 @@ class XarvisCore(context: Context) {
         // Remote control of this phone by the linked one: one chat line when it starts and one when it's really over.
         // Reconnects (a network hop, switching to live video) add nothing — Rex's chat filled up with them (13 Nov 2026).
         com.xarvis.ai.hands.ScreenHost.onSession = { by -> controlNote(by) }
+        scope.launch { reportUpdate() }
         scope.launch {
             _state.update { it.copy(memoryCount = memory.factCount()) }
         }
@@ -914,6 +937,26 @@ class XarvisCore(context: Context) {
         _state.update { it.copy(messages = it.messages + ChatMessage(false, text)) }
     }
 
+    /**
+     * XARVIS was just replaced by an update another phone asked for ("update my S22"): tell that phone it's back, with
+     * the versions (the Updater installs itself right after XARVIS, so wait a little first).
+     */
+    private suspend fun reportUpdate() {
+        val asked = settings.getString(UPDATE_ASKED, null) ?: return
+        settings.edit().remove(UPDATE_ASKED).apply()
+        val o = runCatching { org.json.JSONObject(asked) }.getOrNull() ?: return
+        if (System.currentTimeMillis() - o.optLong("at") > 30 * 60_000L) return
+        if (o.optString("from") == com.xarvis.ai.BuildConfig.VERSION_NAME) return
+        kotlinx.coroutines.delay(20_000)
+        val text = "🏁 Back after the update — ${com.xarvis.ai.update.Updates.versions(appContext)}."
+        post(text)
+        val peer = link.pairedPeers().firstOrNull { it.id == o.optString("peer") } ?: return
+        repeat(6) {
+            if (runCatching { link.sendTaskNews(peer, text) }.isSuccess) return
+            kotlinx.coroutines.delay(20_000)
+        }
+    }
+
     private val controlLock = Any()
     private var controlledBy: String? = null
     private var controlEnded: kotlinx.coroutines.Job? = null
@@ -991,6 +1034,9 @@ class XarvisCore(context: Context) {
     private companion object {
         /** A remote-control session counts as over when nobody reconnects for this long. */
         const val CONTROL_END_QUIET_MS = 90_000L
+
+        /** Settings key: who asked for the update running now ({peer, from version, at}). */
+        const val UPDATE_ASKED = "updateAsked"
         const val MEMORY_SYNC_START_DELAY_MS = 5_000L
         const val MEMORY_SYNC_INTERVAL_MS = 5 * 60_000L
         const val UPDATE_CHECK_INTERVAL_MS = 30 * 60_000L

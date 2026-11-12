@@ -109,6 +109,11 @@ fun HelpScreen(onBack: () -> Unit) {
             "🌙 \"night shift: do my VPN at 2 am\" (or ➕ on the Skills screen): every night on the S22, with a report to the benco (and in the morning briefing). If the S22 is locked then, the benco is told and it waits for you to unlock it with XARVIS Remote.",
             "Never recorded or replayed: passwords (it stops for you to type them), banking and payment apps, and money buttons.",
         ))
+        Section("⬆ Updates — small and all at once", listOf(
+            "UPDATE (or \"update everything\") opens XARVIS Updater, which updates XARVIS, XARVIS Remote and itself at once with only what changed — usually under 1 MB. After the first time, Android doesn't ask \"Update?\" for each one.",
+            "From the benco: \"update my S22\" — the S22 updates itself, its progress comes here, and it says when it's back. \"update both phones\" does both.",
+            "An app whose code didn't change isn't downloaded again. A full 107 MB download is never started without you saying so on the Updater's screen.",
+        ))
         Section("🤝 Help a family phone", listOf(
             "☰ → 🤝 Help a family phone → Invite a phone: send the invite on WhatsApp. They install the small XARVIS Helper app and paste it.",
             "When they tap \"Ask for help\", you get a notification: tap it to see their screen (and tap for them, if they switched on \"Allow tapping\").",

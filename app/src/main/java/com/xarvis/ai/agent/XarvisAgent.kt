@@ -154,6 +154,7 @@ class XarvisAgent(
                         ),
                     )
                 }
+                ?: UpdateCommands.parse(message)?.let { updateCommand(it) }
                 // Before "open X on my S22 and …": a job with real actions in it is for Task mode.
                 ?: com.xarvis.ai.task.TaskCommands.parse(message)?.takeIf { taskPlausible(it) }?.let { taskCommand(it) }
                 ?: OtherPhoneCommands.parse(message, otherPhoneWords())?.let { onOtherPhone(it, onPartial) }
@@ -596,6 +597,47 @@ class XarvisAgent(
         val app = cmd.app ?: return false
         return com.xarvis.ai.hands.HandsBridge.builtIn &&
             runCatching { com.xarvis.ai.device.DeviceCapabilityManager(appContext).findApp(app) != null }.getOrDefault(false)
+    }
+
+    /**
+     * "update everything" / "update my S22" / "update both phones" (13 Nov 2026, Rex: "update all at one time"): XARVIS
+     * Updater updates XARVIS, XARVIS Remote and itself with the small updates — here it opens and does it all at once;
+     * on a linked phone it runs in the background and the progress comes back here. Null = not about Rex's phones after
+     * all ("update my CV" — the chat answers it).
+     */
+    private suspend fun updateCommand(cmd: UpdateCommands.Cmd): Reply? {
+        val peers = link.pairedPeers()
+        val named = cmd.where?.let { DeviceLink.namedIn(it, peers.map { p -> p.name }) }?.let { n -> peers.firstOrNull { it.name == n } }
+        val thisOne = cmd.where != null && DeviceLink.namedIn(cmd.where, listOf(link.deviceName)) != null
+        if (cmd.where != null && named == null && !thisOne) {
+            return if (cmd.phoneOnly) null else Reply("⬆ I don't have a linked phone called “${cmd.where}”, sir.")
+        }
+        val there = when {
+            thisOne -> emptyList()
+            cmd.both -> link.reachable().map { it.first }
+            named != null -> listOf(named)
+            else -> emptyList()
+        }
+        if (cmd.both && there.isEmpty() && peers.isNotEmpty()) {
+            return Reply("⬆ I can't reach your other phone right now, sir — XARVIS must be running on it and ☰ → 🌐 Always connected must say Connected on both phones.")
+        }
+        val lines = ArrayList<String>()
+        for (peer in there) {
+            lines += try {
+                "⬆ ${peer.name}: " + link.remoteTask(peer, org.json.JSONObject().put("action", "update"))
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                "⬆ ${peer.name} couldn't: ${e.message ?: e.javaClass.simpleName}"
+            }
+        }
+        if (thisOne || cmd.both || named == null) {
+            lines += if (com.xarvis.ai.update.Updates.openUpdater(appContext, updateAll = true)) {
+                "⬆ Opening XARVIS Updater — it updates everything on this phone at once with the small updates (XARVIS restarts on the way)."
+            } else {
+                "⬆ XARVIS Updater isn't on this phone yet, sir: tap UPDATE on the main screen and choose “Get XARVIS Updater” (1.5 MB)."
+            }
+        }
+        return Reply(lines.joinToString("\n"))
     }
 
     /** Task mode, skills and the night shift: here on the S22, else on the S22 over the link. Null = not for Task mode after all. */

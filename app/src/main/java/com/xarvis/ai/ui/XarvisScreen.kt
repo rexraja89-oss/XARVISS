@@ -335,11 +335,12 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
             drawerScope.launch { drawer.open() }
         }
         state.update?.let { version ->
-            // XARVIS Updater downloads only what changed (~0.1–0.5 MB); without it, ask once: get it, or the full APK.
+            // XARVIS Updater downloads only what changed (~0.1–0.5 MB) and updates everything at once (13 Nov 2026);
+            // without it, ask once: get it, or the full APK.
             var chooseUpdate by remember { mutableStateOf(false) }
             Button(
                 onClick = {
-                    if (!com.xarvis.ai.update.Updates.openUpdater(context)) chooseUpdate = true
+                    if (!com.xarvis.ai.update.Updates.openUpdater(context, updateAll = true)) chooseUpdate = true
                 },
                 modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
             ) { Text("UPDATE TO v$version") }

@@ -3,8 +3,6 @@ package com.xarvis.updater
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
-import android.content.pm.PackageInfo
-import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
@@ -24,40 +22,35 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.IOException
 
 /**
- * One screen: each XARVIS app on this phone, its version, and an Update button that downloads only what changed.
- * Nothing happens without a tap, nothing installs unless the rebuilt APK is identical to GitHub's, and Android's own
- * installer still asks before it updates. XARVIS's own UPDATE button (the full download in Chrome) keeps working.
+ * One screen: each XARVIS app on this phone, its version, and an Update button that downloads only what changed —
+ * plus "⬆ Update all" (13 Nov 2026, Rex: "update all at one time"). Nothing installs unless the rebuilt APK is identical
+ * to GitHub's. Android installs updates of apps the Updater installed last time without asking; otherwise it asks as
+ * usual. Opened with [EXTRA_AUTO] (XARVIS's UPDATE button) it starts "Update all" by itself.
  */
 class UpdaterActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var status: TextView
     private lateinit var list: LinearLayout
+    private lateinit var allButton: Button
     private var checking: Job? = null
     private var busy = false
     private var resumed = false
-    private var waitingRow: Row? = null
-    private var waitingVersion = ""
+    private var auto = false
     private var pendingConfirm: Intent? = null
     private var lastCheck = 0L
+    private var tag = ""
     private val buttons = ArrayList<Button>()
-    private val listener: (Installer.Outcome) -> Unit = { onInstall(it) }
-
-    private class App(val label: String, val pkg: String)
-
-    private val apps = listOf(
-        App("XARVIS", "com.xarvis.ai"),
-        App("XARVIS Remote", "com.xarvis.remote"),
-        App("XARVIS Updater", "com.xarvis.updater"),
-    )
-
-    /** An app on this phone: its version, its installed APK and that APK's name on GitHub. */
-    private class Installed(val app: App, val version: String, val apk: File, val file: String, val build: String?, val src: String?)
+    private val todo = ArrayList<Item>()
 
     private inner class Row(val box: LinearLayout, val note: TextView) {
         fun say(text: String) = runOnUiThread { note.text = text; note.visibility = View.VISIBLE }
+    }
+
+    /** An app with an update waiting, shown in [row]. */
+    private class Item(val row: Row, val i: UpdateEngine.Installed, val choice: Choice) {
+        val size: Long get() = UpdateEngine.downloadSize(i, choice)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -71,12 +64,18 @@ class UpdaterActivity : Activity() {
         root.addView(
             text(
                 "Updates XARVIS by downloading only what changed — usually well under 1 MB instead of the whole " +
-                    "app. Your XARVIS is rebuilt here, checked to be identical to GitHub's, then Android asks you to install it as usual.",
+                    "app. Your XARVIS is rebuilt here and checked to be identical to GitHub's before it's installed.",
                 14f, color = Color.DKGRAY,
             ).apply { setPadding(0, dp(6), 0, dp(12)) },
         )
         status = text("", 15f).apply { setPadding(0, 0, 0, dp(8)) }
         root.addView(status)
+        allButton = Button(this).apply {
+            isAllCaps = false
+            visibility = View.GONE
+            setOnClickListener { runUpdates(todo.toList()) }
+        }
+        root.addView(allButton)
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(list)
         root.addView(Button(this).apply {
@@ -93,9 +92,17 @@ class UpdaterActivity : Activity() {
         )
         root.addView(text("Updater v${versionOf(packageName) ?: "?"}", 12f, color = Color.GRAY))
         setContentView(ScrollView(this).apply { addView(root) })
-        Installer.listener = listener
-        // Leftovers older than two days (a broken full download is resumed if it's newer).
-        File(cacheDir, "update").listFiles()?.forEach { if (System.currentTimeMillis() - it.lastModified() > 48 * 3_600_000L) it.delete() }
+        auto = intent?.getBooleanExtra(EXTRA_AUTO, false) == true
+        UpdateEngine.dropOld(this)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_AUTO, false)) {
+            auto = true
+            lastCheck = 0
+        }
     }
 
     override fun onResume() {
@@ -111,7 +118,6 @@ class UpdaterActivity : Activity() {
     }
 
     override fun onDestroy() {
-        if (Installer.listener === listener) Installer.listener = null
         scope.cancel()
         super.onDestroy()
     }
@@ -122,80 +128,70 @@ class UpdaterActivity : Activity() {
         checking?.cancel()
         list.removeAllViews()
         buttons.clear()
+        todo.clear()
+        allButton.visibility = View.GONE
         status.text = "Checking GitHub…"
         checking = scope.launch {
-            val found = apps.mapNotNull { installed(it) }
-            val tag = withContext(Dispatchers.IO) { runCatching { Net.latestTag() } }.getOrElse {
+            val latest = withContext(Dispatchers.IO) { runCatching { UpdateEngine.latest() } }.getOrElse {
                 status.text = "⚠ Couldn't reach GitHub (${it.message}). Check the internet, then tap Check again."
+                auto = false
                 return@launch
             }
-            val latest = tag.removePrefix("v")
-            val release = withContext(Dispatchers.IO) {
-                runCatching { Net.text(Net.assetUrl(tag, "patches.json"))?.let { Release.parse(it) } }.getOrNull()
-            }
-            status.text = "Newest on GitHub: v$latest" + if (release == null) {
+            tag = latest.tag
+            status.text = "Newest on GitHub: v${latest.version}" + if (latest.release == null) {
                 "\n⏳ Its small update is still being made on GitHub (about 10 minutes after each release). Check again soon."
             } else ""
-            for (i in found) {
+            for (app in UpdateEngine.APPS) {
+                val i = UpdateEngine.installed(this@UpdaterActivity, app) ?: continue
                 val row = addRow(i)
-                if (!Release.isNewer(latest, i.version)) {
-                    row.say("✓ Up to date (v${i.version})")
-                    continue
-                }
-                row.say("v${i.version} → v$latest · looking at the one on this phone…")
-                // Nothing it's built from changed: no download at all.
-                if (!i.src.isNullOrBlank() && release?.files?.get(i.file)?.src == i.src) {
-                    show(row, i, tag, Choice.Unchanged, release)
-                    continue
-                }
-                // The installed APK's fingerprint picks the patch that starts from exactly this file.
-                val sha = if (release?.patches?.isNotEmpty() == true) {
-                    withContext(Dispatchers.IO) { runCatching { Patch.sha256(i.apk) }.getOrNull() }
-                } else null
-                show(row, i, tag, Choice.of(i.version, sha, i.file, latest, release, i.src), release)
+                if (Release.isNewer(latest.version, i.version)) row.say("v${i.version} → v${latest.version} · looking at the one on this phone…")
+                val choice = withContext(Dispatchers.IO) { UpdateEngine.choose(i, latest) }
+                show(row, i, latest, choice)
+            }
+            if (todo.size > 1) {
+                allButton.text = "⬆ Update all — download ${UpdateEngine.mb(todo.sumOf { it.size })}"
+                allButton.visibility = View.VISIBLE
+            }
+            if (auto) {
+                auto = false
+                if (todo.isEmpty()) status.append("\n✓ Everything here is up to date.") else runUpdates(todo.toList())
             }
         }
     }
 
-    private fun show(row: Row, i: Installed, tag: String, choice: Choice, release: Release?) {
-        val latest = tag.removePrefix("v")
+    private fun show(row: Row, i: UpdateEngine.Installed, latest: UpdateEngine.Latest, choice: Choice) {
+        val release = latest.release
         when (choice) {
             Choice.UpToDate -> row.say("✓ Up to date (v${i.version})")
             Choice.Unchanged -> row.say("✓ Up to date — nothing in it changed since v${i.version}, so nothing to download")
             is Choice.ViaPatch -> {
-                row.say("v${i.version} → v$latest")
-                addButton(row, "⬇ Update — download ${mb(choice.patch.size)} (instead of ${mb(choice.target.size)})") {
-                    update(row, i, tag, choice)
+                row.say("v${i.version} → v${latest.version}")
+                val item = Item(row, i, choice).also { todo += it }
+                addButton(row, "⬇ Update — download ${UpdateEngine.mb(choice.patch.size)} (instead of ${UpdateEngine.mb(choice.target.size)})") {
+                    runUpdates(listOf(item))
                 }
             }
             is Choice.Full -> {
-                val size = choice.target?.size ?: i.apk.length()
                 val patched = release?.patches?.any { it.file == choice.file } == true
                 row.say(
-                    "v${i.version} → v$latest" + when {
+                    "v${i.version} → v${latest.version}" + when {
                         release == null -> "\nThe small update isn't ready yet — check again in a few minutes."
                         patched -> "\nNo small update starts from your version (it's several releases old, or not from GitHub)."
                         else -> ""
                     },
                 )
-                addButton(row, "⬇ Update — full download ${mb(size)}") {
-                    if (size > 20_000_000) {
-                        AlertDialog.Builder(this)
-                            .setTitle("Full download")
-                            .setMessage("This downloads the whole ${i.app.label} (${mb(size)}). Go ahead?")
-                            .setPositiveButton("Download") { _, _ -> update(row, i, tag, choice) }
-                            .setNegativeButton("Not now", null)
-                            .show()
-                    } else {
-                        update(row, i, tag, choice)
-                    }
-                }
+                val item = Item(row, i, choice).also { todo += it }
+                addButton(row, "⬇ Update — full download ${UpdateEngine.mb(item.size)}") { runUpdates(listOf(item)) }
             }
         }
     }
 
-    private fun update(row: Row, i: Installed, tag: String, choice: Choice) {
-        if (busy) return
+    /**
+     * Downloads and checks each of [items], then installs them in [UpdateEngine.order] (the Updater itself last). A
+     * full download over 20 MB asks first ([bigOk] = Rex said yes).
+     */
+    private fun runUpdates(items: List<Item>, bigOk: Boolean = false) {
+        if (busy || items.isEmpty()) return
         if (!packageManager.canRequestPackageInstalls()) {
             AlertDialog.Builder(this)
                 .setTitle("One-time step")
@@ -207,116 +203,65 @@ class UpdaterActivity : Activity() {
                 .show()
             return
         }
+        val big = items.filter { it.choice is Choice.Full && it.size > UpdateEngine.BIG_DOWNLOAD }
+        if (big.isNotEmpty() && !bigOk) {
+            val d = AlertDialog.Builder(this)
+                .setTitle("Full download")
+                .setMessage(big.joinToString("\n") { "This downloads the whole ${it.i.app.label} (${UpdateEngine.mb(it.size)})." } + "\nGo ahead?")
+                .setPositiveButton("Download") { _, _ -> runUpdates(items, bigOk = true) }
+                .setNegativeButton("Not now", null)
+            if (items.size > big.size) d.setNeutralButton("Only the small ones") { _, _ -> runUpdates(items - big.toSet(), bigOk = true) }
+            d.show()
+            return
+        }
+        if (!UpdateEngine.running.compareAndSet(false, true)) {
+            status.text = "⏳ XARVIS asked for an update in the background — it's running now. Check again in a minute."
+            return
+        }
         busy = true
         buttons.forEach { it.isEnabled = false }
+        allButton.isEnabled = false
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        val latest = tag.removePrefix("v")
+        val version = tag.removePrefix("v")
         scope.launch {
-            val apk = withContext(Dispatchers.IO) { runCatching { prepare(i, tag, choice, row::say) } }
-            apk.onSuccess { f ->
-                row.say("Android will now ask you to update ${i.app.label} — tap Update.")
-                waitingRow = row
-                waitingVersion = latest
-                withContext(Dispatchers.IO) { runCatching { Installer.install(applicationContext, f, i.app.pkg) } }
-                    .onFailure { done(row, "⚠ Android's installer didn't start (${it.message}). Nothing changed.") }
-            }.onFailure {
-                done(row, "⚠ ${it.message ?: it.javaClass.simpleName}. Nothing was installed.")
+            try {
+                val ready = ArrayList<Pair<Item, File>>()
+                for (item in items) {
+                    withContext(Dispatchers.IO) { runCatching { UpdateEngine.prepare(applicationContext, item.i, tag, item.choice, item.row::say) } }
+                        .onSuccess { ready += item to it }
+                        .onFailure { item.row.say("⚠ ${it.message ?: it.javaClass.simpleName}. Nothing was installed.") }
+                }
+                for ((item, apk) in ready.sortedBy { UpdateEngine.order(it.first.i.app.pkg) }) {
+                    val label = item.i.app.label
+                    item.row.say(if (item.i.app.pkg == packageName) "Installing… (the Updater restarts itself — open it again after)" else "Installing…")
+                    val outcome = runCatching {
+                        Installer.installAndWait(applicationContext, apk, item.i.app.pkg, onConfirm = { confirm ->
+                            item.row.say("Android asks you to update $label — tap Update.")
+                            if (resumed) startActivity(confirm) else pendingConfirm = confirm
+                        })
+                    }.getOrElse { Installer.Outcome.Failed("the installer didn't start (${it.message})") }
+                    item.row.say(
+                        when (outcome) {
+                            Installer.Outcome.Installed -> "✅ Updated to v$version."
+                            Installer.Outcome.Cancelled -> "Cancelled — nothing changed. Tap Update to try again."
+                            is Installer.Outcome.Failed -> "⚠ Android didn't install it: ${outcome.why}. Nothing changed."
+                            else -> "⚠ Android wanted a tap. Nothing changed — tap Update to try again."
+                        },
+                    )
+                    if (outcome == Installer.Outcome.Installed) UpdateEngine.cleanUp(applicationContext, item.i.app.pkg)
+                }
+            } finally {
+                UpdateEngine.running.set(false)
+                busy = false
+                buttons.forEach { it.isEnabled = true }
+                allButton.isEnabled = true
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
+            status.postDelayed({ lastCheck = 0; if (!busy) check() }, 2_500)
         }
     }
 
-    /** Downloads the patch (or the whole APK) and returns the APK to install, checked against GitHub's fingerprint. */
-    private fun prepare(i: Installed, tag: String, choice: Choice, say: (String) -> Unit): File {
-        val dir = File(cacheDir, "update").apply { mkdirs() }
-        val latest = tag.removePrefix("v")
-        when (choice) {
-            is Choice.ViaPatch -> {
-                val p = choice.patch
-                val patchFile = File(dir, p.asset)
-                keepOnly(dir, patchFile)
-                if (patchFile.length() > p.size) patchFile.delete()
-                Net.download(Net.assetUrl(tag, p.asset), patchFile) { done, _ -> say("Downloading the changes: ${mb(done)} of ${mb(p.size)}") }
-                if (Patch.sha256(patchFile) != p.sha256) {
-                    patchFile.delete()
-                    throw IOException("The patch arrived damaged — tap Update to try again")
-                }
-                say("Building the new ${i.app.label} from the one on this phone…")
-                val out = File(dir, "v$latest-${choice.file}")
-                out.delete()
-                val sha = try {
-                    Patch.apply(i.apk, patchFile, out) { done, total -> say("Building the new ${i.app.label}: ${done * 100 / maxOf(total, 1)}%") }
-                } catch (e: Exception) {
-                    out.delete()
-                    throw IOException("The patch couldn't be applied (${e.message})")
-                }
-                patchFile.delete()
-                if (sha != choice.target.sha256 || out.length() != choice.target.size) {
-                    out.delete()
-                    throw IOException("The rebuilt app wasn't identical to GitHub's")
-                }
-                say("✓ Checked: identical to GitHub's v$latest.")
-                return out
-            }
-            is Choice.Full -> {
-                val out = File(dir, "v$latest-${choice.file}")
-                keepOnly(dir, out)
-                choice.target?.let { if (out.length() > it.size) out.delete() }
-                val size = choice.target?.size
-                Net.download(Net.assetUrl(tag, choice.file), out) { done, total ->
-                    say("Downloading: ${mb(done)} of ${mb(size ?: total)}")
-                }
-                choice.target?.let { t ->
-                    if (out.length() != t.size || Patch.sha256(out) != t.sha256) {
-                        out.delete()
-                        throw IOException("The download arrived damaged — tap Update to try again")
-                    }
-                    say("✓ Checked: identical to GitHub's v$latest.")
-                }
-                return out
-            }
-            Choice.UpToDate, Choice.Unchanged -> throw IOException("already up to date")
-        }
-    }
-
-    private fun onInstall(outcome: Installer.Outcome) {
-        val row = waitingRow
-        when (outcome) {
-            is Installer.Outcome.Confirm -> if (resumed) startActivity(outcome.intent) else pendingConfirm = outcome.intent
-            Installer.Outcome.Installed -> {
-                done(row, "✅ Updated to v$waitingVersion.")
-                cleanUp()
-                status.postDelayed({ lastCheck = 0; if (!busy) check() }, 1_500)
-            }
-            Installer.Outcome.Cancelled -> done(row, "Cancelled — nothing changed. Tap Update to try again.")
-            is Installer.Outcome.Failed -> done(row, "⚠ Android didn't install it: ${outcome.why}. Nothing changed.")
-        }
-    }
-
-    private fun done(row: Row?, message: String) {
-        row?.say(message)
-        busy = false
-        waitingRow = null
-        buttons.forEach { it.isEnabled = true }
-        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-    }
-
-    private fun installed(app: App): Installed? {
-        val info: PackageInfo = runCatching {
-            @Suppress("DEPRECATION")
-            packageManager.getPackageInfo(app.pkg, PackageManager.GET_PERMISSIONS or PackageManager.GET_META_DATA)
-        }.getOrNull() ?: return null
-        val apk = File(info.applicationInfo?.sourceDir ?: return null)
-        val (file, build) = when (app.pkg) {
-            // The S22's build may place calls; the benco's build leaves that permission out.
-            "com.xarvis.ai" -> if (info.requestedPermissions?.contains("android.permission.CALL_PHONE") == true) "XARVIS.apk" to "S22 build" else "XARVIS-benco.apk" to "benco build"
-            "com.xarvis.remote" -> "XARVIS-Remote.apk" to null
-            else -> "XARVIS-Updater.apk" to null
-        }
-        val src = info.applicationInfo?.metaData?.getString("xarvis.src")?.takeIf { it.isNotBlank() }
-        return Installed(app, info.versionName ?: "0", apk, file, build, src)
-    }
-
-    private fun addRow(i: Installed): Row {
+    private fun addRow(i: UpdateEngine.Installed): Row {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(10), 0, dp(10))
@@ -341,15 +286,6 @@ class UpdaterActivity : Activity() {
 
     private fun versionOf(pkg: String): String? = runCatching { packageManager.getPackageInfo(pkg, 0).versionName }.getOrNull()
 
-    /** Leftovers from earlier updates (a full XARVIS is ~107 MB). */
-    private fun cleanUp() {
-        File(cacheDir, "update").listFiles()?.forEach { it.delete() }
-    }
-
-    private fun keepOnly(dir: File, keep: File) {
-        dir.listFiles()?.forEach { if (it.name != keep.name) it.delete() }
-    }
-
     private fun text(s: String, size: Float, bold: Boolean = false, color: Int = Color.BLACK) = TextView(this).apply {
         text = s
         textSize = size
@@ -360,10 +296,7 @@ class UpdaterActivity : Activity() {
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     companion object {
-        fun mb(bytes: Long): String = when {
-            bytes < 0 -> "?"
-            bytes < 1_000_000 -> "%.2f MB".format(bytes / 1e6)
-            else -> "%.1f MB".format(bytes / 1e6)
-        }
+        /** XARVIS's UPDATE button: start "Update all" as soon as the check is done. */
+        const val EXTRA_AUTO = "auto"
     }
 }

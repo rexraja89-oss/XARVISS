@@ -58,6 +58,8 @@
         <package android:name="com.xarvis.eyes" />
         <!-- XARVIS Updater, so UPDATE can open it (small updates instead of the whole app). -->
         <package android:name="com.xarvis.updater" />
+        <!-- XARVIS Remote, so "update my S22" can say which version it's on afterwards. -->
+        <package android:name="com.xarvis.remote" />
         <!-- The phone's text-to-speech engine, for XARVIS's voice. -->
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
