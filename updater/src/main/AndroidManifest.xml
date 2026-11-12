@@ -19,6 +19,7 @@
         android:theme="@android:style/Theme.DeviceDefault.Light">
         <activity
             android:name=".UpdaterActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:exported="true"
             android:launchMode="singleTask">
             <intent-filter>
