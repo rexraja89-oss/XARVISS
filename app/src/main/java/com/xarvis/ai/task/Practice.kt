@@ -10,7 +10,8 @@ import org.json.JSONObject
  * a level opens when every task below it has passed. What it learns on the way goes into the LessonBook like any task.
  */
 object Practice {
-    data class Drill(val id: String, val level: Int, val goal: String)
+    /** [app]: the one app a simple drill happens in (it then runs as one step, without a planning call). */
+    data class Drill(val id: String, val level: Int, val goal: String, val app: String? = null)
 
     data class Score(val runs: Int, val clean: Int) {
         val passed: Boolean get() = clean >= PASSES
@@ -19,9 +20,9 @@ object Practice {
     const val PASSES = 2
 
     val ladder = listOf(
-        Drill("vpn", 1, "Open Ninja VPN and connect it. Wait for any ads to finish and close them. When it shows it's connected, tell me \"Ninja VPN is connected\"."),
-        Drill("search", 1, "Open Chrome, search for \"Mars facts\" and open the first result. Tell me the page's title."),
-        Drill("timer", 1, "Open the Clock app, start a 1-minute timer, then cancel it. Tell me when it's cancelled."),
+        Drill("vpn", 1, "Open Ninja VPN and connect it. Wait for any ads to finish and close them. When it shows it's connected, tell me \"Ninja VPN is connected\".", "Ninja VPN"),
+        Drill("search", 1, "Open Chrome, search for \"Mars facts\" and open the first result. Tell me the page's title.", "Chrome"),
+        Drill("timer", 1, "Open the Clock app, start a 1-minute timer, then cancel it. Tell me when it's cancelled.", "Clock"),
         Drill("note", 2, "Find 3 short facts about Mars in Chrome and save them in a new note called \"Mars facts\" (Samsung Notes, or a text file if there's no notes app)."),
         Drill("titles", 2, "Open YouTube, search \"how to make YouTube Shorts\", and save the titles of the top 3 videos in a file called shorts-titles.txt."),
         Drill("script", 3, "Write a 30-second YouTube Short script about Mars and save it. Then open CapCut, start a new project and add the script as text. Don't export."),

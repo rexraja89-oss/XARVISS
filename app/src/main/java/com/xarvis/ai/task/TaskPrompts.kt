@@ -62,7 +62,9 @@ object TaskPrompts {
         "SWIPE UP|DOWN|LEFT|RIGHT · BACK · HOME · WAIT <seconds> <why> (e.g. while an AI generates, up to 600) · " +
         "SAVE <file.txt>: <text> (or SAVE <file.txt>, then the text on the next lines, then END SAVE) · NOTE <a tip worth " +
         "remembering about this app> · ASK <question for Rex> · DONE <what this step produced> · STUCK <why>\n" +
-        "Rules: give several actions only when sure; after WAIT/ASK/DONE/STUCK stop. Say DONE only when the step's \"done\" is " +
+        "Rules: be quick — every turn costs seconds: when the next 2–3 actions are clear from this screen (e.g. TAP a box, " +
+        "TYPE the text, TAP Search), send them together; WAIT only as long as needed (an ad: about its countdown — the wait " +
+        "ends by itself when a close/skip button appears). After WAIT/ASK/DONE/STUCK stop. Say DONE only when the step's \"done\" is " +
         "really on the screen or saved. Rex's task is his permission for every step it needs: don't ask whether you may — " +
         "just do it (sign in with the account already on the phone, accept the app's own and Android's permission boxes the " +
         "task needs). ASK only for what only Rex can do: a password or code he types himself, a captcha, a choice only he can " +

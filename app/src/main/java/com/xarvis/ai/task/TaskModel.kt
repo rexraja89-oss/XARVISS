@@ -35,6 +35,19 @@ data class Plan(val title: String, val steps: List<PlanStep>) {
 
     companion object {
         const val MAX_STEPS = 20
+        /** Longest goal that still runs as one step without a planning call. */
+        const val QUICK_WORDS = 45
+
+        /**
+         * A short job in one known app ("open Ninja VPN and connect it…"): one step in [app], no planning call (it took
+         * a brain call, and a free-limit wait now and then, to plan what was already clear). Null for a bigger job.
+         */
+        fun quick(goal: String, app: String?): Plan? {
+            val a = app?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            val g = goal.trim()
+            if (g.isEmpty() || g.split(Regex("""\s+""")).size > QUICK_WORDS) return null
+            return Plan(a, listOf(PlanStep(g.take(300), a, "", "the screen shows it's done")))
+        }
 
         /** The brain's plan: the first JSON object in its answer (code fences and chatter around it are fine). */
         fun parse(raw: String): Plan? = runCatching {

@@ -614,7 +614,7 @@ class XarvisAgent(
         }
         if (here) {
             return when (cmd) {
-                is com.xarvis.ai.task.TaskCommands.Cmd.Start -> tasks.start(appContext, cmd.goal)
+                is com.xarvis.ai.task.TaskCommands.Cmd.Start -> tasks.start(appContext, cmd.goal, app = cmd.app)
                     ?.let { Reply("🧠 Task mode can't start yet, sir: $it") }
                     ?: Reply("🧠 On it, sir — planning it and doing it now. Follow along in ☰ → 🧠 Task mode or the notification; STOP any time.")
                 is com.xarvis.ai.task.TaskCommands.Cmd.Answer -> if (tasks.waitingForAnswer()) {
@@ -634,7 +634,7 @@ class XarvisAgent(
         val peer = named ?: link.reachable().firstOrNull()?.first
             ?: return Reply("🧠 I can't reach your S22 to do that, sir. Make sure XARVIS is running on it and ☰ → 🌐 Always connected says Connected on both phones.")
         val body = when (cmd) {
-            is com.xarvis.ai.task.TaskCommands.Cmd.Start -> org.json.JSONObject().put("action", "start").put("goal", cmd.goal)
+            is com.xarvis.ai.task.TaskCommands.Cmd.Start -> org.json.JSONObject().put("action", "start").put("goal", cmd.goal).put("app", cmd.app ?: "")
             is com.xarvis.ai.task.TaskCommands.Cmd.Answer -> org.json.JSONObject().put("action", "answer").put("text", cmd.text)
             com.xarvis.ai.task.TaskCommands.Cmd.Stop -> org.json.JSONObject().put("action", "stop")
             com.xarvis.ai.task.TaskCommands.Cmd.Status -> org.json.JSONObject().put("action", "status")

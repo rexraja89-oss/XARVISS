@@ -46,6 +46,15 @@ class TaskTextTest {
         assertNull(Plan.parse("no plan here"))
     }
 
+    @Test fun aShortJobInOneAppNeedsNoPlanningCall() {
+        val rex = "open Ninja VPN and connect it. Wait for any ads to finish and close them. When it shows connected, tell me \"Ninja VPN is connected\"."
+        val plan = Plan.quick(rex, "Ninja VPN")!!
+        assertEquals("Ninja VPN", plan.steps.single().app)
+        assertEquals(rex, plan.steps.single().title)
+        assertNull(Plan.quick(rex, null)) // no app named: a real plan
+        assertNull(Plan.quick(List(60) { "word" }.joinToString(" "), "CapCut")) // a big job: a real plan
+    }
+
     @Test fun lessonsFromTheLookBack() {
         val l = TaskText.parseLessons("LESSON CapCut: Export is the arrow at the top right\n- LESSON general: save prompts first\nnonsense")
         assertEquals(listOf("CapCut" to "Export is the arrow at the top right", "general" to "save prompts first"), l)
@@ -67,8 +76,11 @@ class TaskRunnerTest {
         var clock = 0L
         var busyTimes = 0
         val progress = ArrayList<String>()
+        /** From this clock time on, the current app shows these elements instead (an ad's Skip appearing). */
+        var later: Pair<Long, List<PhoneAgent.Element>>? = null
 
-        override suspend fun screen() = PhoneAgent.Screen(app, screens[app].orEmpty(), 1080, 2400)
+        override suspend fun screen() =
+            PhoneAgent.Screen(app, later?.takeIf { clock >= it.first }?.second ?: screens[app].orEmpty(), 1080, 2400)
         override suspend fun screenshot(screen: PhoneAgent.Screen): String? = "jpegbase64"
         override suspend fun tap(x: Int, y: Int, long: Boolean) { did += "tap $x,$y" }
         override suspend fun type(text: String): Boolean { did += "type $text"; return true }
@@ -101,15 +113,18 @@ class TaskRunnerTest {
 
     @Test fun runsTheWholePlanAndLearns() = runBlocking {
         val fake = Fake(
-            mutableListOf("SAVE script.txt\nMars is red.\nEND SAVE\nDONE script saved", "OPEN CapCut", "TAP 1", "DONE exported to the gallery"),
+            mutableListOf("SAVE script.txt\nMars is red.\nEND SAVE\nDONE script saved", "TAP 1", "DONE exported to the gallery"),
             reflect = "LESSON CapCut: Export is the arrow at the top right",
         )
         fake.screens["CapCut"] = listOf(el(1, "Export"))
         val book = lessons()
-        val out = TaskRunner(fake, book).run("make a Mars short", twoSteps)
+        val runner = TaskRunner(fake, book)
+        val out = runner.run("make a Mars short", twoSteps)
         assertTrue(out.summary, out.finished)
         assertEquals("Mars is red.", fake.saved["script.txt"])
-        assertEquals(listOf("open CapCut", "tap 100,200"), fake.did)
+        assertEquals(listOf("open CapCut", "tap 100,200"), fake.did) // CapCut opened for step 2 without a brain call
+        assertTrue(book.forApp("CapCut").isEmpty()) // the look back comes after the answer…
+        runner.reflect("make a Mars short", out)
         assertEquals(listOf("Export is the arrow at the top right"), book.forApp("CapCut"))
     }
 
@@ -141,7 +156,7 @@ class TaskRunnerTest {
 
     @Test fun ninjaVpnConnectsThroughTheAdsWithoutQuestions() = runBlocking {
         // Rex's first practice job: open, Connect, wait out the ad (its Install is skipped), close it, check, report.
-        val fake = Fake(mutableListOf("OPEN Ninja VPN", "TAP 1", "WAIT 10 ad", "TAP 3", "TAP 2", "DONE Ninja VPN is connected"))
+        val fake = Fake(mutableListOf("TAP 1", "WAIT 10 ad", "TAP 3", "TAP 2", "DONE Ninja VPN is connected"))
         fake.screens["Ninja VPN"] = listOf(el(1, "Connect"), el(2, "Close ad"), el(3, "Install"))
         val out = TaskRunner(fake, lessons()).run(
             "open Ninja VPN and connect, wait for the ads, tell me when it's connected",
@@ -151,6 +166,35 @@ class TaskRunnerTest {
         assertEquals(listOf("open Ninja VPN", "tap 100,200", "tap 200,200"), fake.did) // never the ad's Install
         assertTrue(fake.asked.isEmpty())
         assertTrue(out.summary.contains("Ninja VPN is connected"))
+        assertTrue(fake.progress.none { it.startsWith("⏩") }) // "Close ad" was already there: the wait ran its course
+    }
+
+    @Test fun aWaitEndsAsSoonAsTheAdCanBeSkipped() = runBlocking {
+        val fake = Fake(mutableListOf("TAP 1", "WAIT 30 ad playing", "TAP 2", "DONE Ninja VPN is connected"))
+        fake.app = "Ninja VPN"
+        fake.screens["Ninja VPN"] = listOf(el(1, "Connect"))
+        fake.later = 8_000L to listOf(el(1, "Connected"), el(2, "Skip ad"))
+        val out = TaskRunner(fake, lessons()).run(
+            "connect Ninja VPN", Plan("Ninja VPN", listOf(PlanStep("Connect", "Ninja VPN", "", "it says Connected"))),
+        )
+        assertTrue(out.summary, out.finished)
+        assertEquals(listOf("tap 100,200", "tap 200,200"), fake.did) // Connect, then Skip ad
+        assertTrue(fake.progress.toString(), fake.progress.any { it.startsWith("⏩") && it.contains("Skip ad") })
+        assertTrue("clock ${fake.clock}", fake.clock < 20_000) // not the 30 s asked for
+    }
+
+    @Test fun theStepsAppIsOpenedWithoutAskingTheBrain() = runBlocking {
+        val fake = Fake(mutableListOf("TAP 1", "DONE done"))
+        fake.screens["Clock"] = listOf(el(1, "Timer"))
+        TaskRunner(fake, lessons()).run("start a timer", Plan("Timer", listOf(PlanStep("Start it", "Clock", "", ""))))
+        assertEquals(listOf("open Clock", "tap 100,200"), fake.did)
+        // Already on screen, a website or XARVIS itself: nothing is opened.
+        listOf("Clock", "XARVIS", "pixlr.com/x", "https://example.com").forEach { app ->
+            val f = Fake(mutableListOf("DONE ok"))
+            f.app = "Clock"
+            TaskRunner(f, lessons()).run("x", Plan("X", listOf(PlanStep("Do it", app, "", ""))))
+            assertTrue(app, f.did.isEmpty())
+        }
     }
 
     @Test fun bankingAppsAreNeverOpened() = runBlocking {
@@ -161,7 +205,7 @@ class TaskRunnerTest {
 
     @Test fun aStuckStepGetsANewPlan() = runBlocking {
         val fake = Fake(
-            mutableListOf("STUCK the site is down", "OPEN Other", "DONE made it elsewhere"),
+            mutableListOf("STUCK the site is down", "DONE made it elsewhere"),
             replan = "{\"title\":\"x\",\"steps\":[{\"title\":\"Use the other site\",\"app\":\"Other\",\"how\":\"\",\"done\":\"\"}]}",
         )
         val out = TaskRunner(fake, lessons()).run("make images", Plan("Images", listOf(PlanStep("Use site A", "A", "", ""))))
@@ -187,7 +231,7 @@ class TaskRunnerTest {
     }
 
     @Test fun waitsOutTheBrainsFreeLimit() = runBlocking {
-        val fake = Fake(mutableListOf("SAVE a.txt: hi\nDONE ok", "OPEN CapCut", "DONE ok"))
+        val fake = Fake(mutableListOf("SAVE a.txt: hi\nDONE ok", "DONE ok"))
         fake.busyTimes = 2
         val out = TaskRunner(fake, lessons()).run("x", twoSteps)
         assertTrue(out.finished)

@@ -38,6 +38,12 @@ class CloudLlm(context: Context) : Brain {
     /** The model that last answered, tried first next time. */
     @Volatile private var working: String? = null
 
+    /**
+     * Models resting after a 429 ("too many requests"), until when. Each free model has its own per-minute limit, so the
+     * next one is tried at once instead of waiting (Task mode spent minutes waiting, 12 Nov 2026).
+     */
+    private val resting = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     override fun hasKey(): Boolean = keys.has(BrainKeys.GEMINI)
 
     override fun saveKey(key: String) {
@@ -92,13 +98,15 @@ class CloudLlm(context: Context) : Brain {
     /** Tries each model in order; returns the first answer. [remember] records the model that worked. */
     private fun runModels(models: List<String>, key: String, systemPrompt: String, message: String, maxTokens: Int = 1536, remember: Boolean): String {
         var lastError: Exception? = null
+        var quota: QuotaReached? = null
         for (model in models) {
             try {
                 val answer = call(model, key, systemPrompt, message, maxTokens)
                 if (remember) working = model
                 return answer
             } catch (e: QuotaReached) {
-                throw e
+                rest(model)
+                quota = e // this model's free limit: the next model has its own
             } catch (e: ModelNotFound) {
                 lastError = e // that model id isn't available to this key; try the next
                 if (working == model) working = null
@@ -106,7 +114,12 @@ class CloudLlm(context: Context) : Brain {
                 lastError = e
             }
         }
-        throw lastError ?: IllegalStateException("Gemini didn't answer")
+        throw quota ?: lastError ?: IllegalStateException("Gemini didn't answer")
+    }
+
+    private fun rest(model: String) {
+        resting[model] = System.currentTimeMillis() + REST_MS
+        if (working == model) working = null
     }
 
     private class ModelNotFound(message: String) : Exception(message)
@@ -114,9 +127,12 @@ class CloudLlm(context: Context) : Brain {
     /** The models to try, best first: the last working one, then everything the key lists. */
     private fun modelsToTry(key: String): List<String> {
         val discovered = cachedModels ?: discoverModels(key).also { if (it.isNotEmpty()) cachedModels = it }
-        val base = discovered.ifEmpty { FALLBACK_MODELS }
+        val all = discovered.ifEmpty { FALLBACK_MODELS }
+        // Resting models (a recent 429) go last, so the others are tried first.
+        val now = System.currentTimeMillis()
+        val base = all.filter { (resting[it] ?: 0L) <= now } + all.filter { (resting[it] ?: 0L) > now }.sortedBy { resting[it] }
         val w = working
-        return if (w != null && base.contains(w)) listOf(w) + base.filter { it != w } else base
+        return if (w != null && base.contains(w) && (resting[w] ?: 0L) <= now) listOf(w) + base.filter { it != w } else base
     }
 
     /** Asks the key which models it has; keeps the chat models, best first. Empty if it can't ask. */
@@ -179,16 +195,17 @@ class CloudLlm(context: Context) : Brain {
         withContext(Dispatchers.IO) {
             val key = keys.get(BrainKeys.GEMINI) ?: throw IllegalStateException("no Gemini key")
             var lastError: Exception? = null
+            var quota: QuotaReached? = null
             for (model in modelsToTry(key)) {
                 try {
                     val a = call(model, key, systemPrompt, message, maxTokens, imageB64, mime)
                     working = model
                     return@withContext a
-                } catch (e: QuotaReached) { throw e }
+                } catch (e: QuotaReached) { rest(model); quota = e } // the next model has its own free limit
                 catch (e: ModelNotFound) { lastError = e; if (working == model) working = null }
                 catch (e: Exception) { lastError = e }
             }
-            throw lastError ?: IllegalStateException("Gemini didn't answer")
+            throw quota ?: lastError ?: IllegalStateException("Gemini didn't answer")
         }
 
     private fun call(model: String, key: String, systemPrompt: String, message: String, maxTokens: Int, imageB64: String? = null, mime: String? = null): String {
@@ -241,6 +258,8 @@ class CloudLlm(context: Context) : Brain {
     companion object {
         private const val TAG = "XarvisCloud"
         private const val BASE = "https://generativelanguage.googleapis.com/v1beta"
+        /** How long a model rests after a 429 before it's tried first again (free limits count per minute). */
+        private const val REST_MS = 60_000L
         // Only used if the key can't be asked for its model list (the usual path is discovery).
         private val FALLBACK_MODELS = listOf("gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest")
 

@@ -117,8 +117,8 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
         }
         val result = (outcome ?: Outcome(true, "All ${plan.steps.size} steps done.\n" + results.joinToString("\n"), plan.steps.size, plan))
             .copy(replans = replans, asked = asked)
-        reflect(goal, result)
         say(if (result.finished) "🏁 Task finished." else "⏹ ${result.summary}")
+        // The look back ([reflect]) comes after Rex has his answer: it isn't worth making him wait for it.
         return result
     }
 
@@ -127,6 +127,8 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
         var unclear = 0
         var blocked = 0
         var actions = 0
+        if (env.stopped()) return StepEnd.Ended("Stopped — you pressed STOP.")
+        openStepApp(plan.steps[index], history)
         while (true) {
             if (env.stopped()) return StepEnd.Ended("Stopped — you pressed STOP.")
             val minutes = ((env.now() - startedAt) / 60_000).toInt()
@@ -252,12 +254,25 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
             }
             is TaskAction.Wait -> {
                 say("⏳ Waiting ${action.seconds} s" + if (action.why.isNotBlank()) " (${action.why.take(60)})" else "")
+                // An ad's ✕ / Skip often shows long before the wait is over: look every 2 s and stop waiting when one
+                // appears that wasn't there before.
+                val before = screen.elements.filter { CLOSE.matches(it.label.trim()) }.map { it.label.trim() }.toSet()
                 var left = action.seconds * 1000L
+                var waited = 0L
                 while (left > 0) {
                     if (env.stopped()) return Act.End(StepEnd.Ended("Stopped — you pressed STOP."))
                     val chunk = minOf(left, 1_000L)
                     env.pause(chunk)
                     left -= chunk
+                    waited += chunk
+                    if (left > 0 && waited % 2_000L == 0L) {
+                        val close = runCatching { env.screen() }.getOrNull()?.elements
+                            ?.firstOrNull { CLOSE.matches(it.label.trim()) && it.label.trim() !in before }
+                        if (close != null) {
+                            say("⏩ \"${close.label.trim()}\" appeared after ${waited / 1000} s — not waiting any longer")
+                            return Act.Did("WAIT ${action.seconds} s → ended after ${waited / 1000} s: \"${close.label.trim()}\" appeared [${close.n}]")
+                        }
+                    }
                 }
                 Act.Did("WAIT ${action.seconds} s")
             }
@@ -312,13 +327,31 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
         return Plan.parse(raw)
     }
 
-    /** The look back: a few lessons for next time (best effort; never holds up the result). */
-    private suspend fun reflect(goal: String, outcome: Outcome) {
+    /** The look back: a few lessons for next time (best effort; run after Rex has the result). */
+    suspend fun reflect(goal: String, outcome: Outcome) {
         if (env.stopped()) return
         val raw = runCatching { env.think(TaskPrompts.REFLECT_SYSTEM, TaskPrompts.reflectPrompt(goal, outcome.summary, log), null) }.getOrNull() ?: return
         val got = TaskText.parseLessons(raw)
         got.forEach { (app, tip) -> lessons.add(app, tip) }
         if (got.isNotEmpty()) say("📝 Learned ${got.size} thing(s) for next time.")
+    }
+
+    /**
+     * The step names an installed app and it isn't on screen: open it straight away, without asking the brain (it would
+     * only say OPEN — a few seconds saved on every step that starts in a new app).
+     */
+    private suspend fun openStepApp(step: PlanStep, history: MutableList<String>) {
+        val app = step.app.trim()
+        if (app.isEmpty() || app.equals("XARVIS", true) || app.contains("://") || Regex("""^[\w-]+(\.[\w-]+)+(/.*)?$""").matches(app)) return
+        if (Safety.moneyApp(app)) return
+        val now = runCatching { env.screen().app }.getOrDefault("")
+        if (now.isNotBlank() && (now.contains(app, true) || app.contains(now, true))) return
+        val r = env.open(app)
+        if (r.startsWith("opened")) {
+            say("📱 Opening $app")
+            history += "OPEN $app → $r (done for you before this turn)"
+            settle()
+        }
     }
 
     private suspend fun settle() = env.pause(limits.settleMs)
@@ -349,6 +382,8 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
     }
 
     companion object {
+        /** A control that ends an ad or a pop-up. */
+        private val CLOSE = Regex("""(?i)^(?:[✕×xX]|close|close ad|skip|skip ad|skip ads|skip video|reward granted|continue to app|dismiss|no thanks|not now)$""")
         private const val TYPE_SETTLE_MS = 500L
         private const val NEAR_PX = 90
     }

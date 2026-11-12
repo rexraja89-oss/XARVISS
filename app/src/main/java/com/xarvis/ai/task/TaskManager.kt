@@ -97,7 +97,8 @@ object TaskManager {
      * Rex's task: plan it, then do it straight away — no approval step. [from] is the linked phone that asked (the
      * benco); [practice] a practice task's id. Returns null when it started, else why it can't.
      */
-    fun start(context: Context, goal: String, from: Reporter? = null, practice: String? = null): String? {
+    fun start(context: Context, goal: String, from: Reporter? = null, practice: String? = null, app: String? = null): String? {
+        val appHint = app
         val g = goal.trim()
         if (job?.isActive == true) {
             return "I'm already doing a task (${_state.value.plan?.title ?: _state.value.goal.take(60)}). Say \"stop the task\" first."
@@ -109,7 +110,8 @@ object TaskManager {
         practiceId = practice
         _state.value = State(Phase.PLANNING, goal = g, startedAt = System.currentTimeMillis(), from = from?.name)
         job = scope.launch {
-            val plan = runCatching { askPlan(app, g) }.getOrNull()
+            // A simple job in one known app ("open Ninja VPN and connect it…") needs no planning call: one step, its app.
+            val plan = Plan.quick(g, appHint) ?: runCatching { askPlan(app, g) }.getOrNull()
             if (plan == null) {
                 val why = "I couldn't make a plan just now (is the internet on, and the Gemini key working?). Try again."
                 _state.value = State(Phase.IDLE, goal = g, error = why)
@@ -132,14 +134,12 @@ object TaskManager {
     }
 
     private suspend fun run(app: XarvisApp, goal: String, plan: Plan) {
-        _state.value = _state.value.copy(
-            phase = Phase.RUNNING, plan = plan, error = null,
-            log = listOf("🧠 Plan: ${plan.title}") + plan.steps.mapIndexed { i, st -> "   ${i + 1}. ${st.title}" },
-        )
+        _state.value = _state.value.copy(phase = Phase.RUNNING, plan = plan, error = null, log = emptyList())
         keepAwake(app, true)
         HandsBridge.service?.controlBanner("XARVIS (task)") { stop = true }
         val env = PhoneEnv(app, plan.title)
         val runner = TaskRunner(env, lessons(app))
+        progress("🧠 Plan: ${plan.title} — " + plan.steps.mapIndexed { i, st -> "${i + 1}. ${st.title.take(80)}" }.joinToString(" · "))
         val outcome = runCatching { runner.run(goal, plan) }.getOrElse { e ->
             if (e is kotlinx.coroutines.CancellationException) null else TaskRunner.Outcome(false, "It broke off: ${e.message ?: e.javaClass.simpleName}", 0, plan)
         }
@@ -154,6 +154,8 @@ object TaskManager {
         report(if (finished) "🏁 Done — $summary" else "⏹ $summary")
         reporter = null
         practiceId = null
+        // Lessons for next time, after Rex has his answer — on its own, so it never holds up the next task.
+        if (outcome != null) scope.launch { runCatching { runner.reflect(goal, outcome) } }
     }
 
     /** Tells the phone that asked for the task (if another one did). */
@@ -200,9 +202,11 @@ object TaskManager {
         if (_state.value.phase == Phase.DONE || _state.value.phase == Phase.IDLE) _state.value = State()
     }
 
+    /** A log line with the time since the task started ("1:05 ▶ Step 2/3…"), so slow parts show. */
     private fun progress(line: String) {
         val s = _state.value
-        _state.value = s.copy(log = (s.log + line).takeLast(MAX_LOG))
+        val t = ((System.currentTimeMillis() - s.startedAt) / 1000).coerceAtLeast(0)
+        _state.value = s.copy(log = (s.log + "${t / 60}:${"%02d".format(t % 60)} $line").takeLast(MAX_LOG))
     }
 
     @Suppress("DEPRECATION") // SCREEN_BRIGHT + ACQUIRE_CAUSES_WAKEUP still work on Android 13 and keep the screen on
@@ -311,7 +315,7 @@ object TaskManager {
                 c.drawText(label, x + 5, y + 20, text)
             }
             val out = ByteArrayOutputStream()
-            bmp.compress(Bitmap.CompressFormat.JPEG, 70, out)
+            bmp.compress(Bitmap.CompressFormat.JPEG, 65, out)
             return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
         }
 
@@ -396,7 +400,8 @@ object TaskManager {
     private const val ID = 7300
     private const val ID_ASK = 7302
     private const val MAX_LOG = 300
-    private const val SHOT_SIDE = 1024
+    /** The screenshot sent to the brain: smaller is quicker to send and read (one image tile instead of two). */
+    private const val SHOT_SIDE = 768
     /** Progress lines worth sending to the phone that asked: steps starting, being stuck, a new plan, waiting to unlock. */
     private val MILESTONE = Regex("""^(?:▶|⚠|🔁|🔒|📝)""")
 }

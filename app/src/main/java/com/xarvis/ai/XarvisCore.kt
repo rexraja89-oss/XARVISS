@@ -315,7 +315,10 @@ class XarvisCore(context: Context) {
                 "start" -> {
                     val goal = req.optString("goal").trim()
                     if (goal.length < 4) throw com.xarvis.ai.net.LinkException("say what to do")
-                    tasks.start(appContext, goal, from = com.xarvis.ai.task.TaskManager.Reporter(peer.name, taskNewsTo(peer)))
+                    tasks.start(
+                        appContext, goal, from = com.xarvis.ai.task.TaskManager.Reporter(peer.name, taskNewsTo(peer)),
+                        app = req.optString("app").takeIf { it.isNotBlank() },
+                    )
                         ?.let { throw com.xarvis.ai.net.LinkException(it) }
                     post("🧠 ${peer.name} asked me to: $goal")
                     "On it."

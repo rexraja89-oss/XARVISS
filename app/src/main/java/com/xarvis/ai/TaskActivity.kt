@@ -177,7 +177,7 @@ class TaskActivity : Activity() {
                 body.addView(
                     Button(this).apply {
                         text = line; isAllCaps = false; textSize = 13f
-                        setOnClickListener { TaskManager.start(this@TaskActivity, d.goal, practice = d.id)?.let { why -> goal.error = why } }
+                        setOnClickListener { TaskManager.start(this@TaskActivity, d.goal, practice = d.id, app = d.app)?.let { why -> goal.error = why } }
                     },
                 )
             }
