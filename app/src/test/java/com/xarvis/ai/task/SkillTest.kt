@@ -258,6 +258,32 @@ class SkillRunnerTest {
         assertFalse(without.ok)
     }
 
+    @Test fun connectNeverTapsDisconnectAndADoneJobIsLeftAlone() = runBlocking {
+        // Rex's real skill: Open, Connect, a nameless ✕, check Disconnect / Upgrade… / Truly Free…
+        val check = SkillStep.Check(listOf("Disconnect", "Upgrade for Just AED29.00/yr", "Truly Free & Unlimited"), 30_000)
+        val skill = Skill(
+            "Ninja VPN",
+            listOf(
+                SkillStep.Open("Ninja VPN"),
+                SkillStep.Tap(SkillTarget("Connect", "", .5f, .5f, "Ninja VPN"), false, emptyList(), emptyList(), 10_000),
+                SkillStep.Tap(SkillTarget("", "", .93f, .05f, "Ninja VPN"), false, listOf("Ad", "Install"), emptyList(), 20_000),
+                check,
+            ),
+            1,
+        )
+        // Already connected: nothing is tapped.
+        val connected = Phone().apply { apps["Ninja VPN"] = Phone.Screen("Ninja VPN", listOf("Disconnect", "Upgrade for Just AED29.00/yr", "Truly Free & Unlimited")) }
+        val r = SkillRunner(connected, lessons(), brainHelp = false).run(skill)
+        assertTrue(r.summary, r.ok)
+        assertTrue(r.summary.contains("already done"))
+        assertEquals(listOf("open Ninja VPN"), connected.did)
+        // "Connect" is never matched inside "Disconnect".
+        val screen = PhoneAgent.Screen("Ninja VPN", listOf(PhoneAgent.Element(1, "Disconnect", true, false, false, 10, 10)), 100, 100)
+        assertNull(SkillMatch.find(screen, SkillTarget("Connect", "", .1f, .1f, "Ninja VPN")))
+        val now = PhoneAgent.Screen("Ninja VPN", listOf(PhoneAgent.Element(1, "Connect now", true, false, false, 10, 10)), 100, 100)
+        assertEquals("Connect now", SkillMatch.find(now, SkillTarget("Connect", "", .1f, .1f, "Ninja VPN"))?.label)
+    }
+
     @Test fun moneyIsNeverTouched() = runBlocking {
         val buy = Skill("buy", listOf(SkillStep.Tap(SkillTarget("Buy now", "", .5f, .1f, "Shop"), false, emptyList(), emptyList(), 5_000)), 1)
         val phone = Phone().apply { screen = Phone.Screen("Shop", listOf("Buy now")) }

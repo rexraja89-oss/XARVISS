@@ -247,11 +247,12 @@ object SkillMatch {
             els.filter { norm(it.label) == label }.nearest(screen, t)?.let { return it }
             // An ad's close button has many names: any of them will do.
             if (TaskRunner.CLOSE.matches(t.label.trim())) els.filter { TaskRunner.CLOSE.matches(it.label.trim()) }.nearest(screen, t)?.let { return it }
-            // The same words with a little more or less ("Connect" / "Connect now").
+            // The same words with a little more or less ("Connect" / "Connect now") — whole words only, so "Connect"
+            // never finds "Disconnect" (Rex's Ninja VPN skill, 12 Nov 2026).
             if (label.length >= 4) {
                 els.filter {
                     val n = norm(it.label)
-                    n.length >= 4 && (n.contains(label) || label.contains(n)) && kotlin.math.abs(n.length - label.length) <= 12
+                    n.length >= 4 && (hasWords(n, label) || hasWords(label, n)) && kotlin.math.abs(n.length - label.length) <= 12
                 }.nearest(screen, t)?.let { return it }
             }
         }
@@ -259,6 +260,10 @@ object SkillMatch {
         if (editable && label.isEmpty() && t.id.isBlank()) return els.nearest(screen, t)
         return null
     }
+
+    /** [needle] inside [hay] as whole words. */
+    fun hasWords(hay: String, needle: String): Boolean =
+        Regex("""(?<![\p{L}\p{N}])""" + Regex.escape(needle) + """(?![\p{L}\p{N}])""").containsMatchIn(hay)
 
     /** How alike two screens are by their labels (0–1). */
     fun similarity(recorded: Collection<String>, screen: PhoneAgent.Screen): Double {
@@ -312,8 +317,18 @@ class SkillRunner(
         val started = env.now()
         var helped = 0
         say("🎓 Skill “${skill.name}”: ${skill.steps.size} steps")
+        val finish = skill.steps.lastOrNull() as? SkillStep.Check
         for ((i, step) in skill.steps.withIndex()) {
             if (env.stopped()) return Result(false, "Stopped — you pressed STOP.", i, helped)
+            // Already done (the VPN is already connected): every label of the finish screen is showing — stop here
+            // instead of tapping on (which could undo it).
+            if (step is SkillStep.Tap && finish != null && finish.expect.isNotEmpty()) {
+                val s = screen() ?: return Result(false, "Stopped — you pressed STOP.", i, helped)
+                if (SkillMatch.seen(finish.expect, s) >= finish.expect.size) {
+                    say("✓ Already done — it shows " + finish.expect.joinToString(", ") { "“$it”" })
+                    return Result(true, "“${skill.name}” was already done (it shows ${finish.expect.first()}).", i, helped)
+                }
+            }
             say("▶ ${i + 1}/${skill.steps.size} ${step.describe()}")
             when (val went = runStep(step, values)) {
                 Went.Ok -> Unit
