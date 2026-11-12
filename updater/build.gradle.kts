@@ -1,3 +1,5 @@
+import java.security.MessageDigest
+
 plugins {
     id("com.android.application")
 }
@@ -14,7 +16,7 @@ fun sourceFingerprint(vararg paths: String): String = runCatching {
     }
     val out = r.standardOutput.asText.get().trim()
     if (r.result.get().exitValue != 0 || out.lines().size != paths.size) ""
-    else "xs" + java.security.MessageDigest.getInstance("SHA-256").digest(out.toByteArray()).joinToString("") { "%02x".format(it) }.take(16)
+    else "xs" + MessageDigest.getInstance("SHA-256").digest(out.toByteArray()).joinToString("") { "%02x".format(it) }.take(16)
 }.getOrDefault("")
 
 // XARVIS Updater (Nov 2026; Rex: "fed up with massive data consumption"): updates XARVIS by downloading only what
