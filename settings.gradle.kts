@@ -29,3 +29,6 @@ include(":helper")
 // XARVIS Remote: a separate remote-control app for Rex's own phones, so the S22 stays reachable from the benco
 // while XARVIS there is down or being updated (it controls on one phone and is controlled on the other).
 include(":remote")
+// XARVIS Updater: updates XARVIS by downloading only what changed (a patch made on GitHub after each release), so an
+// update costs well under 1 MB of data instead of ~107 MB. Separate so XARVIS itself never needs the install permission.
+include(":updater")

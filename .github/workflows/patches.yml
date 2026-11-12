@@ -1,0 +1,38 @@
+name: Make update patches
+
+# Runs after each release (its own workflow, so a problem here can never block or change a release): makes small
+# patches from the last few releases' XARVIS APKs to the new one, plus patches.json, and attaches them to the
+# release. XARVIS Updater downloads the patch (~0.2–3 MB) instead of the whole APK (~107 MB).
+on:
+  workflow_run:
+    workflows: ["Build XARVIS APK"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to make patches for (e.g. v1.0.263)"
+        required: true
+
+concurrency:
+  group: patches
+  cancel-in-progress: false
+
+jobs:
+  patches:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && (github.event.workflow_run.head_branch == 'main' || github.event.workflow_run.head_branch == 'master')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write # to attach the patches to the release
+    steps:
+    - uses: actions/checkout@v5
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Install the diff library
+      run: pip install bsdiff4==1.4.2
+    - name: Make and attach the patches
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || format('v1.0.{0}', github.event.workflow_run.run_number) }}
+      run: python .github/scripts/make_patches.py release --repo "${{ github.repository }}" --tag "$TAG"
