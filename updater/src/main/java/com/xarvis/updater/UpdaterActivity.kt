@@ -54,7 +54,7 @@ class UpdaterActivity : Activity() {
     )
 
     /** An app on this phone: its version, its installed APK and that APK's name on GitHub. */
-    private class Installed(val app: App, val version: String, val apk: File, val file: String, val build: String?)
+    private class Installed(val app: App, val version: String, val apk: File, val file: String, val build: String?, val src: String?)
 
     private inner class Row(val box: LinearLayout, val note: TextView) {
         fun say(text: String) = runOnUiThread { note.text = text; note.visibility = View.VISIBLE }
@@ -143,11 +143,16 @@ class UpdaterActivity : Activity() {
                     continue
                 }
                 row.say("v${i.version} → v$latest · looking at the one on this phone…")
+                // Nothing it's built from changed: no download at all.
+                if (!i.src.isNullOrBlank() && release?.files?.get(i.file)?.src == i.src) {
+                    show(row, i, tag, Choice.Unchanged, release)
+                    continue
+                }
                 // The installed APK's fingerprint picks the patch that starts from exactly this file.
                 val sha = if (release?.patches?.isNotEmpty() == true) {
                     withContext(Dispatchers.IO) { runCatching { Patch.sha256(i.apk) }.getOrNull() }
                 } else null
-                show(row, i, tag, Choice.of(i.version, sha, i.file, latest, release), release)
+                show(row, i, tag, Choice.of(i.version, sha, i.file, latest, release, i.src), release)
             }
         }
     }
@@ -156,6 +161,7 @@ class UpdaterActivity : Activity() {
         val latest = tag.removePrefix("v")
         when (choice) {
             Choice.UpToDate -> row.say("✓ Up to date (v${i.version})")
+            Choice.Unchanged -> row.say("✓ Up to date — nothing in it changed since v${i.version}, so nothing to download")
             is Choice.ViaPatch -> {
                 row.say("v${i.version} → v$latest")
                 addButton(row, "⬇ Update — download ${mb(choice.patch.size)} (instead of ${mb(choice.target.size)})") {
@@ -268,7 +274,7 @@ class UpdaterActivity : Activity() {
                 }
                 return out
             }
-            Choice.UpToDate -> throw IOException("already up to date")
+            Choice.UpToDate, Choice.Unchanged -> throw IOException("already up to date")
         }
     }
 
@@ -297,7 +303,7 @@ class UpdaterActivity : Activity() {
     private fun installed(app: App): Installed? {
         val info: PackageInfo = runCatching {
             @Suppress("DEPRECATION")
-            packageManager.getPackageInfo(app.pkg, PackageManager.GET_PERMISSIONS)
+            packageManager.getPackageInfo(app.pkg, PackageManager.GET_PERMISSIONS or PackageManager.GET_META_DATA)
         }.getOrNull() ?: return null
         val apk = File(info.applicationInfo?.sourceDir ?: return null)
         val (file, build) = when (app.pkg) {
@@ -306,7 +312,8 @@ class UpdaterActivity : Activity() {
             "com.xarvis.remote" -> "XARVIS-Remote.apk" to null
             else -> "XARVIS-Updater.apk" to null
         }
-        return Installed(app, info.versionName ?: "0", apk, file, build)
+        val src = info.applicationInfo?.metaData?.getString("xarvis.src")?.takeIf { it.isNotBlank() }
+        return Installed(app, info.versionName ?: "0", apk, file, build, src)
     }
 
     private fun addRow(i: Installed): Row {

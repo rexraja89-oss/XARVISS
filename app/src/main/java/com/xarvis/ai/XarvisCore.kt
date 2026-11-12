@@ -436,10 +436,9 @@ class XarvisCore(context: Context) {
             }
         }
         link.start()
-        // Remote control of this phone by the linked one: say so in the chat too (the red banner shows meanwhile).
-        com.xarvis.ai.hands.ScreenHost.onSession = { by ->
-            post(if (by != null) "🖥 $by is now controlling this phone (STOP on the red banner ends it)." else "🖥 Remote control ended.")
-        }
+        // Remote control of this phone by the linked one: one chat line when it starts and one when it's really over.
+        // Reconnects (a network hop, switching to live video) add nothing — Rex's chat filled up with them (13 Nov 2026).
+        com.xarvis.ai.hands.ScreenHost.onSession = { by -> controlNote(by) }
         scope.launch {
             _state.update { it.copy(memoryCount = memory.factCount()) }
         }
@@ -915,10 +914,37 @@ class XarvisCore(context: Context) {
         _state.update { it.copy(messages = it.messages + ChatMessage(false, text)) }
     }
 
-    /**
-     * Sends a task's news to [peer] one at a time, in order (it waits at the relay if that phone is offline); the
-     * sender ends with the result.
-     */
+    private val controlLock = Any()
+    private var controlledBy: String? = null
+    private var controlEnded: kotlinx.coroutines.Job? = null
+
+    /** [by] took over this phone's screen (null: a session closed). Posts at most one line for each. */
+    private fun controlNote(by: String?) = synchronized(controlLock) {
+        if (by != null) {
+            controlEnded?.cancel()
+            controlEnded = null
+            if (controlledBy != by) {
+                controlledBy = by
+                post("🖥 $by is now controlling this phone (STOP on the red banner ends it).")
+            }
+        } else if (controlledBy != null && controlEnded == null) {
+            // Over only if nobody reconnects within 90 s.
+            controlEnded = scope.launch {
+                kotlinx.coroutines.delay(CONTROL_END_QUIET_MS)
+                val me = coroutineContext[kotlinx.coroutines.Job]
+                val over = synchronized(controlLock) {
+                    // A reconnect at this very moment replaced or cancelled this timer: not over.
+                    if (controlEnded !== me) false else {
+                        controlledBy = null
+                        controlEnded = null
+                        true
+                    }
+                }
+                if (over) post("🖥 Remote control ended.")
+            }
+        }
+    }
+
     /** The night shift's progress and results go to the other phone (the benco), like a task it asked for. */
     fun nightReporter(): com.xarvis.ai.task.TaskManager.Reporter? {
         val peer = link.pairedPeers().firstOrNull() ?: return null
@@ -932,6 +958,10 @@ class XarvisCore(context: Context) {
         scope.launch(Dispatchers.IO) { peers.forEach { p -> runCatching { link.sendTaskNews(p, text) } } }
     }
 
+    /**
+     * Sends a task's news to [peer] one at a time, in order (it waits at the relay if that phone is offline); the
+     * sender ends with the result.
+     */
     private fun taskNewsTo(peer: com.xarvis.ai.net.Peer): (String) -> Unit {
         val queue = kotlinx.coroutines.channels.Channel<String>(capacity = 64)
         scope.launch(Dispatchers.IO) {
@@ -959,6 +989,8 @@ class XarvisCore(context: Context) {
     }
 
     private companion object {
+        /** A remote-control session counts as over when nobody reconnects for this long. */
+        const val CONTROL_END_QUIET_MS = 90_000L
         const val MEMORY_SYNC_START_DELAY_MS = 5_000L
         const val MEMORY_SYNC_INTERVAL_MS = 5 * 60_000L
         const val UPDATE_CHECK_INTERVAL_MS = 30 * 60_000L

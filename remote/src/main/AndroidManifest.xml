@@ -28,6 +28,10 @@
         android:name=".RemoteApp"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.DeviceDefault.Light">
+        <!-- What this build is made from (see sourceFingerprint in build.gradle.kts): unchanged = no update needed. -->
+        <meta-data
+            android:name="xarvis.src"
+            android:value="${xarvisSrc}" />
         <activity
             android:name=".HomeActivity"
             android:exported="true"

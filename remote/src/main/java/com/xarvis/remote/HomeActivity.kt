@@ -84,7 +84,7 @@ class HomeActivity : Activity() {
         if (now - lastUpdateCheck < UPDATE_CHECK_GAP_MS) return
         lastUpdateCheck = now
         scope.launch {
-            val newer = withContext(Dispatchers.IO) { Updates.newerVersion(version()) }
+            val newer = withContext(Dispatchers.IO) { Updates.newerVersion(version(), Updates.ownSrc(this@HomeActivity)) }
             if (newer != null) {
                 updateButton.text = "⬆ UPDATE TO v$newer"
                 updateButton.visibility = View.VISIBLE

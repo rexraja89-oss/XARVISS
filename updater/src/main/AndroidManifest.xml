@@ -17,6 +17,10 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.DeviceDefault.Light">
+        <!-- What this build is made from (see sourceFingerprint in build.gradle.kts): unchanged = no update needed. -->
+        <meta-data
+            android:name="xarvis.src"
+            android:value="${xarvisSrc}" />
         <activity
             android:name=".UpdaterActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"

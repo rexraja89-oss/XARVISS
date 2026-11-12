@@ -15,8 +15,11 @@ object Updates {
     private const val LATEST = "https://api.github.com/repos/rexraja89-oss/XARVISS/releases/latest"
     const val APK_URL = "https://github.com/rexraja89-oss/XARVISS/releases/latest/download/XARVIS-Remote.apk"
 
-    /** The newest XARVIS Remote version on GitHub ("1.0.134") if it's newer than [current]; else null/offline. */
-    fun newerVersion(current: String): String? = runCatching {
+    /**
+     * The newest XARVIS Remote version on GitHub ("1.0.134") if it's newer than [current] and something in it changed
+     * ([ownSrc] = this build's source fingerprint vs the one in that release's patches.json); else null/offline.
+     */
+    fun newerVersion(current: String, ownSrc: String? = null): String? = runCatching {
         val c = URL(LATEST).openConnection() as HttpURLConnection
         c.connectTimeout = 8_000
         c.readTimeout = 10_000
@@ -28,7 +31,30 @@ object Updates {
             c.disconnect()
         }
         val tag = Regex(""""tag_name"\s*:\s*"([^"]+)"""").find(body)?.groupValues?.get(1) ?: return@runCatching null
-        tag.removePrefix("v").takeIf { isNewer(it, current) }
+        val newer = tag.removePrefix("v").takeIf { isNewer(it, current) } ?: return@runCatching null
+        if (!ownSrc.isNullOrBlank() && releasedSrc(tag) == ownSrc) null else newer
+    }.getOrNull()
+
+    /** XARVIS-Remote.apk's source fingerprint in [tag]'s patches.json (made ~10 min after a release), or null. */
+    private fun releasedSrc(tag: String): String? = runCatching {
+        val c = URL("https://github.com/rexraja89-oss/XARVISS/releases/download/$tag/patches.json").openConnection() as HttpURLConnection
+        c.connectTimeout = 8_000
+        c.readTimeout = 10_000
+        c.setRequestProperty("User-Agent", "XARVIS-Remote")
+        val body = try {
+            if (c.responseCode != 200) return@runCatching null
+            c.inputStream.bufferedReader().use { it.readText() }
+        } finally {
+            c.disconnect()
+        }
+        Regex(""""XARVIS-Remote\.apk"\s*:\s*\{[^}]*"src"\s*:\s*"([^"]+)"""").find(body)?.groupValues?.get(1)
+    }.getOrNull()
+
+    /** This build's source fingerprint (manifest meta-data "xarvis.src"). */
+    fun ownSrc(context: Context): String? = runCatching {
+        @Suppress("DEPRECATION")
+        context.packageManager.getApplicationInfo(context.packageName, android.content.pm.PackageManager.GET_META_DATA)
+            .metaData?.getString("xarvis.src")?.takeIf { it.isNotBlank() }
     }.getOrNull()
 
     /** "1.0.134" is newer than "1.0.133"; tags that aren't plain versions never are. */

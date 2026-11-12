@@ -2,6 +2,21 @@ plugins {
     id("com.android.application")
 }
 
+/**
+ * What this app is built from: git's hashes of [paths] (its folders and the shared build settings), as "xs" + 16 hex.
+ * It stays the same while nothing in them changes, so XARVIS Updater doesn't offer the same app again with only a new
+ * number (Rex, 13 Nov 2026: Remote + Updater cost ~3 MB every release). Empty without git (a local build).
+ */
+fun sourceFingerprint(vararg paths: String): String = runCatching {
+    val r = providers.exec {
+        commandLine(listOf("git", "rev-parse") + paths.map { "HEAD:$it" })
+        isIgnoreExitValue = true
+    }
+    val out = r.standardOutput.asText.get().trim()
+    if (r.result.get().exitValue != 0 || out.lines().size != paths.size) ""
+    else "xs" + java.security.MessageDigest.getInstance("SHA-256").digest(out.toByteArray()).joinToString("") { "%02x".format(it) }.take(16)
+}.getOrDefault("")
+
 // XARVIS Updater (Nov 2026; Rex: "fed up with massive data consumption"): updates XARVIS by downloading only what
 // changed (a patch, usually well under 1 MB instead of the 107 MB APK), rebuilding the exact new APK from the
 // installed one and checking it before Android installs it. A separate app on purpose: XARVIS itself stays untouched,
@@ -17,6 +32,7 @@ android {
         val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionCode = build
         versionName = "1.0.$build"
+        manifestPlaceholders["xarvisSrc"] = sourceFingerprint("updater", "build.gradle.kts", "gradle.properties", "gradle")
     }
 
     // Same permanent key as XARVIS.

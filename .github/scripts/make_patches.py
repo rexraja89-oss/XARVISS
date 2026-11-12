@@ -71,6 +71,49 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def manifest_strings(apk: bytes) -> list:
+    """The strings in an APK's binary AndroidManifest.xml (its string pool)."""
+    import io
+    import zipfile
+    data = zipfile.ZipFile(io.BytesIO(apk)).read("AndroidManifest.xml")
+    pos = struct.unpack_from("<H", data, 2)[0]  # skip the XML header
+    while pos + 8 <= len(data):
+        ctype, header, size = struct.unpack_from("<HHI", data, pos)
+        if ctype == 0x0001:  # RES_STRING_POOL_TYPE
+            count, _styles, flags, start, _ = struct.unpack_from("<IIIII", data, pos + 8)
+            utf8 = flags & 0x100
+            out = []
+            for i in range(count):
+                off = pos + start + struct.unpack_from("<I", data, pos + header + 4 * i)[0]
+                if utf8:
+                    n = data[off]; off += 2 if n & 0x80 else 1  # length in UTF-16 units, skipped
+                    n = data[off]
+                    if n & 0x80:
+                        n = ((n & 0x7F) << 8) | data[off + 1]; off += 2
+                    else:
+                        off += 1
+                    out.append(data[off:off + n].decode("utf-8", "replace"))
+                else:
+                    n = struct.unpack_from("<H", data, off)[0]; off += 2
+                    if n & 0x8000:
+                        n = ((n & 0x7FFF) << 16) | struct.unpack_from("<H", data, off)[0]; off += 2
+                    out.append(data[off:off + 2 * n].decode("utf-16-le", "replace"))
+            return out
+        if size <= 0:
+            break
+        pos += size
+    return []
+
+
+def source_fingerprint(apk: bytes):
+    """The build's "xarvis.src" meta-data value ("xs" + 16 hex), if it has one."""
+    try:
+        return next((s for s in manifest_strings(apk) if re.fullmatch(r"xs[0-9a-f]{16}", s)), None)
+    except Exception as e:  # never let this stop the patches
+        print(f"couldn't read the manifest: {e}", file=sys.stderr)
+        return None
+
+
 def gh(*args: str, out_path: str = None) -> str:
     """Runs `gh` (4 tries). With [out_path] its output (a file's bytes) goes there instead of being returned."""
     for attempt in range(4):
@@ -142,6 +185,9 @@ def release_cmd(repo: str, tag: str, dry_run: bool = False, back: int = 0) -> No
         if name in names:
             data = fetch(this, name, required=True)
             manifest["files"][name] = {"sha256": sha256(data), "size": len(data)}
+            src = source_fingerprint(data)
+            if src:
+                manifest["files"][name]["src"] = src
     uploads = []
     for name, keep in PATCHED.items():
         keep = back or keep
@@ -206,6 +252,8 @@ if __name__ == "__main__":
     r.add_argument("--tag", required=True)
     r.add_argument("--dry-run", action="store_true", help="make and check the patches, upload nothing")
     r.add_argument("--back", type=int, default=0, help="patch from this many earlier releases (default: per file)")
+    m = sub.add_parser("strings", help="print an APK's manifest strings (a check)")
+    m.add_argument("apk")
     o = sub.add_parser("one")
     o.add_argument("old")
     o.add_argument("new")
@@ -213,5 +261,9 @@ if __name__ == "__main__":
     a = ap.parse_args()
     if a.cmd == "release":
         release_cmd(a.repo, a.tag, a.dry_run, a.back)
+    elif a.cmd == "strings":
+        data = open(a.apk, "rb").read()
+        print(manifest_strings(data))
+        print("fingerprint:", source_fingerprint(data))
     else:
         one_cmd(a.old, a.new, a.out)

@@ -7,7 +7,8 @@ import org.json.JSONObject
  * after each release) — each APK's size and SHA-256, and the patches from earlier releases. Pure, unit-tested.
  */
 data class Release(val version: String, val files: Map<String, FileInfo>, val patches: List<PatchInfo>) {
-    data class FileInfo(val sha256: String, val size: Long)
+    /** [src]: what the app is built from (its source fingerprint), when the build recorded one. */
+    data class FileInfo(val sha256: String, val size: Long, val src: String? = null)
 
     /** Turns the file with SHA-256 [fromSha256] (release [from]) into [file] of this release. */
     data class PatchInfo(val file: String, val from: String, val fromSha256: String, val asset: String, val size: Long, val sha256: String)
@@ -23,7 +24,7 @@ data class Release(val version: String, val files: Map<String, FileInfo>, val pa
             o.optJSONObject("files")?.let { f ->
                 for (name in f.keys()) {
                     val e = f.getJSONObject(name)
-                    files[name] = FileInfo(e.getString("sha256").lowercase(), e.getLong("size"))
+                    files[name] = FileInfo(e.getString("sha256").lowercase(), e.getLong("size"), e.optString("src").takeIf { it.isNotBlank() })
                 }
             }
             val patches = ArrayList<PatchInfo>()
@@ -61,6 +62,9 @@ data class Release(val version: String, val files: Map<String, FileInfo>, val pa
 sealed interface Choice {
     data object UpToDate : Choice
 
+    /** A newer release, but nothing this app is built from changed: the same app with a new number — no download. */
+    data object Unchanged : Choice
+
     /** Download [patch] (small) and rebuild [file] ([target] says what the result must be). */
     data class ViaPatch(val patch: Release.PatchInfo, val file: String, val target: Release.FileInfo) : Choice
 
@@ -73,9 +77,13 @@ sealed interface Choice {
          * the S22, XARVIS-benco.apk on the benco); [latest]: the newest release's version; [release]: its patches.json,
          * or null while GitHub is still making it.
          */
-        fun of(installedVersion: String, installedSha256: String?, file: String, latest: String, release: Release?): Choice {
+        fun of(
+            installedVersion: String, installedSha256: String?, file: String, latest: String, release: Release?,
+            installedSrc: String? = null,
+        ): Choice {
             if (!Release.isNewer(latest, installedVersion)) return UpToDate
             val r = release?.takeIf { it.version == latest } ?: return Full(file, null)
+            if (!installedSrc.isNullOrBlank() && r.files[file]?.src == installedSrc) return Unchanged
             installedSha256?.let { r.patchFor(it) }?.let { p -> return ViaPatch(p, p.file, r.files.getValue(p.file)) }
             return Full(file, r.files[file])
         }

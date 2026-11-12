@@ -90,6 +90,33 @@ class ReleaseTest {
         assertEquals(Choice.Full("XARVIS.apk", null), Choice.of("1.0.261", "s22-261", "XARVIS.apk", "1.0.265", r))
     }
 
+    @Test fun anAppWhoseCodeDidNotChangeIsNotDownloaded() {
+        val r = Release.parse(
+            """
+            {"version": "1.0.280",
+             "files": {"XARVIS-Remote.apk": {"sha256": "r280", "size": 1700000, "src": "xs0123456789abcdef"},
+                       "XARVIS-Updater.apk": {"sha256": "u280", "size": 1500000, "src": "xsfedcba9876543210"},
+                       "XARVIS.apk": {"sha256": "x280", "size": 107000000}},
+             "patches": []}
+            """.trimIndent(),
+        )
+        assertEquals("xs0123456789abcdef", r.files["XARVIS-Remote.apk"]?.src)
+        assertNull(r.files["XARVIS.apk"]?.src)
+        // Built from the same code as the one on the phone: only the number is new — nothing to download.
+        assertEquals(Choice.Unchanged, Choice.of("1.0.276", "r276", "XARVIS-Remote.apk", "1.0.280", r, "xs0123456789abcdef"))
+        // Its code changed (or the phone's build is from before fingerprints): the download, as before.
+        assertEquals(
+            Choice.Full("XARVIS-Remote.apk", Release.FileInfo("r280", 1700000, "xs0123456789abcdef")),
+            Choice.of("1.0.276", "r276", "XARVIS-Remote.apk", "1.0.280", r, "xs1111111111111111"),
+        )
+        assertTrue(Choice.of("1.0.276", "r276", "XARVIS-Remote.apk", "1.0.280", r, null) is Choice.Full)
+        assertTrue(Choice.of("1.0.276", "r276", "XARVIS-Remote.apk", "1.0.280", r, "") is Choice.Full)
+        // GitHub didn't record one for this file: never "unchanged".
+        assertTrue(Choice.of("1.0.276", "x276", "XARVIS.apk", "1.0.280", r, "xs0123456789abcdef") is Choice.Full)
+        // Up to date stays up to date.
+        assertEquals(Choice.UpToDate, Choice.of("1.0.280", "r280", "XARVIS-Remote.apk", "1.0.280", r, "xs0123456789abcdef"))
+    }
+
     @Test fun versionsAndTags() {
         assertTrue(Release.isNewer("1.0.263", "1.0.261"))
         assertFalse(Release.isNewer("1.0.261", "1.0.261"))
