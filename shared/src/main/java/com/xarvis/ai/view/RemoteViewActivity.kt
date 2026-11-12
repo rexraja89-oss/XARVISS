@@ -477,24 +477,14 @@ abstract class RemoteViewActivity : Activity(), SurfaceHolder.Callback {
         if (mode == "poll") return pollTouch(e, nx, ny)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                // A frozen picture (slow line) isn't what's on the other screen any more: a tap now would land blind
-                // (Rex's 4G test: taps on a stuck game picture opened Ludo on the S22).
-                if (frozen()) {
-                    tracking = false
-                    status.text = stillNote()
-                    return true
-                }
+                // Taps always go through, even while the picture is still (Rex, 12 Nov 2026: the "frozen" pause got in
+                // the way more than it helped).
                 tracking = r.contains(e.x, e.y)
                 if (tracking) finger("down", nx, ny)
             }
             MotionEvent.ACTION_MOVE -> {
                 val now = System.currentTimeMillis()
-                if (tracking && frozen()) {
-                    // The picture froze mid-drag: lift the finger there.
-                    tracking = false
-                    finger("up", nx, ny)
-                    status.text = stillNote()
-                } else if (tracking && now - lastMoveAt >= MOVE_EVERY_MS) {
+                if (tracking && now - lastMoveAt >= MOVE_EVERY_MS) {
                     lastMoveAt = now
                     finger("move", nx, ny)
                 }
@@ -664,18 +654,18 @@ abstract class RemoteViewActivity : Activity(), SurfaceHolder.Callback {
         else -> ""
     }
 
-    /** When the last picture arrived: taps wait while the picture is frozen. */
+    /** When the last picture arrived. */
     @Volatile private var lastFrameAt = 0L
 
-    /** Live video comes several times a second even on a still screen; still pictures are slower. */
-    private fun frozen(): Boolean =
-        channel != null && padView.pad == null && // on a hidden pattern screen the dots show where to touch
-            System.currentTimeMillis() - lastFrameAt > if (mode == "video") FROZEN_VIDEO_MS else FROZEN_PICTURE_MS
+    /** No new picture for a while (live video comes several times a second even on a still screen). */
+    private fun still(): Boolean =
+        channel != null && padView.pad == null &&
+            System.currentTimeMillis() - lastFrameAt > if (mode == "video") STILL_VIDEO_MS else STILL_PICTURE_MS
 
-    /** Why the picture isn't moving: the other phone is locked with its screen off (🔓 Unlock wakes it), or a slow line. */
-    private fun stillNote(): String =
-        if (remoteLocked) "🔒 ${peer?.name ?: "The other phone"} is locked and its screen is off. Tap 🔓 Unlock (or ⬤ Home): it wakes up and shows its pattern for you to draw."
-        else FROZEN_NOTE
+    /** The only note about a still picture: the other phone said it's locked (its screen is off). Taps are never paused. */
+    private fun lockedNote(): String? =
+        if (remoteLocked && still()) "🔒 ${peer?.name ?: "The other phone"} is locked and its screen is off. Tap 🔓 Unlock (or ⬤ Home): it wakes up and shows its pattern for you to draw."
+        else null
 
     /** XARVIS Helper on the other phone without its Accessibility switch: seeing works, tapping doesn't. */
     @Volatile private var viewOnly = false
@@ -691,7 +681,7 @@ abstract class RemoteViewActivity : Activity(), SurfaceHolder.Callback {
             val p = peer
             if (p != null && channel != null) {
                 val delay = if (rttMs >= 0) " · ${rttMs} ms delay" else ""
-                val line = if (frozen()) stillNote() else when (mode) {
+                val line = lockedNote() ?: when (mode) {
                     "video" -> "⚡ ${p.name} · live · $fps fps$delay${routeLabel()}" +
                         if (viewOnly) "\n👀 View only: to let you tap, they use \"✋ Allow tapping\" in XARVIS Helper" else ""
                     "jpeg" -> "🖥 ${p.name} · $fps pictures/s$delay${routeLabel()}" + if (smoothButton.visibility == View.VISIBLE) " · tap ⚡ for live video" else ""
@@ -774,9 +764,8 @@ abstract class RemoteViewActivity : Activity(), SurfaceHolder.Callback {
     companion object {
         /** The linked phone to control, by name (optional: else the first one that answers). */
         const val EXTRA_DEVICE = "device"
-        private const val FROZEN_VIDEO_MS = 2_500L
-        private const val FROZEN_PICTURE_MS = 8_000L
-        private const val FROZEN_NOTE = "⏸ The picture is frozen (slow connection). Taps are paused until it moves, so nothing is tapped blind."
+        private const val STILL_VIDEO_MS = 2_500L
+        private const val STILL_PICTURE_MS = 8_000L
         /** Or by id (a family phone with XARVIS Helper, from ☰ → Help a family phone or its help notification). */
         const val EXTRA_PEER_ID = "peer_id"
         /** Video: long side and bit rate — sharp text, and light enough for Tailscale on mobile data. */
