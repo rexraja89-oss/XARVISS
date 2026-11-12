@@ -938,8 +938,10 @@ class XarvisCore(context: Context) {
     }
 
     /**
-     * XARVIS was just replaced by an update another phone asked for ("update my S22"): tell that phone it's back, with
-     * the versions (the Updater installs itself right after XARVIS, so wait a little first).
+     * XARVIS was just replaced by an update another phone asked for ("update my S22"). Replacing XARVIS cuts its line to
+     * XARVIS Updater, and Samsung pauses a background app soon after: on 13 Nov 2026 the S22's XARVIS reached v1.0.288
+     * but its Updater, whose own update comes last, stayed on v1.0.284. So after the restart XARVIS asks the Updater
+     * again to finish whatever is left (with XARVIS up the whole time), then tells the phone that asked, with the versions.
      */
     private suspend fun reportUpdate() {
         val asked = settings.getString(UPDATE_ASKED, null) ?: return
@@ -947,14 +949,34 @@ class XarvisCore(context: Context) {
         val o = runCatching { org.json.JSONObject(asked) }.getOrNull() ?: return
         if (System.currentTimeMillis() - o.optLong("at") > 30 * 60_000L) return
         if (o.optString("from") == com.xarvis.ai.BuildConfig.VERSION_NAME) return
-        kotlinx.coroutines.delay(20_000)
-        val text = "🏁 Back after the update — ${com.xarvis.ai.update.Updates.versions(appContext)}."
-        post(text)
-        val peer = link.pairedPeers().firstOrNull { it.id == o.optString("peer") } ?: return
-        repeat(6) {
-            if (runCatching { link.sendTaskNews(peer, text) }.isSuccess) return
-            kotlinx.coroutines.delay(20_000)
+        val peer = link.pairedPeers().firstOrNull { it.id == o.optString("peer") }
+        // The first line waits until the other phone can be reached again (the relay reconnects after a restart).
+        val back = "↻ Back on v${com.xarvis.ai.BuildConfig.VERSION_NAME} — finishing the rest of the update…"
+        post(back)
+        kotlinx.coroutines.delay(10_000)
+        if (peer != null) {
+            for (attempt in 0 until 8) {
+                if (runCatching { link.sendTaskNews(peer, back) }.isSuccess) break
+                kotlinx.coroutines.delay(15_000)
+            }
         }
+        val news = peer?.let { taskNewsTo(it) }
+        val end = kotlinx.coroutines.CompletableDeferred<String>()
+        val cant = com.xarvis.ai.update.Updates.updateAllQuietly(
+            appContext,
+            onLine = { line -> post(line); news?.invoke(line) },
+            onEnd = { line -> end.complete(line) },
+        )
+        val last = if (cant != null) "⚠ ${cant.replaceFirstChar { it.uppercase() }}." else end.await()
+        if (last.startsWith("⏳")) kotlinx.coroutines.delay(60_000)
+        val versions = com.xarvis.ai.update.Updates.versions(appContext)
+        val final = when {
+            last.startsWith("🏁") -> last
+            last.startsWith("⚠") -> "🏁 $last Now: $versions."
+            else -> "🏁 All done — $versions."
+        }
+        post(final)
+        news?.invoke(final)
     }
 
     private val controlLock = Any()
