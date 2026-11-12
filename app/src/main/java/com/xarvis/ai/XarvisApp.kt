@@ -14,5 +14,7 @@ class XarvisApp : Application() {
         com.xarvis.ai.brief.BriefingSchedule.schedule(this) // (re)arm the daily briefing alarm
         com.xarvis.ai.remind.Reminders.reschedule(this) // (re)arm any pending reminders
         com.xarvis.ai.remind.Nudges.schedulePoll(this) // (re)start the proactive nudge poll
+        com.xarvis.ai.task.NightShiftRunner.schedule(this) // (re)arm the night shift
+        com.xarvis.ai.task.NightShiftRunner.runDue(this) // a job whose time passed while XARVIS was restarting
     }
 }

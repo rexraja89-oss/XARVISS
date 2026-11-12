@@ -15,7 +15,13 @@ import com.xarvis.ai.agent.PhoneAgent
  * installing and calling happen only when the goal asks for that kind of thing (else skipped, without asking); STOP
  * ends it at once.
  */
-class TaskRunner(private val env: Env, private val lessons: LessonBook, private val limits: Limits = Limits()) {
+class TaskRunner(
+    private val env: Env,
+    private val lessons: LessonBook,
+    private val limits: Limits = Limits(),
+    /** Rex's taught skills by name: a plan step that names one runs it first (fast, no brain), see [Skill]. */
+    private val skills: (String) -> Skill? = { null },
+) {
 
     /** The phone and the brain, as the runner needs them (TaskManager on the S22; fakes in the tests). */
     interface Env {
@@ -48,6 +54,8 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
         val actionsPerStep: Int = 45,
         val replans: Int = 3,
         val settleMs: Long = 1_500,
+        /** Out of new plans: ask Rex (a normal task) or just end (one step a skill handed over). */
+        val askWhenStuck: Boolean = true,
     )
 
     /** How it went; [replans] and [asked] (times Rex had to answer) tell a clean run from a struggle (practice). */
@@ -96,6 +104,8 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
                     if (newPlan != null) {
                         plan = Plan(plan.title, plan.steps.take(index) + newPlan.steps)
                         say("🔁 New plan from step ${index + 1}:\n" + newPlan.steps.joinToString("\n") { "· ${it.title}" })
+                    } else if (!limits.askWhenStuck) {
+                        outcome = Outcome(false, "Stuck at step ${index + 1}: ${end.why}", index, plan)
                     } else {
                         // Out of ideas: Rex decides.
                         asked++
@@ -128,6 +138,14 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
         var blocked = 0
         var actions = 0
         if (env.stopped()) return StepEnd.Ended("Stopped — you pressed STOP.")
+        // A step one of Rex's skills does: replay it (seconds, no brain); if it can't, the brain finishes the step.
+        val named = plan.steps[index].skill.takeIf { it.isNotBlank() }?.let { skills(it) }
+        if (named != null) {
+            say("🎓 Using your skill “${named.name}”")
+            val r = SkillRunner(env, lessons, brainHelp = false).run(named)
+            if (r.ok) return StepEnd.Done(r.summary)
+            history += "(Rex's skill “${named.name}” stopped: ${r.summary.take(200)} — finish this step another way)"
+        }
         openStepApp(plan.steps[index], history)
         while (true) {
             if (env.stopped()) return StepEnd.Ended("Stopped — you pressed STOP.")
@@ -383,7 +401,7 @@ class TaskRunner(private val env: Env, private val lessons: LessonBook, private 
 
     companion object {
         /** A control that ends an ad or a pop-up. */
-        private val CLOSE = Regex("""(?i)^(?:[✕×xX]|close|close ad|skip|skip ad|skip ads|skip video|reward granted|continue to app|dismiss|no thanks|not now)$""")
+        internal val CLOSE = Regex("""(?i)^(?:[✕×xX]|close|close ad|skip|skip ad|skip ads|skip video|reward granted|continue to app|dismiss|no thanks|not now)$""")
         private const val TYPE_SETTLE_MS = 500L
         private const val NEAR_PX = 90
     }

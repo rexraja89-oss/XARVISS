@@ -105,6 +105,7 @@ class TaskActivity : Activity() {
 
     private fun idle(s: TaskManager.State) {
         TaskManager.notReady(this)?.let { body.addView(label("⚠ $it", red, 14f)) }
+        body.addView(button("🎓 Skills (show me once) & 🌙 Night shift") { startActivity(android.content.Intent(this, SkillsActivity::class.java)) })
         s.error?.let { body.addView(label("⚠ $it", red, 14f)) }
         body.addView(label("YOUR GOAL", teal, 13f, bold = true))
         if (goal.text.isEmpty() && s.goal.isNotEmpty()) goal.setText(s.goal)

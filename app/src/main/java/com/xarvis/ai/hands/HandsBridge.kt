@@ -76,6 +76,9 @@ object HandsBridge {
     /** A call (app, contact, video) asked for while Hands was off: it runs when Rex switches it on. */
     @Volatile var pendingCall: Triple<String, String, Boolean>? = null
 
+    /** Teach mode ("show me once"): while set, Hands passes Rex's taps, typing and app changes here. */
+    @Volatile var teach: ((com.xarvis.ai.task.TeachEvent) -> Unit)? = null
+
     fun isRunning(): Boolean = service != null
 
     /** Whether XARVIS's own Accessibility service is switched on in Settings (any app can read this). */

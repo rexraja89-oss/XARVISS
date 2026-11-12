@@ -27,6 +27,7 @@ class BootReceiver : BroadcastReceiver() {
         com.xarvis.ai.brief.BriefingSchedule.schedule(context)
         com.xarvis.ai.remind.Reminders.reschedule(context)
         com.xarvis.ai.remind.Nudges.schedulePoll(context)
+        com.xarvis.ai.task.NightShiftRunner.schedule(context)
     }
 
     private companion object {

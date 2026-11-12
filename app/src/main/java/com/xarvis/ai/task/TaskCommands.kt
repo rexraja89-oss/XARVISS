@@ -19,6 +19,50 @@ object TaskCommands {
         data class Answer(val text: String) : Cmd
         data object Stop : Cmd
         data object Status : Cmd
+
+        /** "do my VPN", "run my search: dew point tables" ([value]: the changing text, "a | b" for several). */
+        data class Skill(val name: String, val value: String? = null, val where: String? = null, val raw: String = name) : Cmd
+
+        /** "my skills" / "what skills do you know". */
+        data object Skills : Cmd
+
+        /** "night shift: do my VPN at 2 am" — every night at [hour]:[minute] (24 h). */
+        data class Night(val what: String, val hour: Int, val minute: Int, val where: String? = null) : Cmd
+
+        /** "night shift report" / "show the night shift". */
+        data class NightList(val where: String? = null) : Cmd
+
+        /** "cancel the night shift". */
+        data class NightClear(val where: String? = null) : Cmd
+    }
+
+    private const val WHERE = """(?:\s+on\s+(?:my\s+|the\s+)?([\p{L}\p{N}' ]{2,25}?))?"""
+    private const val TIME = """(\d{1,2})(?:[:.](\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?"""
+    private val SKILL = Regex("""(?is)^(?:(?:hey\s+)?[xj]arvis[,\s]+)?(?:please\s+|can\s+you\s+|now\s+)*(?:do|run)\s+(?:the\s+)?(?:my\s+skill\s+|skill\s+|my\s+)(.+?)[\s.!]*$""")
+    private val SKILL_VALUE = Regex("""(?s)^(.+?)\s*(?::|\s[–—-]\s|\s+with\s+)\s*(.+)$""")
+    private val SKILL_WHERE = Regex("""(?i)^(.+?)\s+on\s+(?:my\s+|the\s+)?([\p{L}\p{N}' ]{2,25})$""")
+    private val SKILLS = Regex("""(?i)^(?:(?:hey\s+)?[xj]arvis[,\s]+)?(?:(?:show|list|tell)\s+(?:me\s+)?|what\s+are\s+)?(?:my|your|the|all|all\s+my)?\s*(?:taught\s+)?skills[\s?.!]*$|^what\s+skills\s+do\s+you\s+(?:know|have)[\s?.!]*$""")
+    private val NIGHT_A = Regex("""(?is)^night\s*shift$WHERE\s*[:\-–]\s*(.+?)\s+(?:at|@)\s+$TIME[\s.!]*$""")
+    private val NIGHT_B = Regex("""(?is)^night\s*shift$WHERE\s+(?:at|@)\s+$TIME\s*[:\-–]\s*(.+?)[\s.!]*$""")
+    private val NIGHT_LIST = Regex("""(?i)^(?:(?:show|tell)\s+(?:me\s+)?|what(?:'s|\s+is)\s+on\s+|what\s+did\s+)?(?:the\s+|my\s+)?night\s*shift(?:\s+(?:report|list|jobs|plan|status|do))?$WHERE[\s?.!]*$""")
+    private val NIGHT_CLEAR = Regex("""(?i)^(?:cancel|clear|stop|delete|empty)\s+(?:the\s+|my\s+)?(?:whole\s+)?night\s*shift$WHERE[\s.!]*$""")
+
+    /** 24-hour time from "2", "2:30", "2 am", "11.15 pm"; null if it isn't one. */
+    fun hour24(h: Int, ampm: String?): Int? {
+        val a = ampm?.lowercase()?.replace(".", "")?.trim()
+        return when (a) {
+            "am" -> if (h == 12) 0 else h.takeIf { it in 1..11 }
+            "pm" -> if (h == 12) 12 else h.takeIf { it in 1..11 }?.plus(12)
+            else -> h.takeIf { it in 0..23 }
+        }
+    }
+
+    private fun night(what: String, h: String, m: String, ampm: String, where: String): Cmd? {
+        val hour = hour24(h.toIntOrNull() ?: return null, ampm.ifBlank { null }) ?: return null
+        val minute = (m.toIntOrNull() ?: 0).takeIf { it in 0..59 } ?: return null
+        val w = what.trim().trimEnd('.', '!')
+        if (w.length < 3) return null
+        return Cmd.Night(w, hour, minute, where.trim().ifBlank { null })
     }
 
     private val START = Regex(
@@ -43,6 +87,12 @@ object TaskCommands {
 
     fun parse(message: String): Cmd? {
         val m = message.trim()
+        NIGHT_CLEAR.matchEntire(m)?.let { return Cmd.NightClear(it.groupValues[1].trim().ifBlank { null }) }
+        NIGHT_A.matchEntire(m)?.let { g -> return night(g.groupValues[2], g.groupValues[3], g.groupValues[4], g.groupValues[5], g.groupValues[1]) }
+        NIGHT_B.matchEntire(m)?.let { g -> return night(g.groupValues[5], g.groupValues[2], g.groupValues[3], g.groupValues[4], g.groupValues[1]) }
+        NIGHT_LIST.matchEntire(m)?.let { return Cmd.NightList(it.groupValues[1].trim().ifBlank { null }) }
+        SKILLS.matchEntire(m)?.let { return Cmd.Skills }
+        SKILL.matchEntire(m)?.let { s -> skill(s.groupValues[1])?.let { return it } }
         STOP.matchEntire(m)?.let { return Cmd.Stop }
         STATUS.matchEntire(m)?.let { return Cmd.Status }
         ANSWER.matchEntire(m)?.let { return Cmd.Answer(it.groupValues[1].trim()) }
@@ -52,9 +102,31 @@ object TaskCommands {
             return Cmd.Start(goal, s.groupValues[1].trim().takeIf { it.isNotEmpty() })
         }
         val i = IMPLICIT.matchEntire(m) ?: return null
+        if (TAUGHT.containsMatchIn(m)) return null
         if (!ACTION.containsMatchIn(i.groupValues[3])) return null
         val app = i.groupValues[1].trim().trimEnd(',', '.').trim()
         if (app.isEmpty()) return null
         return Cmd.Start(m.replace(LEAD, "").trim(), i.groupValues[2].trim().takeIf { it.isNotEmpty() }, app, implicit = true)
+    }
+
+    /** A plain "open X and …" that is really about a skill ("… my skill") stays with the skill command. */
+    private val TAUGHT = Regex("""(?i)\bmy\s+skill\b""")
+
+    private fun skill(rest: String): Cmd.Skill? {
+        var name = rest.trim()
+        var value: String? = null
+        SKILL_VALUE.matchEntire(name)?.let { v ->
+            name = v.groupValues[1].trim()
+            value = v.groupValues[2].trim().trimEnd('.', '!').ifBlank { null }
+        }
+        var where: String? = null
+        SKILL_WHERE.matchEntire(name)?.let { w ->
+            name = w.groupValues[1].trim()
+            where = w.groupValues[2].trim()
+        }
+        name = name.trim().trimEnd('.', '!', '?').removeSuffix(" skill").trim()
+        val words = name.split(Regex("""\s+""")).filter { it.isNotBlank() }
+        if (name.length < 2 || words.size > 6) return null
+        return Cmd.Skill(name, value, where, raw = rest.trim().trimEnd('.', '!', '?'))
     }
 }

@@ -598,22 +598,47 @@ class XarvisAgent(
             runCatching { com.xarvis.ai.device.DeviceCapabilityManager(appContext).findApp(app) != null }.getOrDefault(false)
     }
 
-    private suspend fun taskCommand(cmd: com.xarvis.ai.task.TaskCommands.Cmd): Reply {
+    /** Task mode, skills and the night shift: here on the S22, else on the S22 over the link. Null = not for Task mode after all. */
+    private suspend fun taskCommand(cmd: com.xarvis.ai.task.TaskCommands.Cmd): Reply? {
         val tasks = com.xarvis.ai.task.TaskManager
         val canHere = com.xarvis.ai.hands.HandsBridge.builtIn
-        val named = (cmd as? com.xarvis.ai.task.TaskCommands.Cmd.Start)?.where
+        val whereWords = when (cmd) {
+            is com.xarvis.ai.task.TaskCommands.Cmd.Start -> cmd.where
+            is com.xarvis.ai.task.TaskCommands.Cmd.Skill -> cmd.where
+            is com.xarvis.ai.task.TaskCommands.Cmd.Night -> cmd.where
+            is com.xarvis.ai.task.TaskCommands.Cmd.NightList -> cmd.where
+            is com.xarvis.ai.task.TaskCommands.Cmd.NightClear -> cmd.where
+            else -> null
+        }
+        val named = whereWords
             ?.let { DeviceLink.namedIn(it, link.pairedPeers().map { p -> p.name }) }
             ?.let { name -> link.pairedPeers().firstOrNull { it.name == name } }
-        val busyHere = tasks.state.value.phase.let {
-            it == com.xarvis.ai.task.TaskManager.Phase.PLANNING || it == com.xarvis.ai.task.TaskManager.Phase.RUNNING ||
-                it == com.xarvis.ai.task.TaskManager.Phase.WAITING
-        }
-        val here = named == null && when (cmd) {
-            is com.xarvis.ai.task.TaskCommands.Cmd.Start -> canHere
-            else -> canHere && busyHere
+        val busyHere = tasks.busy()
+        val here = named == null && canHere && when (cmd) {
+            is com.xarvis.ai.task.TaskCommands.Cmd.Answer, com.xarvis.ai.task.TaskCommands.Cmd.Stop, com.xarvis.ai.task.TaskCommands.Cmd.Status -> busyHere
+            else -> true
         }
         if (here) {
             return when (cmd) {
+                is com.xarvis.ai.task.TaskCommands.Cmd.Skill -> {
+                    // Not one of Rex's skills: it's just a sentence ("do my homework") — the chat answers it.
+                    val (skill, values) = com.xarvis.ai.task.Skills.resolve(tasks.skills(appContext).all(), cmd) ?: return null
+                    tasks.runSkill(appContext, skill, values)?.let { Reply("🎓 I can't run it yet, sir: $it") }
+                        ?: Reply("🎓 On it, sir — “${skill.name}”, the way you showed me. STOP any time (the ✱ at the top).")
+                }
+                com.xarvis.ai.task.TaskCommands.Cmd.Skills -> Reply(com.xarvis.ai.task.Skills.list(tasks.skills(appContext).all()))
+                is com.xarvis.ai.task.TaskCommands.Cmd.Night -> {
+                    val job = com.xarvis.ai.task.NightShiftRunner.add(appContext, cmd.what, cmd.hour, cmd.minute)
+                    Reply(
+                        "🌙 On the night shift, sir: ${job.time()} every night — ${job.what}. The report goes to your other phone. " +
+                            "If this phone is locked then, I'll say so there and wait for you to unlock it (XARVIS Remote).",
+                    )
+                }
+                is com.xarvis.ai.task.TaskCommands.Cmd.NightList -> Reply(nightShiftText())
+                is com.xarvis.ai.task.TaskCommands.Cmd.NightClear -> {
+                    com.xarvis.ai.task.NightShiftRunner.clear(appContext)
+                    Reply("🌙 Night shift cleared, sir.")
+                }
                 is com.xarvis.ai.task.TaskCommands.Cmd.Start -> tasks.start(appContext, cmd.goal, app = cmd.app)
                     ?.let { Reply("🧠 Task mode can't start yet, sir: $it") }
                     ?: Reply("🧠 On it, sir — planning it and doing it now. Follow along in ☰ → 🧠 Task mode or the notification; STOP any time.")
@@ -628,25 +653,37 @@ class XarvisAgent(
                 com.xarvis.ai.task.TaskCommands.Cmd.Status -> Reply("🧠 ${tasks.statusLine()}")
             }
         }
-        if (cmd !is com.xarvis.ai.task.TaskCommands.Cmd.Start && canHere && named == null && link.pairedPeers().isEmpty()) {
+        if ((cmd is com.xarvis.ai.task.TaskCommands.Cmd.Answer || cmd is com.xarvis.ai.task.TaskCommands.Cmd.Stop || cmd is com.xarvis.ai.task.TaskCommands.Cmd.Status) && canHere && named == null && link.pairedPeers().isEmpty()) {
             return Reply("🧠 ${tasks.statusLine()}")
         }
         val peer = named ?: link.reachable().firstOrNull()?.first
-            ?: return Reply("🧠 I can't reach your S22 to do that, sir. Make sure XARVIS is running on it and ☰ → 🌐 Always connected says Connected on both phones.")
+            // "do my homework" with the S22 out of reach: likely just a sentence — the chat answers it.
+            ?: return if (cmd is com.xarvis.ai.task.TaskCommands.Cmd.Skill) null
+            else Reply("🧠 I can't reach your S22 to do that, sir. Make sure XARVIS is running on it and ☰ → 🌐 Always connected says Connected on both phones.")
         val body = when (cmd) {
             is com.xarvis.ai.task.TaskCommands.Cmd.Start -> org.json.JSONObject().put("action", "start").put("goal", cmd.goal).put("app", cmd.app ?: "")
             is com.xarvis.ai.task.TaskCommands.Cmd.Answer -> org.json.JSONObject().put("action", "answer").put("text", cmd.text)
             com.xarvis.ai.task.TaskCommands.Cmd.Stop -> org.json.JSONObject().put("action", "stop")
             com.xarvis.ai.task.TaskCommands.Cmd.Status -> org.json.JSONObject().put("action", "status")
+            is com.xarvis.ai.task.TaskCommands.Cmd.Skill -> org.json.JSONObject().put("action", "skill").put("name", cmd.name).put("value", cmd.value ?: "").put("raw", cmd.raw)
+            com.xarvis.ai.task.TaskCommands.Cmd.Skills -> org.json.JSONObject().put("action", "skills")
+            is com.xarvis.ai.task.TaskCommands.Cmd.Night -> org.json.JSONObject().put("action", "night_add").put("what", cmd.what).put("hour", cmd.hour).put("minute", cmd.minute)
+            is com.xarvis.ai.task.TaskCommands.Cmd.NightList -> org.json.JSONObject().put("action", "night_list")
+            is com.xarvis.ai.task.TaskCommands.Cmd.NightClear -> org.json.JSONObject().put("action", "night_clear")
         }
         return try {
             val text = link.remoteTask(peer, body)
             Reply(
-                if (cmd is com.xarvis.ai.task.TaskCommands.Cmd.Start) "🧠 ${peer.name} is on it, sir. Its progress, any question and the result will show up here."
-                else "🧠 ${peer.name}: $text",
+                when (cmd) {
+                    is com.xarvis.ai.task.TaskCommands.Cmd.Start -> "🧠 ${peer.name} is on it, sir. Its progress, any question and the result will show up here."
+                    is com.xarvis.ai.task.TaskCommands.Cmd.Skill -> "🎓 ${peer.name} is on it, sir — the way you showed it. The result will show up here."
+                    else -> "🧠 ${peer.name}: $text"
+                },
             )
         } catch (e: Exception) {
             if (e is CancellationException) throw e
+            // "do my homework" when the S22 has no such skill: just a sentence for the chat.
+            if (cmd is com.xarvis.ai.task.TaskCommands.Cmd.Skill && e.message?.contains(NO_SKILL) == true) return null
             Reply("🧠 ${peer.name} couldn't: ${e.message ?: e.javaClass.simpleName}")
         }
     }
@@ -803,7 +840,14 @@ class XarvisAgent(
         }
     }
 
+    private fun nightShiftText(): String =
+        com.xarvis.ai.task.NightShift.describe(com.xarvis.ai.task.NightShiftRunner.jobs(appContext)) +
+            (com.xarvis.ai.task.NightShiftRunner.lastReport(appContext)?.let { "\n\nLast night:\n$it" } ?: "")
+
     companion object {
+        /** The S22's answer when a "do my X" names no skill there (the benco then lets the chat answer). */
+        const val NO_SKILL = "no skill called"
+
         /** "task: make a YouTube Short about Mars" (also "big task -", "complex task:") → the goal for Task mode. */
         internal fun taskGoal(message: String): String? =
             (com.xarvis.ai.task.TaskCommands.parse(message) as? com.xarvis.ai.task.TaskCommands.Cmd.Start)?.goal

@@ -80,6 +80,55 @@ object TaskManager {
     fun lessons(context: Context): LessonBook =
         book ?: synchronized(this) { book ?: LessonBook(File(context.filesDir, "tasks/lessons.json")).also { book = it } }
 
+    @Volatile private var skillBook: SkillBook? = null
+
+    /** Rex's taught skills ("show me once"). */
+    fun skills(context: Context): SkillBook =
+        skillBook ?: synchronized(this) { skillBook ?: SkillBook(File(context.filesDir, "tasks/skills.json")).also { skillBook = it } }
+
+    /** Whether a task or skill is planning, running or waiting for Rex. */
+    fun busy(): Boolean = _state.value.phase.let { it == Phase.PLANNING || it == Phase.RUNNING || it == Phase.WAITING } || job?.isActive == true
+
+    /**
+     * Replays one of Rex's skills now ("do my VPN"): no planning, no brain unless a step looks different (then the
+     * brain does that step alone, if the cloud brain is set up). [values] fill the skill's changing texts. Returns null
+     * when it started, else why it can't.
+     */
+    fun runSkill(context: Context, skill: Skill, values: Map<String, String> = emptyMap(), from: Reporter? = null): String? {
+        if (job?.isActive == true) {
+            return "I'm already doing a task (${_state.value.plan?.title ?: _state.value.goal.take(60)}). Say \"stop the task\" first."
+        }
+        if (!HandsBridge.builtIn) return "Skills run on the S22 (they need XARVIS Hands built in)."
+        if (HandsBridge.service == null) return "Switch on XARVIS Hands first: ☰ → XARVIS Hands → Open Accessibility settings → XARVIS Hands → On."
+        val app = context.applicationContext as XarvisApp
+        stop = false
+        reporter = from
+        practiceId = null
+        val plan = Plan("🎓 ${skill.name}", skill.steps.map { PlanStep(it.describe(), it.app(), "", "") })
+        _state.value = State(Phase.RUNNING, goal = "Skill: ${skill.name}", plan = plan, startedAt = System.currentTimeMillis(), from = from?.name)
+        job = scope.launch {
+            keepAwake(app, true)
+            HandsBridge.service?.controlBanner("XARVIS (skill)") { stop = true }
+            val env = PhoneEnv(app, skill.name)
+            val runner = SkillRunner(env, lessons(app), brainHelp = app.core.visionReady())
+            report("🎓 Running your skill “${skill.name}” (${skill.steps.size} steps).")
+            val result = runCatching { runner.run(skill, values) }.getOrElse { e ->
+                if (e is kotlinx.coroutines.CancellationException) null else SkillRunner.Result(false, "It broke off: ${e.message ?: e.javaClass.simpleName}", 0, 0)
+            }
+            runCatching { HandsBridge.service?.controlBanner(null) {} }
+            keepAwake(app, false)
+            val ok = result?.ok == true
+            val summary = result?.summary ?: "Stopped."
+            runCatching { skills(app).recordRun(skill.name, ok, (result?.helped ?: 1) == 0, summary, System.currentTimeMillis()) }
+            remember(app, "Skill: ${skill.name}", plan, ok, summary)
+            _state.value = _state.value.copy(phase = Phase.DONE, question = null, result = summary)
+            notify(app, if (ok) "🏁 Skill done" else "⏹ Skill stopped", summary.lineSequence().first(), high = true)
+            report(if (ok) "🏁 Done — $summary" else "⏹ $summary")
+            reporter = null
+        }
+        return null
+    }
+
     /** What's missing for Task mode on this phone, or null when it's ready. */
     fun notReady(context: Context): String? {
         val core = (context.applicationContext as XarvisApp).core
@@ -129,7 +178,9 @@ object TaskManager {
     private suspend fun askPlan(context: Context, goal: String): Plan? {
         val core = (context as XarvisApp).core
         val apps = runCatching { com.xarvis.ai.device.DeviceCapabilityManager(context).launchableApps().map { it.label } }.getOrDefault(emptyList())
-        val prompt = TaskPrompts.planPrompt(goal, apps, lessons(context).promptFor(emptyList(), 15))
+        val prompt = TaskPrompts.planPrompt(
+            goal, apps, lessons(context).promptFor(emptyList(), 15), skills = skills(context).all().map { it.summary() },
+        )
         return Plan.parse(core.generateCode(TaskPrompts.PLAN_SYSTEM, prompt))
     }
 
@@ -138,7 +189,7 @@ object TaskManager {
         keepAwake(app, true)
         HandsBridge.service?.controlBanner("XARVIS (task)") { stop = true }
         val env = PhoneEnv(app, plan.title)
-        val runner = TaskRunner(env, lessons(app))
+        val runner = TaskRunner(env, lessons(app), skills = { name -> skills(app).find(name) })
         progress("🧠 Plan: ${plan.title} — " + plan.steps.mapIndexed { i, st -> "${i + 1}. ${st.title.take(80)}" }.joinToString(" · "))
         val outcome = runCatching { runner.run(goal, plan) }.getOrElse { e ->
             if (e is kotlinx.coroutines.CancellationException) null else TaskRunner.Outcome(false, "It broke off: ${e.message ?: e.javaClass.simpleName}", 0, plan)

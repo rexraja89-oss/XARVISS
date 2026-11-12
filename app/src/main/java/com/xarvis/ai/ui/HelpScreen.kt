@@ -102,6 +102,13 @@ fun HelpScreen(onBack: () -> Unit) {
             "It comes to you only for what only you can do (a password, a captcha). It never pays, subscribes, types passwords or opens banking apps, and it skips buttons the task didn't ask for (an ad's Install). STOP any time.",
             "🎓 Practice ladder on the Task screen: small jobs first (Ninja VPN, a search, a timer), bigger ones unlock as it passes. It learns tips about each app and uses them next time.",
         ))
+        Section("🎓 Skills — show me once · 🌙 Night shift", listOf(
+            "Task mode → 🎓 Skills → 🔴 Teach: XARVIS goes Home and watches. Do the job once, your way (open Ninja VPN, Connect, close the ad), then tap ✅ Done in the notification and give it a name.",
+            "\"do my VPN\" (also from the benco) replays it in seconds — no brain, no free-limit waits. It finds the buttons by their names and waits for what you waited for. If a screen looks different, the brain does just that step.",
+            "A text that changes: tick \"changes each time\" when saving, then \"do my search: dew point tables\". \"my skills\" lists them. Big tasks use your skills as building blocks.",
+            "🌙 \"night shift: do my VPN at 2 am\" (or ➕ on the Skills screen): every night on the S22, with a report to the benco (and in the morning briefing). If the S22 is locked then, the benco is told and it waits for you to unlock it with XARVIS Remote.",
+            "Never recorded or replayed: passwords (it stops for you to type them), banking and payment apps, and money buttons.",
+        ))
         Section("🤝 Help a family phone", listOf(
             "☰ → 🤝 Help a family phone → Invite a phone: send the invite on WhatsApp. They install the small XARVIS Helper app and paste it.",
             "When they tap \"Ask for help\", you get a notification: tap it to see their screen (and tap for them, if they switched on \"Allow tapping\").",

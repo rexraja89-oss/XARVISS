@@ -36,12 +36,21 @@ object TaskPrompts {
         "payment apps, or publishes publicly unless the goal says so. Rex types passwords himself if a site needs one.\n" +
         "Reply with ONLY a JSON object: {\"title\": short task name, \"steps\": [{\"title\": ..., \"app\": the app name or website " +
         "address (\"XARVIS\" for writing text itself), \"how\": 1–3 sentences, \"done\": what the screen or a file shows when the " +
-        "step is finished}]}\n" +
+        "step is finished, and \"skill\": a skill's name when one of REX'S SKILLS does exactly that step}]}\n" +
+        "Rex's skills are jobs he showed XARVIS once; they replay by themselves in seconds without the brain, so use one " +
+        "whenever it does a step exactly (its step's title can be the skill's name).\n" +
         "Know-how:" + PLAYBOOKS
 
-    fun planPrompt(goal: String, apps: List<String>, lessons: List<String>, feedback: String? = null, previous: Plan? = null): String = buildString {
+    fun planPrompt(
+        goal: String, apps: List<String>, lessons: List<String>, feedback: String? = null, previous: Plan? = null,
+        skills: List<String> = emptyList(),
+    ): String = buildString {
         append("GOAL: ").append(goal).append('\n')
         if (apps.isNotEmpty()) append("APPS ON THE PHONE (some): ").append(apps.take(80).joinToString(", ")).append('\n')
+        if (skills.isNotEmpty()) {
+            append("REX'S SKILLS (name: what it does):\n")
+            skills.take(30).forEach { append("- ").append(it).append('\n') }
+        }
         if (lessons.isNotEmpty()) {
             append("LESSONS FROM EARLIER TASKS:\n")
             lessons.forEach { append("- ").append(it).append('\n') }

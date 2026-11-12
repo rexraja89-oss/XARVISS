@@ -16,8 +16,11 @@ data class PlanStep(
     val how: String,
     /** What "finished" looks like, so the runner knows when to move on. */
     val doneWhen: String,
+    /** One of Rex's taught skills that does this step by itself ("" = none): see [Skill]. */
+    val skill: String = "",
 ) {
     fun toJson(): JSONObject = JSONObject().put("title", title).put("app", app).put("how", how).put("done", doneWhen)
+        .apply { if (skill.isNotBlank()) put("skill", skill) }
 }
 
 data class Plan(val title: String, val steps: List<PlanStep>) {
@@ -57,7 +60,10 @@ data class Plan(val title: String, val steps: List<PlanStep>) {
                 val s = arr.optJSONObject(i) ?: return@mapNotNull arr.optString(i).takeIf { it.isNotBlank() }?.let { PlanStep(it, "", "", "") }
                 val title = s.optString("title").trim()
                 if (title.isEmpty()) null
-                else PlanStep(title, s.optString("app").trim(), s.optString("how").trim(), s.optString("done").ifBlank { s.optString("doneWhen") }.trim())
+                else PlanStep(
+                    title, s.optString("app").trim(), s.optString("how").trim(), s.optString("done").ifBlank { s.optString("doneWhen") }.trim(),
+                    s.optString("skill").trim(),
+                )
             }.take(MAX_STEPS)
             if (steps.isEmpty()) null else Plan(o.optString("title").trim().ifEmpty { "Task" }, steps)
         }.getOrNull()

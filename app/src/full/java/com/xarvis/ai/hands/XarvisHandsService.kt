@@ -42,6 +42,72 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
             AccessibilityEvent.TYPE_VIEW_SCROLLED, AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
             -> com.xarvis.ai.guard.GuardMode.trigger(this, "screen touched")
         }
+        // Teach mode ("show me once"): what Rex does goes to the recorder (never a password's text).
+        val teach = HandsBridge.teach
+        if (event != null && teach != null) runCatching { teachEvent(event)?.let(teach) }
+    }
+
+    private val labels = HashMap<String, String>()
+
+    private fun appLabel(pkg: String): String = labels.getOrPut(pkg) {
+        runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
+    }
+
+    private fun screenSize(): Pair<Float, Float> {
+        val dm = android.util.DisplayMetrics()
+        @Suppress("DEPRECATION")
+        getSystemService(android.hardware.display.DisplayManager::class.java)?.getDisplay(android.view.Display.DEFAULT_DISPLAY)?.getRealMetrics(dm)
+        return dm.widthPixels.coerceAtLeast(1).toFloat() to dm.heightPixels.coerceAtLeast(1).toFloat()
+    }
+
+    /** The name a node shows (its own text, else the first text inside it, as the screen listing names it) and its id. */
+    private fun nameOf(node: AccessibilityNodeInfo?): Pair<String, String> {
+        if (node == null) return "" to ""
+        fun own(n: AccessibilityNodeInfo): String =
+            (n.text?.toString()?.trim().orEmpty().ifEmpty { n.contentDescription?.toString()?.trim().orEmpty() }).replace('\n', ' ').take(80)
+        fun id(n: AccessibilityNodeInfo) = n.viewIdResourceName?.substringAfter(":id/").orEmpty()
+        own(node).takeIf { it.isNotEmpty() }?.let { return it to id(node) }
+        val queue = ArrayDeque<Pair<AccessibilityNodeInfo, Int>>()
+        for (i in 0 until node.childCount) node.getChild(i)?.let { queue.add(it to 1) }
+        while (queue.isNotEmpty()) {
+            val (n, d) = queue.removeFirst()
+            own(n).takeIf { it.isNotEmpty() }?.let { return it to id(n) }
+            if (d < 3) for (i in 0 until n.childCount) n.getChild(i)?.let { queue.add(it to d + 1) }
+        }
+        return "" to id(node)
+    }
+
+    private fun teachEvent(e: AccessibilityEvent): com.xarvis.ai.task.TeachEvent? {
+        val pkg = e.packageName?.toString() ?: return null
+        val now = System.currentTimeMillis()
+        return when (e.eventType) {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> com.xarvis.ai.task.TeachEvent.Window(now, pkg, appLabel(pkg))
+            AccessibilityEvent.TYPE_VIEW_CLICKED, AccessibilityEvent.TYPE_VIEW_LONG_CLICKED -> {
+                val node = e.source
+                var (label, id) = nameOf(node)
+                if (label.isEmpty()) label = (e.text?.joinToString(" ")?.trim().orEmpty().ifEmpty { e.contentDescription?.toString().orEmpty() }).take(80)
+                val r = Rect().also { node?.getBoundsInScreen(it) }
+                val (w, h) = screenSize()
+                com.xarvis.ai.task.TeachEvent.Click(
+                    now, pkg, appLabel(pkg), label, id, (r.centerX() / w).coerceIn(0f, 1f), (r.centerY() / h).coerceIn(0f, 1f),
+                    long = e.eventType == AccessibilityEvent.TYPE_VIEW_LONG_CLICKED,
+                )
+            }
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
+                val node = e.source
+                val password = e.isPassword || node?.isPassword == true
+                val field = node?.hintText?.toString()?.trim().orEmpty()
+                    .ifEmpty { node?.contentDescription?.toString()?.trim().orEmpty() }
+                val r = Rect().also { node?.getBoundsInScreen(it) }
+                val (w, h) = screenSize()
+                com.xarvis.ai.task.TeachEvent.Text(
+                    now, pkg, appLabel(pkg), field.take(80), node?.viewIdResourceName?.substringAfter(":id/").orEmpty(),
+                    if (password) "" else e.text?.joinToString("").orEmpty().take(500), password,
+                    (r.centerX() / w).coerceIn(0f, 1f), (r.centerY() / h).coerceIn(0f, 1f),
+                )
+            }
+            else -> null
+        }
     }
 
     override fun onInterrupt() {}
@@ -166,7 +232,7 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
         getSystemService(android.hardware.display.DisplayManager::class.java)?.getDisplay(android.view.Display.DEFAULT_DISPLAY)?.getRealMetrics(dm)
         val out = org.json.JSONObject().put("w", dm.widthPixels).put("h", dm.heightPixels)
         if (root == null) return out.put("app", "").put("els", org.json.JSONArray()).toString()
-        class E(val r: Rect, val label: String, val tap: Boolean, val edit: Boolean, val pw: Boolean)
+        class E(val r: Rect, val label: String, val tap: Boolean, val edit: Boolean, val pw: Boolean, val id: String)
         val found = ArrayList<E>()
         fun tappable(n: AccessibilityNodeInfo): Boolean {
             var c: AccessibilityNodeInfo? = n
@@ -191,7 +257,9 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
                 }
                 if (label.isNotEmpty() || n.isEditable) {
                     val r = Rect().also { n.getBoundsInScreen(it) }
-                    if (r.width() > 0 && r.height() > 0) found += E(r, label.replace('\n', ' ').take(80), tappable(n), n.isEditable, n.isPassword)
+                    if (r.width() > 0 && r.height() > 0) {
+                        found += E(r, label.replace('\n', ' ').take(80), tappable(n), n.isEditable, n.isPassword, n.viewIdResourceName?.substringAfter(":id/").orEmpty())
+                    }
                 }
             }
             for (i in 0 until n.childCount) walk(n.getChild(i), depth + 1)
@@ -205,11 +273,12 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
             .take(60).forEach { e ->
                 els.put(
                     org.json.JSONObject().put("t", e.label).put("c", e.tap).put("e", e.edit).put("p", e.pw)
-                        .put("x", e.r.centerX()).put("y", e.r.centerY()),
+                        .put("x", e.r.centerX()).put("y", e.r.centerY()).apply { if (e.id.isNotEmpty()) put("i", e.id) },
                 )
             }
-        log("listed the screen of $app: ${els.length()} things")
-        return out.put("app", app).put("els", els).toString()
+        // Teach mode looks every few seconds: not worth a log line each time.
+        if (HandsBridge.teach == null) log("listed the screen of $app: ${els.length()} things")
+        return out.put("app", app).put("pkg", root.packageName?.toString().orEmpty()).put("els", els).toString()
     }
 
     private var askView: android.view.View? = null

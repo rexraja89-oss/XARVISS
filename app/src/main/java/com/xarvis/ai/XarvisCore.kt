@@ -334,6 +334,30 @@ class XarvisCore(context: Context) {
                     "Stopping the task."
                 }
                 "status" -> tasks.statusLine()
+                "skill" -> {
+                    val name = req.optString("name").trim()
+                    val cmd = com.xarvis.ai.task.TaskCommands.Cmd.Skill(name, req.optString("value").ifBlank { null }, null, req.optString("raw").ifBlank { name })
+                    val (skill, values) = com.xarvis.ai.task.Skills.resolve(tasks.skills(appContext).all(), cmd)
+                        ?: throw com.xarvis.ai.net.LinkException("${com.xarvis.ai.agent.XarvisAgent.NO_SKILL} “$name” on this phone")
+                    tasks.runSkill(appContext, skill, values, from = com.xarvis.ai.task.TaskManager.Reporter(peer.name, taskNewsTo(peer)))
+                        ?.let { throw com.xarvis.ai.net.LinkException(it) }
+                    post("🎓 ${peer.name} asked me to do “${skill.name}”")
+                    "On it."
+                }
+                "skills" -> com.xarvis.ai.task.Skills.list(tasks.skills(appContext).all())
+                "night_add" -> {
+                    val what = req.optString("what").trim()
+                    if (what.length < 3) throw com.xarvis.ai.net.LinkException("say what to do")
+                    val job = com.xarvis.ai.task.NightShiftRunner.add(appContext, what, req.optInt("hour"), req.optInt("minute"))
+                    post("🌙 ${peer.name} added to the night shift: ${job.time()} — ${job.what}")
+                    "Added to the night shift: ${job.time()} every night — ${job.what}. If I'm locked then, I'll tell you here and wait for you to unlock me (XARVIS Remote)."
+                }
+                "night_list" -> com.xarvis.ai.task.NightShift.describe(com.xarvis.ai.task.NightShiftRunner.jobs(appContext)) +
+                    (com.xarvis.ai.task.NightShiftRunner.lastReport(appContext)?.let { "\n\nLast night:\n$it" } ?: "")
+                "night_clear" -> {
+                    com.xarvis.ai.task.NightShiftRunner.clear(appContext)
+                    "Night shift cleared."
+                }
                 else -> throw com.xarvis.ai.net.LinkException("unknown task request")
             }
             return org.json.JSONObject().put("text", text)
@@ -895,6 +919,19 @@ class XarvisCore(context: Context) {
      * Sends a task's news to [peer] one at a time, in order (it waits at the relay if that phone is offline); the
      * sender ends with the result.
      */
+    /** The night shift's progress and results go to the other phone (the benco), like a task it asked for. */
+    fun nightReporter(): com.xarvis.ai.task.TaskManager.Reporter? {
+        val peer = link.pairedPeers().firstOrNull() ?: return null
+        return com.xarvis.ai.task.TaskManager.Reporter("🌙 Night shift", taskNewsTo(peer))
+    }
+
+    /** A line for this phone's chat and every linked phone (the night shift's start and report). */
+    fun tellOtherPhone(text: String) {
+        post(text)
+        val peers = link.pairedPeers()
+        scope.launch(Dispatchers.IO) { peers.forEach { p -> runCatching { link.sendTaskNews(p, text) } } }
+    }
+
     private fun taskNewsTo(peer: com.xarvis.ai.net.Peer): (String) -> Unit {
         val queue = kotlinx.coroutines.channels.Channel<String>(capacity = 64)
         scope.launch(Dispatchers.IO) {

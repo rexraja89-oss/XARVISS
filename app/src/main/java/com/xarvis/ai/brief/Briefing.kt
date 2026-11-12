@@ -55,6 +55,10 @@ object Briefing {
             }
         }
 
+        com.xarvis.ai.task.NightShiftRunner.lastReport(context)?.let { r ->
+            sb.append(r.lineSequence().first().removePrefix("🌙 ").trim().trimEnd('.')).append(". ")
+        }
+
         sb.append("That's your briefing, sir.")
         return sb.toString().trim()
     }

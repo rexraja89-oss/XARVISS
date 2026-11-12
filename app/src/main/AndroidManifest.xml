@@ -180,6 +180,13 @@
             android:label="Task mode"
             android:launchMode="singleTask"
             android:theme="@android:style/Theme.DeviceDefault.Light" />
+        <!-- Task mode → Skills ("show me once") and the night shift; also opened from Teach mode's notification. -->
+        <activity
+            android:name=".SkillsActivity"
+            android:exported="false"
+            android:label="Skills"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.DeviceDefault.Light" />
         <!-- ☰ → Help a family phone: invite a phone with XARVIS Helper, see and help it when it asks. -->
         <activity
             android:name=".HelperLinkActivity"
@@ -260,6 +267,11 @@
                 <action android:name="com.xarvis.ai.action.LOOK" />
             </intent-filter>
         </receiver>
+
+        <!-- The night shift's alarm (jobs XARVIS does at night on the S22). -->
+        <receiver
+            android:name=".task.NightShiftReceiver"
+            android:exported="false" />
 
         <!-- Spoken reminders + proactive nudges (calendar heads-up, low battery). -->
         <receiver

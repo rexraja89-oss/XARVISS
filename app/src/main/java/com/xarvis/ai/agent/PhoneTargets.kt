@@ -19,7 +19,7 @@ internal fun screenFrom(json: String): PhoneAgent.Screen {
         val e = arr?.optJSONObject(i) ?: return@mapNotNull null
         PhoneAgent.Element(
             n = i + 1, label = e.optString("t"), tappable = e.optBoolean("c"), editable = e.optBoolean("e"),
-            password = e.optBoolean("p"), x = e.optInt("x"), y = e.optInt("y"),
+            password = e.optBoolean("p"), x = e.optInt("x"), y = e.optInt("y"), id = e.optString("i"),
         )
     }
     return PhoneAgent.Screen(o.optString("app"), elements, o.optInt("w"), o.optInt("h"))
