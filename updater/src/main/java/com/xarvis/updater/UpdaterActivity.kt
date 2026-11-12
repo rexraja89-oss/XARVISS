@@ -269,6 +269,7 @@ class UpdaterActivity : Activity() {
         box.addView(text(i.app.label + (i.build?.let { " ($it)" } ?: ""), 18f, bold = true))
         val note = text("", 14f, color = Color.DKGRAY)
         box.addView(note)
+        box.addView(text(UpdateEngine.quietNote(this, i), 12f, color = Color.GRAY))
         list.addView(box)
         return Row(box, note)
     }

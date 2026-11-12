@@ -40,8 +40,17 @@ object UpdateEngine {
     /** A full download bigger than this is never started without Rex saying so on the screen. */
     const val BIG_DOWNLOAD = 20_000_000L
 
-    /** An app on this phone: its version, its installed APK and that APK's name on GitHub. */
-    class Installed(val app: App, val version: String, val apk: File, val file: String, val build: String?, val src: String?)
+    /**
+     * An app on this phone: its version, its installed APK and that APK's name on GitHub. [installer]: the app that
+     * installed it last (its "installer of record"), null if Android won't say.
+     */
+    class Installed(
+        val app: App, val version: String, val apk: File, val file: String, val build: String?, val src: String?,
+        val installer: String? = null,
+    ) {
+        /** Android installs this app's next update without its "update?" prompt (see [Installer]). */
+        fun quiet(updater: String): Boolean = installer == updater || app.pkg == updater
+    }
 
     fun installed(context: Context, app: App): Installed? {
         val info: PackageInfo = runCatching {
@@ -56,7 +65,10 @@ object UpdateEngine {
             else -> "XARVIS-Updater.apk" to null
         }
         val src = info.applicationInfo?.metaData?.getString("xarvis.src")?.takeIf { it.isNotBlank() }
-        return Installed(app, info.versionName ?: "0", apk, file, build, src)
+        val installer = if (android.os.Build.VERSION.SDK_INT >= 30) {
+            runCatching { context.packageManager.getInstallSourceInfo(app.pkg).installingPackageName }.getOrNull()
+        } else null
+        return Installed(app, info.versionName ?: "0", apk, file, build, src, installer)
     }
 
     /** The newest release ([tag], "v1.0.282") and its patches.json ([release] null while GitHub is still making it). */
@@ -232,6 +244,24 @@ object UpdateEngine {
             runCatching { if (lock?.isHeld == true) lock.release() }
             running.set(false)
         }
+    }
+
+    /**
+     * One line under each app: whether its next update goes in without Android's prompt, and if not, why (13 Nov 2026:
+     * on the first "Update all" only the S22's XARVIS went in quietly — the others had last been installed some other
+     * way, and Android only skips the prompt for apps the Updater installed last).
+     */
+    fun quietNote(context: Context, i: Installed): String {
+        val me = context.packageName
+        if (android.os.Build.VERSION.SDK_INT < 31) return "Android asks before each update (this Android is older than 12)."
+        if (i.quiet(me)) return "Next updates go in without Android asking."
+        val by = i.installer?.let { pkg ->
+            runCatching {
+                val pm = context.packageManager
+                pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() + " ($pkg)"
+            }.getOrDefault(pkg)
+        } ?: "unknown"
+        return "Last installed by $by, so Android asks once — after that, no more."
     }
 
     fun mb(bytes: Long): String = when {
