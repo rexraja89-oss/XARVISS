@@ -335,11 +335,38 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
             drawerScope.launch { drawer.open() }
         }
         state.update?.let { version ->
-            // One tap: Chrome downloads the new APK once; then Open, then Update.
+            // XARVIS Updater downloads only what changed (~0.1–0.5 MB); without it, ask once: get it, or the full APK.
+            var chooseUpdate by remember { mutableStateOf(false) }
             Button(
-                onClick = { com.xarvis.ai.update.Updates.openDownload(context) },
+                onClick = {
+                    if (!com.xarvis.ai.update.Updates.openUpdater(context)) chooseUpdate = true
+                },
                 modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
             ) { Text("UPDATE TO v$version") }
+            if (chooseUpdate) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { chooseUpdate = false },
+                    title = { Text("Update XARVIS") },
+                    text = {
+                        Text(
+                            "Small update (recommended): install XARVIS Updater once (1.5 MB). After that every XARVIS update " +
+                                "downloads only what changed — usually under 1 MB instead of the whole app (about " +
+                                (if (com.xarvis.ai.BuildConfig.FLAVOR == "benco") "62" else "107") + " MB). " +
+                                "Install it, open it, and tap its Update button.",
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { chooseUpdate = false; com.xarvis.ai.update.Updates.getUpdater(context) }) {
+                            Text("Get XARVIS Updater")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { chooseUpdate = false; com.xarvis.ai.update.Updates.openDownload(context) }) {
+                            Text("Full download")
+                        }
+                    },
+                )
+            }
         }
         CapabilityRow(state.capabilities)
         // Only take space on the main panel while a download is actually running; otherwise the

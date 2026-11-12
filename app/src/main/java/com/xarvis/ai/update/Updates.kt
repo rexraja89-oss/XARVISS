@@ -77,9 +77,31 @@ object Updates {
         return false
     }
 
-    /** Opens the latest APK in Chrome (or the default browser if Chrome is missing). */
-    fun openDownload(context: Context): Boolean {
-        val view = Intent(Intent.ACTION_VIEW, Uri.parse(apkUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    /**
+     * XARVIS Updater (the small separate app): downloads only what changed — ~0.1–0.5 MB instead of the whole APK
+     * (~107 MB on the S22, ~62 MB on the benco). Rex kept tapping UPDATE here, which always fetched the full file
+     * (12 Nov 2026), so UPDATE opens the Updater when it's installed and offers it once when it isn't.
+     */
+    const val UPDATER_PACKAGE = "com.xarvis.updater"
+    private const val UPDATER_APK = DOWNLOAD + "XARVIS-Updater.apk"
+
+    fun updaterInstalled(context: Context): Boolean =
+        runCatching { context.packageManager.getPackageInfo(UPDATER_PACKAGE, 0); true }.getOrDefault(false)
+
+    /** Opens XARVIS Updater (it finds the small update itself); false if it isn't installed. */
+    fun openUpdater(context: Context): Boolean {
+        val launch = context.packageManager.getLaunchIntentForPackage(UPDATER_PACKAGE) ?: return false
+        return runCatching { context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); true }.getOrDefault(false)
+    }
+
+    /** Downloads XARVIS Updater (1.5 MB) in Chrome, to install once. */
+    fun getUpdater(context: Context): Boolean = openInBrowser(context, UPDATER_APK)
+
+    /** Opens the latest APK in Chrome (or the default browser if Chrome is missing): the full download. */
+    fun openDownload(context: Context): Boolean = openInBrowser(context, apkUrl)
+
+    private fun openInBrowser(context: Context, url: String): Boolean {
+        val view = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         for (pkg in listOf("com.android.chrome", null)) {
             try {
                 context.startActivity(if (pkg != null) Intent(view).setPackage(pkg) else view)
