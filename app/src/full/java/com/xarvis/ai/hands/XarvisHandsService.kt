@@ -45,6 +45,34 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
         // Teach mode ("show me once"): what Rex does goes to the recorder (never a password's text).
         val teach = HandsBridge.teach
         if (event != null && teach != null) runCatching { teachEvent(event)?.let(teach) }
+        // Awareness (aware/Board): notifications and the app in front, for Rex's other phones.
+        if (event != null) runCatching { awareEvent(event) }
+    }
+
+    private fun awareEvent(event: AccessibilityEvent) {
+        val pkg = event.packageName?.toString() ?: return
+        when (event.eventType) {
+            AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED -> {
+                val cb = HandsBridge.notification ?: return
+                val n = event.parcelableData as? android.app.Notification ?: return
+                val skip = android.app.Notification.FLAG_ONGOING_EVENT or android.app.Notification.FLAG_GROUP_SUMMARY or
+                    android.app.Notification.FLAG_FOREGROUND_SERVICE
+                if (n.flags and skip != 0) return
+                val ex = n.extras
+                val title = ex.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString().orEmpty()
+                val text = (ex.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT) ?: ex.getCharSequence(android.app.Notification.EXTRA_TEXT))
+                    ?.toString().orEmpty()
+                cb(pkg, title, text)
+            }
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                // Keyboards and the notification shade aren't "the app in front".
+                if (pkg == packageName || pkg.startsWith("com.android.systemui") || pkg.contains("inputmethod") ||
+                    pkg.contains("honeyboard") || pkg.contains("keyboard")
+                ) return
+                HandsBridge.front = pkg
+                HandsBridge.frontAt = System.currentTimeMillis()
+            }
+        }
     }
 
     private val labels = HashMap<String, String>()

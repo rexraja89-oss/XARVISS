@@ -79,6 +79,13 @@ object HandsBridge {
     /** Teach mode ("show me once"): while set, Hands passes Rex's taps, typing and app changes here. */
     @Volatile var teach: ((com.xarvis.ai.task.TeachEvent) -> Unit)? = null
 
+    /** XARVIS's awareness (aware/Board): each notification this phone shows — app package, title, text. */
+    @Volatile var notification: ((String, String, String) -> Unit)? = null
+
+    /** The app that last came to the front, and when (for the status card). */
+    @Volatile var front: String? = null
+    @Volatile var frontAt: Long = 0
+
     fun isRunning(): Boolean = service != null
 
     /** Whether XARVIS's own Accessibility service is switched on in Settings (any app can read this). */

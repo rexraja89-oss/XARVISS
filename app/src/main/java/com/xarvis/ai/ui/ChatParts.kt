@@ -200,7 +200,7 @@ fun SettingsMenu(
     wakeWord: Boolean, onWakeWord: (Boolean) -> Unit, onAssistantSettings: () -> Unit, onRecordVoice: () -> Unit,
     onLoadVoice: () -> Unit, ownVoices: () -> String?, ownVoiceOn: () -> Boolean, onOwnVoice: (Boolean) -> Unit,
     onPermissions: () -> Unit, onActivityLog: () -> Unit, onFolders: () -> Unit, onXarvisCode: () -> Unit, onGameMod: () -> Unit,
-    onHelp: () -> Unit, onBriefing: () -> Unit, onEyes: () -> Unit, onHands: () -> Unit, onRemote: () -> Unit = {}, onGuardRemote: () -> Unit = {}, onJobHunter: () -> Unit = {}, onRelay: () -> Unit = {}, onHelper: () -> Unit = {}, onTask: () -> Unit = {},
+    onHelp: () -> Unit, onBriefing: () -> Unit, onEyes: () -> Unit, onHands: () -> Unit, onRemote: () -> Unit = {}, onGuardRemote: () -> Unit = {}, onJobHunter: () -> Unit = {}, onRelay: () -> Unit = {}, onHelper: () -> Unit = {}, onTask: () -> Unit = {}, onAware: () -> Unit = {},
     smartBrain: Boolean, smartDownload: ModelDownload, hasModel: Boolean, onSmartBrain: (Boolean) -> Unit,
     modelDownload: ModelDownload, onDownloadModel: () -> Unit,
     cloudEnabled: Boolean, hasCloudKey: () -> Boolean, onCloud: (Boolean) -> Unit, onSaveKey: (String) -> Unit, onClearKey: () -> Unit,
@@ -241,6 +241,10 @@ fun SettingsMenu(
             Column(Modifier.fillMaxWidth().clickable(onClick = onRelay).padding(horizontal = 20.dp, vertical = 10.dp)) {
                 Text("🌐 Always connected ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
                 Text("Reach your other phones anywhere — mobile data, another country — without Tailscale or a VPN.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+            }
+            Column(Modifier.fillMaxWidth().clickable(onClick = onAware).padding(horizontal = 20.dp, vertical = 10.dp)) {
+                Text("🛰 Situation ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+                Text("All your devices at a glance: battery, network, who's using them, missed calls. Say \"status report\".", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
             }
             Column(Modifier.fillMaxWidth().clickable(onClick = onTask).padding(horizontal = 20.dp, vertical = 10.dp)) {
                 Text("🧠 Task mode ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)

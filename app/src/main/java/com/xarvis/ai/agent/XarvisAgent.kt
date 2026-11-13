@@ -111,6 +111,29 @@ class XarvisAgent(
         return if (hint.isEmpty()) message else "$hint\n\n$message"
     }
 
+    /**
+     * A question about Rex's devices ("is my S22 charging?", "where's the benco?") goes to the brain with the live
+     * board (aware/Board), refreshed when it's older than a few minutes — so the answer is today's facts, not a guess.
+     */
+    private suspend fun situationPrompt(message: String, prompt: String): String {
+        val board = com.xarvis.ai.aware.Board.instance ?: return prompt
+        if (!com.xarvis.ai.aware.AwareCommands.wantsBoard(message, otherPhoneWords().toList())) return prompt
+        runCatching { board.refreshIfOld() }
+        return runCatching { board.brief() }.getOrNull()?.let { "$it\n\n$prompt" } ?: prompt
+    }
+
+    /** "status report" / "what's going on" / "what's new on my S22" / "any missed calls" (aware/Board). */
+    private suspend fun awareCommand(cmd: com.xarvis.ai.aware.AwareCommands.Cmd, onPartial: (String) -> Unit): Reply? {
+        val board = com.xarvis.ai.aware.Board.instance ?: return null
+        onPartial("🛰 Checking in with your devices…")
+        runCatching { board.refresh() }
+        return when (cmd) {
+            com.xarvis.ai.aware.AwareCommands.Cmd.Report -> Reply(board.report())
+            // "what's new on my car": not one of Rex's devices — the chat answers it.
+            is com.xarvis.ai.aware.AwareCommands.Cmd.Notes -> board.notesText(cmd.where, cmd.callsOnly)?.let { Reply(it) }
+        }
+    }
+
     /** Starts a fresh conversation, e.g. after memories change. */
     suspend fun refreshPrompt() {
         loadHistory()
@@ -155,6 +178,7 @@ class XarvisAgent(
                     )
                 }
                 ?: UpdateCommands.parse(message)?.let { updateCommand(it) }
+                ?: com.xarvis.ai.aware.AwareCommands.parse(message)?.let { awareCommand(it, onPartial) }
                 // Before "open X on my S22 and …": a job with real actions in it is for Task mode.
                 ?: com.xarvis.ai.task.TaskCommands.parse(message)?.takeIf { taskPlausible(it) }?.let { taskCommand(it) }
                 ?: OtherPhoneCommands.parse(message, otherPhoneWords())?.let { onOtherPhone(it, onPartial) }
@@ -166,7 +190,7 @@ class XarvisAgent(
                     val named = DeviceLink.namedIn(message, link.pairedPeers().map { it.name })
                     run(listOf(Step.RemoteScreen(named)))
                 } else null)
-                ?: askGemma(message, onPartial, emotionalPrompt(message))
+                ?: askGemma(message, onPartial, situationPrompt(message, emotionalPrompt(message)))
         memory.logInteraction(message, response.text, chatId)
         return response
     }

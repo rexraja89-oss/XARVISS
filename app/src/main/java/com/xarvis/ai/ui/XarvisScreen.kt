@@ -300,6 +300,7 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 onRelay = { context.startActivity(Intent(context, com.xarvis.ai.RelayActivity::class.java)) },
                 onHelper = { context.startActivity(Intent(context, com.xarvis.ai.HelperLinkActivity::class.java)) },
                 onTask = { context.startActivity(Intent(context, com.xarvis.ai.TaskActivity::class.java)) },
+                onAware = { context.startActivity(Intent(context, com.xarvis.ai.aware.BoardActivity::class.java)) },
                 onActivityLog = {
                     context.startActivity(Intent(context, com.xarvis.ai.PolicyActivity::class.java).putExtra(com.xarvis.ai.PolicyActivity.EXTRA_LOG, true))
                 },

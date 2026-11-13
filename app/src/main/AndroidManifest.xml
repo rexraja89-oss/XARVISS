@@ -197,6 +197,12 @@
             android:exported="false"
             android:label="Help a family phone"
             android:theme="@android:style/Theme.DeviceDefault.Light" />
+        <!-- ☰ → Situation: what XARVIS knows about all of Rex's devices (aware/Board). -->
+        <activity
+            android:name=".aware.BoardActivity"
+            android:exported="false"
+            android:label="Situation"
+            android:theme="@android:style/Theme.DeviceDefault.Light" />
         <!-- ☰ → Job Hunter: Rex's worldwide job search — drafts to approve, sending, replies, CVs. -->
         <activity
             android:name=".JobHunterActivity"

@@ -358,6 +358,8 @@ class XarvisCore(context: Context) {
                     com.xarvis.ai.task.NightShiftRunner.clear(appContext)
                     "Night shift cleared."
                 }
+                // Awareness: the other phone's status card in, this phone's back (aware/Board).
+                "state" -> board.answer(peer, req.optJSONObject("card"))
                 // "update my S22" from the other phone: XARVIS Updater updates everything here in the background.
                 "update" -> {
                     val news = taskNewsTo(peer)
@@ -444,6 +446,32 @@ class XarvisCore(context: Context) {
     /** The link to the other phone, for the remote-control screen (RemoteScreenActivity). */
     val deviceLink: DeviceLink get() = link
 
+    private val controlLock = Any()
+    private var controlledBy: String? = null
+    private var controlEnded: kotlinx.coroutines.Job? = null
+
+    /**
+     * JARVIS-style awareness (13 Nov 2026): this phone's status card, the other phones' cards and the watchers
+     * (aware/Board). Lazy: the link's handler may ask for it before init reaches [Board.start].
+     */
+    private val board: com.xarvis.ai.aware.Board by lazy {
+        com.xarvis.ai.aware.Board(
+            appContext, link, scope,
+            post = { post(it) },
+            brain = { if (llm.isReady) "Gemma ready" else "" },
+            doing = {
+                buildList {
+                    val tasks = com.xarvis.ai.task.TaskManager
+                    if (tasks.busy()) add("🧠 " + tasks.statusLine().take(80))
+                    if (com.xarvis.ai.guard.GuardMode.armed) add("🛡 guard armed")
+                    com.xarvis.ai.task.NightShiftRunner.jobs(appContext).filter { it.enabled }
+                        .takeIf { it.isNotEmpty() }?.let { jobs -> add("🌙 night shift " + jobs.joinToString(", ") { it.time() }) }
+                    synchronized(controlLock) { controlledBy }?.let { add("🖥 ${com.xarvis.ai.aware.Situation.CONTROLLED_BY} $it") }
+                }
+            },
+        )
+    }
+
     init {
         link.relay.onWarning = { text -> com.xarvis.ai.remind.ProactiveNotice.show(appContext, "Relay data", text) }
         com.xarvis.ai.jobs.JobHunter.env = object : com.xarvis.ai.jobs.JobHunter.Env {
@@ -462,6 +490,7 @@ class XarvisCore(context: Context) {
         // Reconnects (a network hop, switching to live video) add nothing — Rex's chat filled up with them (13 Nov 2026).
         com.xarvis.ai.hands.ScreenHost.onSession = { by -> controlNote(by) }
         scope.launch { reportUpdate() }
+        board.start()
         scope.launch {
             _state.update { it.copy(memoryCount = memory.factCount()) }
         }
@@ -978,10 +1007,6 @@ class XarvisCore(context: Context) {
         post(final)
         news?.invoke(final)
     }
-
-    private val controlLock = Any()
-    private var controlledBy: String? = null
-    private var controlEnded: kotlinx.coroutines.Job? = null
 
     /** [by] took over this phone's screen (null: a session closed). Posts at most one line for each. */
     private fun controlNote(by: String?) = synchronized(controlLock) {
