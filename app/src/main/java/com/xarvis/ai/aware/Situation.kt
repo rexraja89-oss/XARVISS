@@ -247,7 +247,10 @@ object Situation {
             }
             return f.joinToString(", ")
         }
-        val sb = StringBuilder("Rex's devices right now (live from XARVIS, ${clock(now, zone)}):")
+        val sb = StringBuilder(
+            "Rex's devices right now (live from XARVIS, ${clock(now, zone)}; for a device not seen \"just now\", " +
+                "say how old the facts are):",
+        )
         for (c in others) sb.append("\n- ${c.name}: ").append(facts(c, false))
         sb.append("\n- ${me.name} (this phone, where Rex is typing): ").append(facts(me, true))
         return sb.toString().take(max)

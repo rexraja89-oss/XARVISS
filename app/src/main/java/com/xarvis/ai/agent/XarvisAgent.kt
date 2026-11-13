@@ -113,12 +113,13 @@ class XarvisAgent(
 
     /**
      * A question about Rex's devices ("is my S22 charging?", "where's the benco?") goes to the brain with the live
-     * board (aware/Board), refreshed when it's older than a few minutes — so the answer is today's facts, not a guess.
+     * board (aware/Board), always fetched fresh first (13 Nov 2026: a card a minute old said 95% when the S22 showed
+     * 94% — Rex: "report is not live"); ~1 s on Wi-Fi, a few through the relay, ≤12 s if the phone doesn't answer.
      */
     private suspend fun situationPrompt(message: String, prompt: String): String {
         val board = com.xarvis.ai.aware.Board.instance ?: return prompt
         if (!com.xarvis.ai.aware.AwareCommands.wantsBoard(message, otherPhoneWords().toList())) return prompt
-        runCatching { board.refreshIfOld() }
+        runCatching { board.refresh() }
         return runCatching { board.brief() }.getOrNull()?.let { "$it\n\n$prompt" } ?: prompt
     }
 
