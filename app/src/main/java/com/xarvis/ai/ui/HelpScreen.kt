@@ -153,6 +153,8 @@ fun HelpScreen(onBack: () -> Unit) {
             "Build web apps & games, now with 3D (Three.js) — it publishes them live.",
             "Open any of your GitHub repos and edit the code; it works on a safe branch.",
             "Research the web and make a PDF/report; attach photos or files with +.",
+            "It remembers: each project keeps notes (XARVIS_NOTES.md) it reads before every change, a project already on GitHub is continued instead of rebuilt, big apps are built in stages (\"next stage\"), and it learns from its own mistakes. Ask it \"what have you learned\".",
+            "It never puts an API key into a page or repo — an app that needs one (like an AI assistant) asks you for it in its own settings.",
         ))
         Section("✋ XARVIS Hands (☰ → XARVIS Hands)", listOf(
             "Built into XARVIS on the S22 (switch it on once); the benco uses the separate Hands app.",

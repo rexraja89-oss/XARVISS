@@ -125,6 +125,7 @@ fun XarvisCodeScreen(
     var currentHtml by remember { mutableStateOf<String?>(null) }
     var input by remember { mutableStateOf("") }
     val msgs = remember { mutableStateListOf<Msg>() }
+    val lessons = remember { com.xarvis.ai.code.CodeLessons(realCtx) }
     val listState = rememberLazyListState()
     val repos = remember { mutableStateListOf<XarvisCode.RepoInfo>() }
     var showRepos by remember { mutableStateOf(false) }
@@ -394,7 +395,12 @@ fun XarvisCodeScreen(
                 scope.launch {
                     busy = true
                     try {
-                        if (activeRepo != null || wantsDocOrResearch(text)) {
+                        if (LEARNED.matches(text)) {
+                            val l = lessons.all()
+                            msgs.add(Msg(Role.AGENT, "📘 What I know before I start:\n" + com.xarvis.ai.code.Playbooks.titles().joinToString("\n") { "• $it" } +
+                                "\n\n🧠 What I've learned on earlier jobs:\n" + (if (l.isEmpty()) "Nothing yet — I add to this after every job." else l.joinToString("\n") { "• $it" }) +
+                                "\n\nEach project also keeps its own notes in ${com.xarvis.ai.code.ProjectMemory.FILE} on GitHub, which I read before every change."))
+                        } else if (activeRepo != null || wantsDocOrResearch(text)) {
                             if (!cloudReady()) {
                                 msgs.add(Msg(Role.AGENT, "I need a cloud brain on (☰ → BRAIN) for this."))
                             } else {
@@ -408,6 +414,10 @@ fun XarvisCodeScreen(
                                     step = { s -> msgs.add(Msg(Role.STEP, s)) },
                                     say = { s -> msgs.add(Msg(Role.AGENT, s)) },
                                     approve = approve, web = webSearch, readUrl = webRead, makeDoc = makeDoc, ask = ask,
+                                    memory = object : com.xarvis.ai.code.GitHubAgent.Memory {
+                                        override fun lessons(): String = lessons.forPrompt()
+                                        override fun learn(lines: List<String>) = lessons.learn(lines)
+                                    },
                                 )
                             }
                         } else {
@@ -421,7 +431,9 @@ fun XarvisCodeScreen(
                                     else msgs.add(Msg(Role.AGENT, "I couldn't read that screenshot; building from your words only."))
                                 }
                             }
-                            val nh = runAgent(task, project.trim().ifBlank { "my-app" }, login!!, token() ?: "", currentHtml, cloudReady, generate, b64, generateWithImage) { r, t, u -> msgs.add(Msg(r, t, u)) }
+                            // Earlier requests in this session give the brain the thread ("make her voice softer").
+                            val earlier = msgs.filter { it.role == Role.USER }.map { it.text }.dropLast(1).takeLast(6)
+                            val nh = runAgent(task, project.trim().ifBlank { "my-app" }, login!!, token() ?: "", currentHtml, cloudReady, generate, b64, generateWithImage, lessons, earlier) { r, t, u -> msgs.add(Msg(r, t, u)) }
                             if (nh != null) currentHtml = nh
                         }
                     } catch (e: Exception) {
@@ -645,13 +657,33 @@ internal fun mdText(raw: String): AnnotatedString = buildAnnotatedString {
 
 /** One agent turn: get the brain's reply; if it's code, self-correct and publish; else just chat. */
 private suspend fun runAgent(
-    userText: String, project: String, owner: String, token: String, currentHtml: String?,
+    userText: String, project: String, owner: String, token: String, startHtml: String?,
     cloudReady: () -> Boolean, generate: suspend (String, String) -> String,
     imageB64: String?, generateWithImage: suspend (String, String, String, String) -> String,
+    lessons: com.xarvis.ai.code.CodeLessons, earlier: List<String>,
     add: (Role, String, String?) -> Unit,
 ): String? {
     if (token.isBlank()) { add(Role.AGENT, "No GitHub token saved.", null); return null }
     if (!cloudReady()) { add(Role.AGENT, "I need a cloud brain turned on in ☰ → BRAIN to write code.", null); return null }
+
+    // Memory (13 Nov 2026): a project that's already on GitHub is continued, never rebuilt over — even when this
+    // session is new — and its notes (XARVIS_NOTES.md) say what was done and what's planned.
+    var currentHtml = startHtml
+    if (currentHtml == null) {
+        val existing = withContext(Dispatchers.IO) { XarvisCode.getFile(token, owner, project, "index.html") }
+        if (existing.ok && !existing.data.isNullOrBlank()) {
+            currentHtml = existing.data
+            add(Role.STEP, "Found your project \"$project\" on GitHub — continuing it, not starting over.", null)
+        }
+    }
+    val notes = withContext(Dispatchers.IO) { XarvisCode.getFile(token, owner, project, com.xarvis.ai.code.ProjectMemory.FILE) }
+        .takeIf { it.ok }?.data
+    val knowledge = com.xarvis.ai.code.Playbooks.forTask(userText + "\n" + (notes ?: "") + "\n" + earlier.joinToString("\n"))
+    val memory = listOf(
+        com.xarvis.ai.code.ProjectMemory.forPrompt(notes),
+        lessons.forPrompt(),
+        if (earlier.isEmpty()) "" else "EARLIER REQUESTS IN THIS SESSION (oldest first):\n" + earlier.joinToString("\n") { "- ${it.take(300)}" },
+    ).filter { it.isNotBlank() }.joinToString("\n\n")
 
     val connected = "\n\nYou are ALREADY connected to the user's GitHub account as \"$owner\", and the XARVIS Code app " +
         "itself creates the repository, pushes your code and publishes it live automatically. So you already have " +
@@ -659,7 +691,8 @@ private suspend fun runAgent(
         "collaborator. If they ask how you work with their GitHub, tell them you're already connected as $owner and " +
         "they just need to say what to build. The current project (repository) is named \"$project\"."
     val img = if (imageB64 != null) "\n\nThe user attached a screenshot — use it as the reference for what to build." else ""
-    val sys = XCODE_SYSTEM + connected + img + if (currentHtml != null) "\n\nThe current index.html is:\n$currentHtml" else "\n\nThere is no file yet; create one from scratch."
+    val sys = XCODE_SYSTEM + STAGES + "\n\n" + knowledge + (if (memory.isNotBlank()) "\n\n$memory" else "") + connected + img +
+        if (currentHtml != null) "\n\nThe current index.html is:\n$currentHtml" else "\n\nThere is no file yet; create one from scratch."
     add(Role.STEP, if (imageB64 != null) "Looking at your screenshot…" else "Thinking…", null)
     val reply = try {
         withContext(Dispatchers.IO) { if (imageB64 != null) generateWithImage(sys, userText, imageB64, "image/jpeg") else generate(sys, userText) }
@@ -670,6 +703,8 @@ private suspend fun runAgent(
 
     add(Role.STEP, "Wrote index.html (${html.length} chars). Checking it…", null)
     var issues = XarvisCode.issuesIn(html)
+    // What my own checks catch is a lesson for next time.
+    if (issues.isNotEmpty()) lessons.learn(issues.map { com.xarvis.ai.code.CodeLessons.fromIssue(it) }.distinct())
     var pass = 0
     while (issues.isNotEmpty() && pass < 5) {
         pass++
@@ -684,13 +719,26 @@ private suspend fun runAgent(
     if (issues.isEmpty() && pass > 0) add(Role.STEP, "All problems fixed after $pass pass(es). ✓", null)
     else if (issues.isNotEmpty()) add(Role.STEP, "Still imperfect after $pass pass(es); publishing the best version.", null)
 
+    // Never publish a key: GitHub Pages projects are public.
+    val secrets = XarvisCode.secretsIn(html)
+    if (secrets.isNotEmpty()) {
+        add(Role.AGENT, "⛔ I didn't publish it: the page still contains ${secrets.joinToString(", ")}, and this project is public. " +
+            "Nothing was pushed. Ask me again and I'll keep the key out (you'll type it into the app's settings instead).", null)
+        return null
+    }
     val cr = withContext(Dispatchers.IO) { XarvisCode.createRepo(token, project, "Built by XARVIS Code", private = false) }
     if (!cr.ok && !cr.message.contains("already exists", ignoreCase = true)) { add(Role.AGENT, "Couldn't create the project \"$project\": ${cr.message}", null); return null }
     add(Role.STEP, "Pushing to GitHub…", null)
     val push = withContext(Dispatchers.IO) { XarvisCode.putFile(token, owner, project, "index.html", html, "XARVIS Code: $userText") }
     if (!push.ok) { add(Role.AGENT, "Couldn't push the code: ${push.message}", null); return null }
     val pages = withContext(Dispatchers.IO) { XarvisCode.enablePages(token, owner, project) }
-    add(Role.AGENT, "Done — published. It can take about a minute to go live.", pages.data)
+    // The project's memory: what was asked, what came of it, the plan.
+    val plan = com.xarvis.ai.code.ProjectMemory.planIn(html)
+    val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(java.util.Date())
+    val outcome = "published index.html (${html.length} chars)" + if (pass > 0) "; fixed ${pass}× by my checks" else ""
+    val newNotes = com.xarvis.ai.code.ProjectMemory.update(notes, project, stamp, userText, outcome, plan)
+    withContext(Dispatchers.IO) { XarvisCode.putFile(token, owner, project, com.xarvis.ai.code.ProjectMemory.FILE, newNotes, "XARVIS Code: notes") }
+    add(Role.AGENT, "Done — published. It can take about a minute to go live." + (plan?.let { "\n📋 Plan: $it\nSay \"next stage\" to carry on." } ?: ""), pages.data)
     return html
 }
 
@@ -736,6 +784,15 @@ private const val XCODE_SYSTEM =
         "with </script></html> (or </body></html>). If you are changing an existing file, return the WHOLE updated file, not a snippet. " +
         "OTHERWISE (a greeting, a question, or discussion) reply with a short normal sentence or two — never code. " +
         "You may use light markdown in conversational replies (**bold** and - bullet points); it is rendered nicely."
+
+private val LEARNED = Regex("""(?i)^\s*(?:what\s+have\s+you\s+learn(?:ed|t)|what\s+do\s+you\s+know|show\s+(?:me\s+)?(?:your\s+)?(?:lessons|memory|playbooks?|knowledge))\s*[?.!]*\s*$""")
+
+private const val STAGES =
+    " BIG APPS ARE BUILT IN STAGES: when the request is a big app (an AI assistant, a game with many parts, a tool with " +
+        "several screens), first decide the stages, write them in a comment as the very first line of the file — " +
+        "<!-- XARVIS PLAN: 1 … ✓ · 2 … · 3 … --> — build stage 1 completely so it really works, and mark it ✓. When the " +
+        "user says \"next stage\" or \"continue\", build the next unchecked stage on top of the current file (keeping " +
+        "everything that works) and tick it. Keep the plan comment up to date in every version."
 
 private const val FIX_SYSTEM =
     "You are fixing a single-file HTML5 app/game meant for a phone. I will give you the current index.html and a " +

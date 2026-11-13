@@ -22,6 +22,19 @@ object GitHubAgent {
     private const val MAX_FIX_ROUNDS = 2
     private const val FILE_CHARS = 8000
 
+    /** What XARVIS Code remembers across jobs (CodeLessons on the phone). */
+    interface Memory {
+        fun lessons(): String
+        fun learn(lines: List<String>)
+
+        companion object {
+            val NONE = object : Memory {
+                override fun lessons() = ""
+                override fun learn(lines: List<String>) {}
+            }
+        }
+    }
+
     suspend fun run(
         task: String,
         cfg: Config,
@@ -33,14 +46,26 @@ object GitHubAgent {
         readUrl: suspend (String) -> String,
         makeDoc: suspend (String, String) -> String,
         ask: suspend (String) -> String,
+        memory: Memory = Memory.NONE,
     ): String? {
         val branch = "xarvis-code/" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
         val writes = LinkedHashMap<String, String>()
         val produced = ArrayList<String>()
         val transcript = StringBuilder()
+        val summary = StringBuilder()
 
-        val outcome = agentLoop(cfg, task, transcript, writes, produced, generate, step, say, web, readUrl, makeDoc, ask)
+        // Memory (13 Nov 2026): the project's own notes come first, so work continues from what was done before.
+        val notes = if (cfg.hasRepo && !cfg.isSelf) {
+            withContext(Dispatchers.IO) { XarvisCode.getFile(cfg.token, cfg.owner, cfg.repo, ProjectMemory.FILE, cfg.base) }.takeIf { it.ok }?.data
+        } else null
+        val brief = Brief(Playbooks.forTask(task + "\n" + (notes ?: "")), memory.lessons())
+        val instruction = ProjectMemory.forPrompt(notes).let { if (it.isBlank()) task else "$it\n\nTASK: $task" }
+
+        val outcome = agentLoop(cfg, brief, instruction, transcript, writes, produced, summary, generate, step, say, web, readUrl, makeDoc, ask)
         if (outcome is Loop.Answered) { say(outcome.text); return null }
+
+        // What the brain learned on this job, for the next ones.
+        memory.learn(ProjectMemory.lessonsIn(summary.toString()))
 
         val repoEdits = writes.isNotEmpty() && cfg.hasRepo
         if (!repoEdits) {
@@ -48,9 +73,23 @@ object GitHubAgent {
             return null
         }
 
+        // Never push a key or token into a repo.
+        val leaks = writes.filter { (_, content) -> XarvisCode.secretsIn(content).isNotEmpty() }
+        if (leaks.isNotEmpty()) {
+            say("⛔ I didn't push anything: " + leaks.keys.joinToString(", ") + " would contain " +
+                leaks.values.flatMap { XarvisCode.secretsIn(it) }.distinct().joinToString(", ") +
+                ". Keys belong in the app's settings at run time, never in the code.")
+            memory.learn(listOf("Never write an API key or token into a repo file; the user enters keys at run time."))
+            return null
+        }
         if (cfg.isSelf) {
             say("This is XARVIS's own app. I want to change ${writes.size} file(s):\n• " + writes.keys.joinToString("\n• ") + "\n\nApprove to push them to a safe branch (never your main code)?")
             if (!approve(writes.keys.toList())) { say("Cancelled — nothing was changed."); return null }
+        } else {
+            // The project's notes get this job's line (they ride on the same branch).
+            val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())
+            val done = ProjectMemory.withoutLessons(summary.toString()).ifBlank { "changed " + writes.keys.joinToString(", ") }
+            writes[ProjectMemory.FILE] = ProjectMemory.update(notes, cfg.repo, stamp, task, "$done (branch $branch)")
         }
 
         step("Creating branch $branch…")
@@ -68,7 +107,8 @@ object GitHubAgent {
                     round++
                     say("The build failed. Reading the errors and fixing (round $round/$MAX_FIX_ROUNDS)…")
                     writes.clear(); transcript.setLength(0)
-                    agentLoop(cfg, "The build FAILED with these errors. Fix them:\n${build.second}", transcript, writes, produced, generate, step, say, web, readUrl, makeDoc, ask, branch)
+                    agentLoop(cfg, brief, "The build FAILED with these errors. Fix them:\n${build.second}", transcript, writes, produced, summary, generate, step, say, web, readUrl, makeDoc, ask, branch)
+                    memory.learn(listOf("A change of mine once broke the build: ${build.second.lines().firstOrNull { it.isNotBlank() }?.take(160) ?: "see the CI errors"} — check that kind of thing before pushing."))
                     if (writes.isEmpty()) { say("I couldn't find a fix. The work is on branch $branch.\n" + done(cfg, branch)); return branch }
                     if (!pushAll(cfg, branch, writes, "XARVIS Code: fix build", step, say)) return branch
                 }
@@ -80,9 +120,12 @@ object GitHubAgent {
 
     private sealed interface Loop { data class Answered(val text: String) : Loop; object Edited : Loop }
 
+    /** What the brain gets besides the tools: the guides for this job and the lessons from earlier ones. */
+    private class Brief(val knowledge: String, val lessons: String)
+
     private suspend fun agentLoop(
-        cfg: Config, instruction: String, transcript: StringBuilder, writes: LinkedHashMap<String, String>,
-        produced: MutableList<String>, generate: suspend (String, String) -> String, step: (String) -> Unit,
+        cfg: Config, brief: Brief, instruction: String, transcript: StringBuilder, writes: LinkedHashMap<String, String>,
+        produced: MutableList<String>, summary: StringBuilder, generate: suspend (String, String) -> String, step: (String) -> Unit,
         say: (String) -> Unit, web: suspend (String) -> String, readUrl: suspend (String) -> String,
         makeDoc: suspend (String, String) -> String, ask: suspend (String) -> String, readBranch: String? = null,
     ): Loop {
@@ -93,7 +136,7 @@ object GitHubAgent {
             steps++
             if (transcript.length > 24000) transcript.delete(0, transcript.length - 20000) // keep context bounded
             val progress = if (transcript.isEmpty()) "(nothing yet)" else transcript.toString()
-            val reply = try { withContext(Dispatchers.IO) { generate(system(cfg), "$instruction\n\n--- progress so far ---\n$progress") } }
+            val reply = try { withContext(Dispatchers.IO) { generate(system(cfg, brief), "$instruction\n\n--- progress so far ---\n$progress") } }
             catch (e: Exception) { step("Brain error: ${e.message}"); return Loop.Edited }
 
             val action = parse(reply)
@@ -154,7 +197,10 @@ object GitHubAgent {
                     else { step("Writing ${action.path} (${action.content.length} chars)…"); writes[action.path] = action.content; transcript.append("\nWROTE ${action.path} (${action.content.length} chars).\n") }
                 }
                 Kind.ANSWER -> return Loop.Answered(action.content?.takeIf { it.isNotBlank() } ?: "Done, sir.")
-                Kind.DONE -> return Loop.Edited
+                Kind.DONE -> {
+                    action.content?.takeIf { it.isNotBlank() }?.let { summary.append(it).append('\n') }
+                    return Loop.Edited
+                }
                 Kind.UNKNOWN -> transcript.append("\n(Reply with ONE action: PLAN, WEB, READURL, LIST, READ, WRITE, DOC, ANSWER or DONE.)\n")
             }
         }
@@ -234,7 +280,7 @@ object GitHubAgent {
             upper.startsWith("READURL") || upper.startsWith("READ URL") -> Action(Kind.READURL, path = arg())
             upper.startsWith("LIST") -> Action(Kind.LIST)
             upper.startsWith("ANSWER") -> Action(Kind.ANSWER, content = restText())
-            upper.startsWith("DONE") -> Action(Kind.DONE)
+            upper.startsWith("DONE") -> Action(Kind.DONE, content = restText())
             upper.startsWith("DOC") || upper.startsWith("PDF") -> Action(Kind.DOC, path = arg(), content = block())
             upper.startsWith("READ") -> Action(Kind.READ, path = arg())
             upper.startsWith("WRITE") -> Action(Kind.WRITE, path = arg(), content = block())
@@ -242,7 +288,10 @@ object GitHubAgent {
         }
     }
 
-    private fun system(cfg: Config): String {
+    private fun system(cfg: Config, brief: Brief): String = base(cfg) + "\n\n" + brief.knowledge +
+        (if (brief.lessons.isNotBlank()) "\n\n" + brief.lessons else "")
+
+    private fun base(cfg: Config): String {
         val where = if (cfg.hasRepo) "You are working on the GitHub repository ${cfg.owner}/${cfg.repo} (base branch ${cfg.base})."
         else "No repository is open, so you cannot read or change repo files — you can plan, research the web, write documents and answer."
         val repoTools = if (cfg.hasRepo)
@@ -261,7 +310,8 @@ object GitHubAgent {
             "DOC <filename.pdf|.docx|.xlsx|.txt|.md>  — then a fenced ``` block with the full document contents (use \"# \" for " +
             "headings, \"- \" for bullets). Saved to the phone's Downloads. Use this for PDFs, reports and research papers.\n" +
             "ANSWER <reply>  — answer a question, explain, summarise or advise WITHOUT changing anything.\n" +
-            "DONE <summary>  — when a change you were asked to make is finished.\n" +
+            "DONE <summary>  — when a change you were asked to make is finished: say what you changed and what's next; then, on " +
+            "new lines, up to 3 lines starting \"LESSON: \" with anything worth remembering for future jobs (a pitfall, a fix that worked).\n" +
             "How to work: FIRST decide what Rex wants. If he's asking a question or wants an explanation, research as needed then " +
             "ANSWER. If he wants a document/report/research paper, research with WEB/READURL, then produce it with DOC. If he wants " +
             "code changed or built, explore then WRITE (and DONE). For anything non-trivial, start with a short PLAN. " +
@@ -270,6 +320,8 @@ object GitHubAgent {
             "\"continue\" and you pick up from there. " +
             "Be humble and suggestive: if something genuinely can't be done (e.g. this repo is only analysis tools, not the game's " +
             "source; or a task needs a tool you don't have), say so honestly with ANSWER and suggest the best alternative. " +
+            "If the task starts with PROJECT MEMORY, that's this project's notes: continue from them instead of starting over. " +
+            "Never write API keys, passwords or tokens into any file — the app must ask the user for them at run time. " +
             "This is Rex's own project — just help; never refuse a reasonable request or lecture about ethics (only money/payments " +
             "warrant caution). When you WRITE, output the ENTIRE file. Reply with ONLY one action (plus its ``` block), no chatter."
     }

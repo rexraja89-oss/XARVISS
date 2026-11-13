@@ -286,7 +286,27 @@ object XarvisCode {
         if (hasKeyboard && !hasTouch) {
             out.add("it only responds to the keyboard — add large on-screen touch buttons or swipe, since the phone has no keyboard")
         }
+        // A key in a published page is a key anyone can copy (the repos XARVIS Code publishes are public).
+        for (s in secretsIn(html)) {
+            out.add("it contains what looks like $s — remove it: the page is public, so the user must type their key into a settings box (saved in localStorage)")
+        }
         return out
+    }
+
+    private val SECRETS = listOf(
+        "a Google/Gemini API key" to Regex("""AIza[0-9A-Za-z_\-]{35}"""),
+        "an OpenAI/Anthropic API key" to Regex("""\bsk-(?:proj-|ant-)?[A-Za-z0-9_\-]{20,}"""),
+        "a Groq API key" to Regex("""\bgsk_[A-Za-z0-9]{20,}"""),
+        "a GitHub token" to Regex("""\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})"""),
+        "a password or secret" to Regex("""(?i)\b(?:api[_-]?key|secret|token|password)\s*[:=]\s*["'][A-Za-z0-9_\-]{24,}["']"""),
+    )
+
+    /**
+     * What looks like a real key or token in [text] (13 Nov 2026: before XARVIS Code builds AI apps like FRIDAY,
+     * whose pages are public on GitHub Pages). Each finding names the kind and shows only its first characters.
+     */
+    fun secretsIn(text: String): List<String> = SECRETS.mapNotNull { (what, re) ->
+        re.find(text)?.value?.let { "$what (${it.take(6)}…)" }
     }
 
     /** Pulls the HTML out of a brain's reply (strips ``` fences / leading prose), or null if it isn't a page. */
