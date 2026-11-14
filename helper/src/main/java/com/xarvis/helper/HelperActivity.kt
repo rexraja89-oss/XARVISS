@@ -88,6 +88,20 @@ class HelperActivity : Activity() {
         render()
     }
 
+    /**
+     * Not linked yet and an invite is on the clipboard (she copied it in WhatsApp): link at once, no button to find.
+     * Android only lets an app read the clipboard once its window has focus, so this is the moment to look.
+     */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus || link.pairedPeers().isNotEmpty() || note.startsWith("Linking") || note.startsWith("Couldn")) return
+        val text = runCatching {
+            getSystemService(ClipboardManager::class.java)?.primaryClip?.takeIf { it.itemCount > 0 }
+                ?.getItemAt(0)?.coerceToText(this)?.toString()
+        }.getOrNull().orEmpty()
+        if (DeviceLink.parseInvite(text) != null) linkWith(text)
+    }
+
     /** An invite shared from WhatsApp, or "X wants to help you" tapped in a notification. */
     private fun handleIntent(intent: Intent?) {
         if (intent?.action == Intent.ACTION_SEND) intent.getStringExtra(Intent.EXTRA_TEXT)?.let { linkWith(it) }
@@ -98,8 +112,8 @@ class HelperActivity : Activity() {
         body.removeAllViews()
         val owners = link.pairedPeers()
         if (owners.isEmpty()) {
-            body.addView(text("Rex will send you an invite on WhatsApp.", Color.BLACK, 18f))
-            body.addView(text("In WhatsApp, long-press his message → Copy. Then tap:", Color.BLACK, 18f))
+            body.addView(text("WhatsApp mein Rex ka invite message daba ke rakhein → Copy ⧉ → phir yahan wapas aayein. Baaki apne aap ho jayega.", Color.BLACK, 18f))
+            body.addView(text("In WhatsApp, long-press Rex's invite → Copy ⧉, then come back here — it links by itself. Or tap:", grey, 15f))
             body.addView(big("📋 Paste invite", teal) { pasteInvite() })
             if (note.isNotEmpty()) body.addView(text(note, grey, 15f))
             return
