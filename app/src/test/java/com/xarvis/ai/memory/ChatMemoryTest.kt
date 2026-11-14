@@ -32,8 +32,17 @@ class ChatMemoryTest {
     @Test fun longHistoryKeepsTheNewest() {
         val many = (1..50).map { Exchange("question $it " + "x".repeat(100), "answer $it", it.toLong()) }
         val note = XarvisAgent.historyNote(many)
-        assertTrue(note.length <= 2500)
+        assertTrue(note.length <= 3500)
         assertTrue(note.endsWith("answer 50"))
+    }
+
+    @Test fun theQuestionAtTheEndOfALongReplyIsKept() {
+        // 14 Nov 2026: Rex said "yes" to a question at the end of a long reply, and XARVIS no longer knew what it had asked.
+        val reply = "That is an ambitious piece of hardware, sir. " + "Details about cameras and batteries. ".repeat(40) +
+            "Shall we start by researching the hardware specs?"
+        val note = XarvisAgent.historyNote(listOf(Exchange("I want a pendant camera", reply, 1)))
+        assertTrue(note, note.contains("That is an ambitious piece of hardware"))
+        assertTrue(note, note.endsWith("Shall we start by researching the hardware specs?"))
     }
 
     @Test fun recallTool() {

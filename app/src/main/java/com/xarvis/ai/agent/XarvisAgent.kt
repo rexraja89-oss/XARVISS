@@ -83,6 +83,7 @@ class XarvisAgent(
     /** Switches to chat [id] (a new one when null): Gemma starts over with that chat's past. */
     suspend fun openChat(id: String?) {
         chatId = id ?: newChatId()
+        gemmaCaughtUp = false
         loadHistory()
         llm.reset(systemPrompt())
     }
@@ -277,7 +278,31 @@ class XarvisAgent(
     }
 
     /** [text] through this phone's Gemma, streaming what it writes to [onPartial]. */
+    /** Rex's message this turn (follow-up asks to the brain, like "here are the search results", carry it along). */
+    private var currentMessage = ""
+
+    /** Whether this phone's Gemma heard the whole chat itself (false after the cloud answered a turn, or a new chat). */
+    private var gemmaCaughtUp = false
+
+    /**
+     * This chat's last few exchanges, for every brain call (14 Nov 2026: Rex answered "yes" to "Shall we research the
+     * hardware?" and got "I'm ready, what's on the agenda?" — the cloud brains were sent his latest message only, and
+     * Gemma never heard the turns the cloud answered).
+     */
+    private suspend fun recentTurns(): String {
+        val here = runCatching { memory.chatExchanges(chatId).takeLast(RECENT_TURNS) }.getOrDefault(emptyList())
+        if (here.isEmpty()) return ""
+        return "The conversation so far (newest last). Rex's new message continues it — a short reply like \"yes\", " +
+            "\"do it\" or \"look for it\" answers your last question:\n" + historyNote(here)
+    }
+
+    /** What the brain is asked: the turn's own words, plus Rex's message when this is a follow-up ask. */
+    private fun withQuestion(text: String): String =
+        if (currentMessage.isBlank() || text.contains(currentMessage)) text
+        else "$text\n\n(Rex's message this turn: $currentMessage)"
+
     private suspend fun chatHere(text: String, onPartial: (String) -> Unit): String {
+        val turns = recentTurns()
         // If the cloud was meant to answer but couldn't, why: carried into the via tag so Rex
         // can see the reason under the bubble (he can't read the device log).
         var cloudNote: String? = null
@@ -287,14 +312,16 @@ class XarvisAgent(
                 onPartial("Thinking…")
                 // Rex chose "only what I mark remember": the cloud brain gets his saved FACTS (so it
                 // can recall them like ChatGPT), plus his health record for health questions. Off → none.
-                val sys = if (cloudMemory()) buildPrompt(facts(), health = healthContextThisTurn) else buildPrompt(emptyList())
-                val msg = IDENTITY_REMINDER + text
+                val base = if (cloudMemory()) buildPrompt(facts(), health = healthContextThisTurn) else buildPrompt(emptyList())
+                val sys = if (turns.isEmpty()) base else "$base\n\n$turns"
+                val msg = IDENTITY_REMINDER + withQuestion(text)
                 val answer = if (councilEnabled()) {
                     cloud.council(sys, msg) { stage -> onPartial(stage) }
                 } else {
                     cloud.chat(sys, msg) { stage -> onPartial(stage) }
                 }
                 lastVia = "via ${answer.via} (cloud)"
+                gemmaCaughtUp = false
                 onPartial(ToolCalls.visibleText(FileBlocks.preview(answer.text)))
                 return answer.text
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -319,7 +346,10 @@ class XarvisAgent(
             lastVia = withNote("on-device", cloudNote)
             val out = StringBuilder()
             // Rebuilt before every call, so identity and every saved memory are always current.
-            llm.chat(systemPrompt(), IDENTITY_REMINDER + text, onRestart = { out.clear() }) { chunk ->
+            // Gemma keeps its own conversation; it gets the recent turns when it missed some (the cloud answered them).
+            val said = if (!gemmaCaughtUp && turns.isNotEmpty()) "$turns\n\n${withQuestion(text)}" else text
+            gemmaCaughtUp = true
+            llm.chat(systemPrompt(), IDENTITY_REMINDER + said, onRestart = { out.clear() }) { chunk ->
                 out.append(chunk)
                 onPartial(ToolCalls.visibleText(FileBlocks.preview(out.toString())))
             }
@@ -329,7 +359,8 @@ class XarvisAgent(
         val peer = linkedBrain(onPartial) ?: return noBrain()
         lastVia = withNote(peer.name, cloudNote)
         onPartial("Asking ${peer.name}…")
-        return remoteChat(peer, text) ?: noBrain()
+        gemmaCaughtUp = false
+        return remoteChat(peer, if (turns.isEmpty()) withQuestion(text) else "$turns\n\n${withQuestion(text)}") ?: noBrain()
     }
 
     /** "on-device" plus the reason the cloud was skipped, if any: "on-device · cloud: Gemini 400". */
@@ -354,6 +385,7 @@ class XarvisAgent(
 
     /** [message] is what Rex typed; [prompt] is what Gemma is sent (the message, or it with a file's text). */
     private suspend fun askGemma(message: String, onPartial: (String) -> Unit, prompt: String = message): Reply {
+        currentMessage = message
         brainReady(onPartial)
         // chatHere routes: cloud (if allowed) → this phone's Gemma → a linked phone's Gemma.
         // Only bail out early when none of those can answer at all.
@@ -938,17 +970,22 @@ class XarvisAgent(
         private const val HEALTH_MAX_CHARS = 6000
 
         private const val HISTORY_EXCHANGES = 8
+        /** Exchanges of this chat sent with every brain call. */
+        private const val RECENT_TURNS = 6
         private const val RECENT_CHAT_TOPICS = 5
 
         fun newChatId(): String = "chat-" + System.currentTimeMillis()
-        private const val MAX_HISTORY_CHARS = 2500
+        private const val MAX_HISTORY_CHARS = 3500
         private const val RECALL_LATEST = 12
         private const val RECALL_MATCHES = 8
         private val WHEN = java.text.SimpleDateFormat("d MMM h:mm a", java.util.Locale.ENGLISH)
 
         /** Recent exchanges for the prompt, newest kept when they don't all fit. */
         internal fun historyNote(exchanges: List<com.xarvis.ai.memory.Exchange>): String {
-            val lines = exchanges.map { "Rex: ${it.user.take(200)}\nYou: ${it.reply.take(300)}" }
+            // A reply's start says what it was about and its end usually asks the question Rex answers next
+            // ("Shall we start by researching the hardware?"), so long replies keep both.
+            fun short(t: String, n: Int) = if (t.length <= n) t else t.take(n / 3) + " … " + t.takeLast(n * 2 / 3)
+            val lines = exchanges.map { "Rex: ${short(it.user, 240)}\nYou: ${short(it.reply, 480)}" }
             var used = 0
             return lines.reversed().takeWhile { used += it.length + 1; used <= MAX_HISTORY_CHARS }.reversed().joinToString("\n")
         }
