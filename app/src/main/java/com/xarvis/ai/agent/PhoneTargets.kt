@@ -8,6 +8,7 @@ import com.xarvis.ai.net.Peer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import kotlin.coroutines.resume
 
@@ -52,6 +53,21 @@ class LocalPhone(private val context: Context, override val name: String) : Phon
 
     override suspend fun tap(x: Int, y: Int) = withContext(Dispatchers.IO) {
         hands().gesture("tap", x.toFloat(), y.toFloat(), x.toFloat(), y.toFloat(), 60).let { }
+    }
+
+    /** The screen as a JPEG (max 1080 px wide), for the brain that sees; null when Android won't give one. */
+    override suspend fun look(): ByteArray? {
+        val frame = withTimeoutOrNull(4_000) {
+            suspendCancellableCoroutine<android.graphics.Bitmap?> { cont ->
+                runCatching { hands().screenshot { cont.resumeWith(Result.success(it)) } }.onFailure { cont.resumeWith(Result.success(null)) }
+            }
+        } ?: return null
+        return withContext(Dispatchers.Default) {
+            val scaled = if (frame.width > 1080) {
+                android.graphics.Bitmap.createScaledBitmap(frame, 1080, frame.height * 1080 / frame.width, true)
+            } else frame
+            java.io.ByteArrayOutputStream().also { scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, it) }.toByteArray()
+        }
     }
 
     override suspend fun type(text: String): Boolean = withContext(Dispatchers.IO) { hands().typeText(text, false) }

@@ -17,6 +17,12 @@ class PhoneAgent(
     private val think: suspend (String) -> String?,
     private val progress: (String) -> Unit,
     private val pause: suspend (Long) -> Unit,
+    /**
+     * A brain that can SEE (Gemini, free): it gets the screenshot with the numbered list, so it copes with web pages
+     * and unfamiliar apps whose buttons the list misses (Rex, 15 Nov 2026: he was taking screenshots of every step of
+     * a Colab page for me — "perform every technical step"). Null answer = not available; then [think] decides.
+     */
+    private val see: suspend (prompt: String, jpeg: ByteArray) -> String? = { _, _ -> null },
 ) {
     /** The phone being used: this one, or the linked one over the link. */
     interface Target {
@@ -31,6 +37,8 @@ class PhoneAgent(
         suspend fun open(app: String): String
         /** Whether Rex pressed STOP on that phone's banner. */
         suspend fun stopped(): Boolean
+        /** A JPEG of the screen, when this phone can take one. */
+        suspend fun look(): ByteArray? = null
     }
 
     data class Element(
@@ -44,6 +52,8 @@ class PhoneAgent(
     sealed interface Action {
         data class Open(val app: String) : Action
         data class Tap(val n: Int) : Action
+        /** A tap where the list has nothing, by position on the screenshot (0-1000 across, 0-1000 down). */
+        data class TapAt(val x: Int, val y: Int, val what: String) : Action
         data class Type(val n: Int, val text: String) : Action
         data class Scroll(val down: Boolean) : Action
         data object Back : Action
@@ -57,15 +67,38 @@ class PhoneAgent(
         try {
             val did = mutableListOf<String>()
             var confused = 0
-            for (step in 1..MAX_STEPS) {
+            var seeing = true // until the seeing brain says no (no key, offline, out of quota)
+            var before: String? = null
+            var still = 0
+            var acted = false // the last step tapped or typed (only those are expected to change the screen)
+            for (step in 1..MAX_STEPS_SEEING) {
+                if (!seeing && step > MAX_STEPS) break
                 if (target.stopped()) return "Stopped — you pressed STOP on ${target.name}."
                 val screen = target.screen()
                 if (Safety.moneyApp(screen.app)) {
                     target.key("home")
                     return "I stopped: ${screen.app} is a banking or payment app, and I never use those for you."
                 }
-                progress("🤖 Step $step on ${target.name}: thinking… (${screen.app})")
-                val raw = think(prompt(goal, did, screen)) ?: return "My brain isn't available right now, so I stopped."
+                // Did the last action change anything? A tap that did nothing twice in a row means a wrong guess.
+                val now = signature(screen)
+                if (acted && now == before && did.isNotEmpty()) {
+                    did[did.lastIndex] = did.last() + " → the screen didn't change"
+                    if (++still >= 3) return "I'm stuck on ${target.name} (${screen.app}): my last taps did nothing. " + summary(did) +
+                        ". Tell me what to press, or do that step yourself and ask me again."
+                } else if (acted) {
+                    still = 0
+                }
+                acted = false
+                before = now
+                progress("🤖 Step $step on ${target.name}: ${if (seeing) "looking" else "thinking"}… (${screen.app})")
+                val text = prompt(goal, did, screen)
+                var raw: String? = null
+                if (seeing) {
+                    val jpeg = runCatching { target.look() }.getOrNull()
+                    raw = jpeg?.let { runCatching { see(text + SEEING_NOTE, it) }.getOrNull() }
+                    if (raw == null) seeing = false
+                }
+                if (raw == null) raw = think(text) ?: return "My brain isn't available right now, so I stopped."
                 val action = parse(raw)
                 if (action == null) {
                     if (++confused >= 3) return "I couldn't work out what to do next on ${target.name}. " + summary(did)
@@ -96,7 +129,26 @@ class PhoneAgent(
                         }
                         progress("🤖 Step $step: tapping \"${el.label.take(40)}\"")
                         target.tap(el.x, el.y)
+                        acted = true
                         did += "TAP ${el.n} \"${el.label.take(40)}\""
+                    }
+                    is Action.TapAt -> {
+                        if (screen.width <= 0 || screen.height <= 0) {
+                            did += "TAPAT → I don't know this screen's size"
+                            continue
+                        }
+                        when (Safety.check(action.what, goal)) {
+                            Safety.Verdict.NEVER -> return "I stopped: \"${action.what}\" looks like a payment, password or bank step, and I never do those for you."
+                            Safety.Verdict.OUT_OF_SCOPE -> {
+                                did += "TAPAT \"${action.what.take(40)}\" → skipped: that isn't part of what Rex asked"
+                                continue
+                            }
+                            Safety.Verdict.OK -> {}
+                        }
+                        progress("🤖 Step $step: tapping \"${action.what.take(40)}\"")
+                        target.tap(action.x * screen.width / 1000, action.y * screen.height / 1000)
+                        acted = true
+                        did += "TAPAT ${action.x} ${action.y} \"${action.what.take(40)}\""
                     }
                     is Action.Type -> {
                         val el = screen.elements.firstOrNull { it.n == action.n }
@@ -111,6 +163,7 @@ class PhoneAgent(
                         target.tap(el.x, el.y)
                         pause(TYPE_SETTLE_MS)
                         val ok = target.type(action.text)
+                        acted = true
                         did += "TYPE ${el.n} \"${action.text.take(40)}\"" + if (ok) "" else " → failed (no text box got it)"
                     }
                     is Action.Scroll -> {
@@ -128,7 +181,7 @@ class PhoneAgent(
                 }
                 pause(SETTLE_MS) // let the app react before looking again
             }
-            return "I stopped after $MAX_STEPS steps without finishing. " + summary(did)
+            return "I stopped after ${if (seeing) MAX_STEPS_SEEING else MAX_STEPS} steps without finishing. " + summary(did)
         } finally {
             // Also after STOP in the chat (this coroutine cancelled): the banner on that phone must go away.
             kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { runCatching { target.end() } }
@@ -140,6 +193,16 @@ class PhoneAgent(
 
     companion object {
         const val MAX_STEPS = 15
+        /** With a brain that sees the screen, longer jobs (a web page with many steps) are worth trying. */
+        const val MAX_STEPS_SEEING = 40
+
+        /** Added to the prompt when the screenshot comes with it. */
+        const val SEEING_NOTE = "\n(The screenshot of this screen is attached. Prefer TAP <number> when the thing is in the " +
+            "list; when it isn't (web pages, pictures, unlabeled icons), use TAPAT <x> <y> <what it is> with x and y from " +
+            "0 to 1000 across and down the screenshot. Read the screen carefully before choosing.)"
+
+        /** What a screen shows, to tell whether an action changed anything. */
+        fun signature(screen: Screen): String = screen.app + "|" + screen.elements.joinToString("|") { it.label.take(40) }
         private const val SETTLE_MS = 1_300L
         private const val TYPE_SETTLE_MS = 500L
         private const val MAX_ELEMENTS = 45
@@ -148,9 +211,9 @@ class PhoneAgent(
         const val SYSTEM = "You operate Rex's Android phone for him, one action at a time. Each turn you get his GOAL, " +
             "what you already did, and the SCREEN as a numbered list (tap) = can be tapped, (type) = a text box. " +
             "Reply with exactly ONE line, nothing else, in one of these forms:\n" +
-            "OPEN <app name>\nTAP <number>\nTYPE <number> <text>\nSCROLL DOWN\nSCROLL UP\nBACK\nHOME\n" +
+            "OPEN <app name>\nTAP <number>\nTAPAT <x> <y> <what it is>   (only with a screenshot)\nTYPE <number> <text>\nSCROLL DOWN\nSCROLL UP\nBACK\nHOME\n" +
             "DONE <short answer or result for Rex>\nFAIL <short reason>\n" +
-            "Rules: start with OPEN if the right app isn't on the screen. Only TAP numbers marked (tap); only TYPE into " +
+            "Rules: start with OPEN if the right app isn't on the screen. If an action didn't change the screen, try something different. Pages can be long: SCROLL to find things. Only TAP numbers marked (tap); only TYPE into " +
             "numbers marked (type). When the goal is to find something out and the answer is on the screen, reply DONE " +
             "with the answer. When the goal is done, reply DONE. Rex's goal is his permission for the steps it needs: just " +
             "do them. Don't press things the goal didn't ask for (an ad's Install, invite contacts) — close or skip them. " +
@@ -170,7 +233,7 @@ class PhoneAgent(
             append("Your one line:")
         }
 
-        private val LINE = Regex("""(?im)^[\s*>`"'\-•]*(OPEN|TAP|TYPE|SCROLL|BACK|HOME|DONE|FAIL)\b[\s:]*(.*)$""")
+        private val LINE = Regex("""(?im)^[\s*>`"'\-•]*(OPEN|TAPAT|TAP|TYPE|SCROLL|BACK|HOME|DONE|FAIL)\b[\s:]*(.*)$""")
 
         /** The brain's answer as an action: the first line in the expected form, ignoring decoration. */
         fun parse(raw: String): Action? {
@@ -178,6 +241,9 @@ class PhoneAgent(
             val rest = m.groupValues[2].trim().trim('`', '*').trim()
             return when (m.groupValues[1].uppercase()) {
                 "OPEN" -> rest.trim('"', '\'').takeIf { it.isNotBlank() }?.let { Action.Open(it) }
+                "TAPAT" -> Regex("""^\(?(\d{1,4})[\s,]+(\d{1,4})\)?\s*(.*)$""").find(rest)?.let {
+                    Action.TapAt(it.groupValues[1].toInt().coerceIn(0, 1000), it.groupValues[2].toInt().coerceIn(0, 1000), it.groupValues[3].trim().trim('"', '\''))
+                }
                 "TAP" -> Regex("""\[?(\d+)""").find(rest)?.groupValues?.get(1)?.toIntOrNull()?.let { Action.Tap(it) }
                 "TYPE" -> Regex("""^\[?(\d+)\]?\s*[:,]?\s*(.+)$""").find(rest)?.let {
                     Action.Type(it.groupValues[1].toInt(), it.groupValues[2].trim().trim('"', '\'', '“', '”'))

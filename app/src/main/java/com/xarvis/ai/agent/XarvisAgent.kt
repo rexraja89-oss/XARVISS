@@ -832,6 +832,7 @@ class XarvisAgent(
             think = { prompt -> agentThink(prompt, onPartial) },
             progress = onPartial,
             pause = { ms -> kotlinx.coroutines.delay(ms) },
+            see = { prompt, jpeg -> agentSee(prompt, jpeg) },
         )
         val result = try {
             agent.run(task.goal)
@@ -840,6 +841,18 @@ class XarvisAgent(
             "I had to stop: ${e.message ?: e.javaClass.simpleName}"
         }
         return Reply("🤖 $result", via = target.name)
+    }
+
+    /**
+     * One step's decision by Gemini looking at the screenshot (free; Rex chose it over a paid brain, 15 Nov 2026). Null
+     * when Gemini can't (no key, offline, out of its free quota, or Rex's 🔒): then Gemma decides from the list alone.
+     */
+    private suspend fun agentSee(prompt: String, jpeg: ByteArray): String? {
+        if (settings.getBoolean("privateLock", false) || !cloud.gemini.hasKey() || !cloud.online()) return null
+        val b64 = android.util.Base64.encodeToString(jpeg, android.util.Base64.NO_WRAP)
+        return runCatching { cloud.gemini.chatWithImage(PhoneAgent.SYSTEM, prompt, b64, "image/jpeg", 400) }
+            .onFailure { android.util.Log.w("XarvisAgent", "Gemini couldn't look; Gemma decides", it) }
+            .getOrNull()?.takeIf { it.isNotBlank() }
     }
 
     /** One step's decision: this phone's Gemma, or the linked phone's, with the operating instructions. */

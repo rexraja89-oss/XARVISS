@@ -140,3 +140,59 @@ class PhoneTaskTest {
         ).forEach { assertNull(it, PhoneTask.parse(it, s22)) }
     }
 }
+
+class PhoneAgentSeeingTest {
+    private fun el(n: Int, label: String) = PhoneAgent.Element(n, label, true, false, false, n * 10, n * 20)
+
+    private class Phone(private val screens: List<PhoneAgent.Screen>, private val jpeg: ByteArray?) : PhoneAgent.Target {
+        override val name = "Test phone"
+        val did = mutableListOf<String>()
+        var shown = 0
+        override suspend fun begin() {}
+        override suspend fun end() {}
+        override suspend fun screen() = screens[minOf(shown++, screens.size - 1)]
+        override suspend fun tap(x: Int, y: Int) { did += "tap $x,$y" }
+        override suspend fun type(text: String): Boolean = true
+        override suspend fun scroll(down: Boolean) {}
+        override suspend fun key(name: String) {}
+        override suspend fun open(app: String): String = "opened $app"
+        override suspend fun stopped() = false
+        override suspend fun look() = jpeg
+    }
+
+    @Test fun readsATapByPosition() {
+        assertEquals(PhoneAgent.Action.TapAt(512, 300, "Connect button"), PhoneAgent.parse("TAPAT 512 300 Connect button"))
+        assertEquals(PhoneAgent.Action.TapAt(100, 1000, "play icon"), PhoneAgent.parse("TAPAT (100, 1400) \"play icon\""))
+        assertEquals(PhoneAgent.Action.Tap(4), PhoneAgent.parse("TAP 4"))
+    }
+
+    @Test fun theSeeingBrainDecidesAndTapsWhereItSees() = runBlocking {
+        // A web page whose button isn't in the list: Gemini sees it on the screenshot and taps by position.
+        val page = PhoneAgent.Screen("Chrome", listOf(el(1, "colab.research.google.com")), 1000, 2000)
+        val after = PhoneAgent.Screen("Chrome", listOf(el(1, "Running…")), 1000, 2000)
+        val phone = Phone(listOf(page, after), jpeg = byteArrayOf(1, 2, 3))
+        val seen = ArrayDeque(listOf("TAPAT 500 250 Run all", "DONE It's running."))
+        var gemmaAsked = 0
+        val result = PhoneAgent(phone, think = { gemmaAsked++; null }, progress = {}, pause = {}, see = { _, _ -> seen.removeFirstOrNull() })
+            .run("start the training in Colab")
+        assertEquals("It's running.", result)
+        assertEquals(listOf("tap 500,500"), phone.did)
+        assertEquals(0, gemmaAsked)
+    }
+
+    @Test fun withoutASeeingBrainGemmaDecidesFromTheList() = runBlocking {
+        val screen = PhoneAgent.Screen("Settings", listOf(el(1, "Wi-Fi")), 1000, 2000)
+        val phone = Phone(listOf(screen, screen), jpeg = byteArrayOf(1))
+        val answers = ArrayDeque(listOf("TAP 1", "DONE ok"))
+        val result = PhoneAgent(phone, think = { answers.removeFirstOrNull() }, progress = {}, pause = {}).run("open Wi-Fi settings")
+        assertEquals("ok", result)
+    }
+
+    @Test fun tapsThatChangeNothingStopItWithAClearMessage() = runBlocking {
+        val screen = PhoneAgent.Screen("Chrome", listOf(el(1, "Start")), 1000, 2000)
+        val phone = Phone(listOf(screen), jpeg = null)
+        val result = PhoneAgent(phone, think = { "TAP 1" }, progress = {}, pause = {}).run("press start")
+        assertTrue(result, result.startsWith("I'm stuck on Test phone (Chrome)"))
+        assertEquals(3, phone.did.size)
+    }
+}
