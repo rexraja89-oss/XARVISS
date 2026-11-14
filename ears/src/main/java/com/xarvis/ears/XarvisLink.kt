@@ -130,6 +130,7 @@ class XarvisLink(context: Context) : WakeHost {
                 done(false)
                 return@whenConnected
             }
+            showScreen()
             val n = ++number
             waiting[n] = { done(true) }
             if (!send(Message.obtain(null, MSG_WAKE, if (interrupting) 1 else 0, n))) {
@@ -153,6 +154,41 @@ class XarvisLink(context: Context) : WakeHost {
         send(Message.obtain(null, MSG_OVER))
     }
 
+    /**
+     * XARVIS's living-logo screen. The benco's XARVIS may not open a screen from the background, so Ears asks Android
+     * with a full-screen notice: it opens the screen when the phone is locked or the screen is off (otherwise it shows
+     * as a notification to tap). XARVIS clears the notice when its screen opens.
+     */
+    private fun showScreen() {
+        runCatching {
+            val intent = Intent().setComponent(ComponentName(XARVIS, WAKE_SCREEN))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+            val nm = appContext.getSystemService(android.app.NotificationManager::class.java)
+            nm.createNotificationChannel(
+                android.app.NotificationChannel(SCREEN_CHANNEL, "XARVIS talking", android.app.NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "Opens XARVIS's screen when you say \"Hey Xarvis\""
+                    setSound(null, null)
+                    enableVibration(false)
+                },
+            )
+            val pi = android.app.PendingIntent.getActivity(
+                appContext, 77, intent, android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            val n = androidx.core.app.NotificationCompat.Builder(appContext, SCREEN_CHANNEL)
+                .setSmallIcon(R.drawable.ic_stat_ears)
+                .setContentTitle("XARVIS")
+                .setContentText("Listening…")
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                .setCategory(androidx.core.app.NotificationCompat.CATEGORY_CALL)
+                .setFullScreenIntent(pi, true)
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .setTimeoutAfter(15_000)
+                .build()
+            nm.notify(SCREEN_NOTICE, n)
+        }.onFailure { Log.w(TAG, "Couldn't show XARVIS's screen", it) }
+    }
+
     private fun whenConnected(tries: Int, then: (Boolean) -> Unit) {
         when {
             connected -> then(true)
@@ -165,6 +201,9 @@ class XarvisLink(context: Context) : WakeHost {
         private const val TAG = "XarvisEarsLink"
         const val XARVIS = "com.xarvis.ai"
         private const val LINK_SERVICE = "com.xarvis.ai.ears.EarsLinkService"
+        private const val WAKE_SCREEN = "com.xarvis.ai.voice.WakeOverlayActivity"
+        private const val SCREEN_CHANNEL = "xarvis_wake_screen"
+        private const val SCREEN_NOTICE = 77
 
         // The same numbers as XARVIS's ears/EarsLinkService.
         private const val MSG_HELLO = 1

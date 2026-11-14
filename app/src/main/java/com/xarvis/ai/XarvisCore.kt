@@ -757,6 +757,12 @@ class XarvisCore(context: Context) {
 
     // ---- Talking after "Xarvis" (the wake word here on the S22, or XARVIS Ears on a phone like the benco) ----
 
+    /** A wake-word conversation for the wake screen (voice/WakeOverlay): whether it's on, and what Rex said last. */
+    data class VoiceLive(val active: Boolean = false, val heard: String = "")
+
+    private val _voiceLive = MutableStateFlow(VoiceLive())
+    val voiceLive: StateFlow<VoiceLive> = _voiceLive.asStateFlow()
+
     /** A wake-word conversation is going on, so questions are asked for a spoken yes or no. */
     @Volatile private var voiceSession = false
 
@@ -774,6 +780,9 @@ class XarvisCore(context: Context) {
     /** "Xarvis" was heard ([interrupting]: while XARVIS was talking, so it stops). Says "Yes, sir?"; [done] once it's said. */
     fun voiceWake(interrupting: Boolean, done: () -> Unit) {
         voiceSession = true
+        _voiceLive.value = VoiceLive(active = true)
+        // The living logo on screen, also over the lock screen and with the screen off.
+        runCatching { com.xarvis.ai.voice.WakeOverlay.show(appContext) }
         if (interrupting) voice.stop()
         voice.speak(com.xarvis.ai.voice.VoiceTalk.GREETING)
         scope.launch { afterSpeaking(); done() }
@@ -787,6 +796,7 @@ class XarvisCore(context: Context) {
     fun voiceHeard(text: String, done: (Boolean) -> Unit) {
         val talk = com.xarvis.ai.voice.VoiceTalk
         voiceSession = true
+        if (talk.closing(text) == null) _voiceLive.value = VoiceLive(active = true, heard = text)
         scope.launch {
             if (_state.value.ask != null) {
                 val yes = talk.yesNo(text)
@@ -818,6 +828,7 @@ class XarvisCore(context: Context) {
     /** The wake-word conversation ended (Rex said nothing more). */
     fun voiceOver() {
         voiceSession = false
+        _voiceLive.value = VoiceLive()
     }
 
     /**

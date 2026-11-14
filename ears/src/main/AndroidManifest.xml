@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Opens XARVIS's living-logo screen over the lock screen when Rex says "Hey Xarvis" (a normal permission on 13). -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <!-- After a phone restart: puts its notification back (the microphone returns when XARVIS is opened once). -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Asks once to be left out of battery saving, so the phone doesn't stop it overnight. -->

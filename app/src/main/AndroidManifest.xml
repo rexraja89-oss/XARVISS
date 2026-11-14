@@ -260,6 +260,20 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
+        <!-- The living XARVIS logo while Rex talks by voice ("Hey Xarvis"), over the lock screen too. Exported only to
+             Rex's own apps (XARVIS Ears opens it on the benco through a full-screen notice). -->
+        <activity
+            android:name=".voice.WakeOverlayActivity"
+            android:exported="true"
+            android:permission="com.xarvis.ai.permission.EYES"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:taskAffinity="com.xarvis.ai.wake"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.Xarvis" />
+
         <!-- XARVIS Ears (the small app that holds the microphone where XARVIS may not, e.g. on the benco) hands
              over "Xarvis" and what Rex says here; XARVIS answers aloud. Signature permission: Rex's own apps only. -->
         <service
