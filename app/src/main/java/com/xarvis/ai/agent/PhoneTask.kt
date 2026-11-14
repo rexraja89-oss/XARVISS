@@ -20,11 +20,16 @@ object PhoneTask {
             """switch off|enable|disable|set|change|play|watch|read|see if|see what|tell me if|tell me what|tell me who|""" +
             """find out|show me|message|text|open\s+\S+(?:\s+\S+)?\s+and)\b""",
     )
+    /** "open Chrome, go to … and press Run all": an app opened, then more steps (comma, "then", "and"). */
+    private val OPEN_THEN = Regex("""(?i)^$LEAD(?:open|launch|start)\s+(?:the\s+)?\S+(?:\s+\S+)?\s*(?:,|;|\band then\b|\bthen\b|\band\b)\s*\S+""")
+    /** A web link plus something to do on it ("go to colab…/x and press Run all"). */
+    private val LINK_JOB = Regex("""(?i)(?:https?://|www\.|\b[a-z0-9-]+\.(?:com|org|net|io|ai|in|ae|co)/)\S*""")
+    private val STEP_WORDS = Regex("""(?i)\b(?:press|tap|click|choose|select|pick|run|sign in|log in|fill|type|enter|scroll|download|upload|go to)\b""")
     private val EXPLICIT = Regex("""(?i)^$LEAD(?:do (?:this|it) for me|use my phone|use the phone|take over)\s*[:,\-–]?\s*(.+)$""")
 
     /** [otherDeviceWords]: the linked phone's name words ("galaxy", "s22", "ultra" on the benco). */
     fun parse(message: String, otherDeviceWords: Set<String>): Task? {
-        val t = message.trim().trimEnd('.', '!', '?').trim()
+        val t = message.trim().trim('"', '\'', '“', '”').trim().trimEnd('.', '!', '?').trim()
         var goal = t
         var other = false
         if (otherDeviceWords.isNotEmpty()) {
@@ -36,6 +41,10 @@ object PhoneTask {
         }
         EXPLICIT.matchEntire(goal)?.let { return Task(it.groupValues[1].trim(), other) }
         if (ACTION.containsMatchIn(goal) && ON_APP.containsMatchIn(goal)) return Task(goal, other)
+        // Rex, 15 Nov 2026: "open Chrome, go to colab…, choose T4 GPU in Runtime and press Run all" went to the chat
+        // brain, which only opened Chrome. Several steps after "open X", or a link with steps on it, is a job.
+        if (OPEN_THEN.containsMatchIn(goal)) return Task(goal, other)
+        if (LINK_JOB.containsMatchIn(goal) && STEP_WORDS.containsMatchIn(goal)) return Task(goal, other)
         return null
     }
 }

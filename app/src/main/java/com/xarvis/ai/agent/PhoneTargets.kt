@@ -55,6 +55,8 @@ class LocalPhone(private val context: Context, override val name: String) : Phon
         hands().gesture("tap", x.toFloat(), y.toFloat(), x.toFloat(), y.toFloat(), 60).let { }
     }
 
+    override suspend fun openUrl(url: String): Boolean = withContext(Dispatchers.IO) { runCatching { hands().openUrl(url) }.getOrDefault(false) }
+
     /** The screen as a JPEG (max 1080 px wide), for the brain that sees; null when Android won't give one. */
     override suspend fun look(): ByteArray? {
         val frame = withTimeoutOrNull(4_000) {

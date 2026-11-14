@@ -130,6 +130,12 @@ class PhoneTaskTest {
         }
         assertEquals(PhoneTask.Task("read my last message on whatsapp", true), PhoneTask.parse("read my last message on whatsapp on my s22", s22))
         assertEquals(PhoneTask.Task("open settings and turn on dark mode", false), PhoneTask.parse("do this for me: open settings and turn on dark mode", s22))
+        // Rex, 15 Nov 2026: this went to the chat brain, which only opened Chrome.
+        val colab = "\"open Chrome, go to colab.research.google.com/github/rexraja89-oss/XARVISS/blob/main/training/XARVIS_voice_training.ipynb, choose T4 GPU in Runtime and press Run all"
+        assertTrue(PhoneTask.parse(colab, s22) != null)
+        assertTrue(PhoneTask.parse("go to colab.research.google.com/drive/abc and press Run all", s22) != null)
+        assertEquals("https://colab.research.google.com/github/x/y.ipynb", PhoneAgent.linkIn("open Chrome, go to colab.research.google.com/github/x/y.ipynb, press run"))
+        assertEquals("https://www.example.com/a", PhoneAgent.linkIn("open https://www.example.com/a."))
     }
 
     @Test fun notJobs() {

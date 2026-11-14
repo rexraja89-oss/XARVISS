@@ -39,6 +39,8 @@ class PhoneAgent(
         suspend fun stopped(): Boolean
         /** A JPEG of the screen, when this phone can take one. */
         suspend fun look(): ByteArray? = null
+        /** Opens a web address in the browser; false when this phone can't. */
+        suspend fun openUrl(url: String): Boolean = false
     }
 
     data class Element(
@@ -66,6 +68,14 @@ class PhoneAgent(
         target.begin()
         try {
             val did = mutableListOf<String>()
+            // A link in the goal is opened directly — far more reliable than typing it into an address bar.
+            linkIn(goal)?.let { url ->
+                progress("🤖 Opening $url…")
+                if (runCatching { target.openUrl(url) }.getOrDefault(false)) {
+                    did += "OPENED THE LINK $url"
+                    pause(LINK_SETTLE_MS)
+                }
+            }
             var confused = 0
             var seeing = true // until the seeing brain says no (no key, offline, out of quota)
             var before: String? = null
@@ -193,6 +203,14 @@ class PhoneAgent(
 
     companion object {
         const val MAX_STEPS = 15
+        private const val LINK_SETTLE_MS = 4_000L
+
+        /** The first web address in [goal] ("colab.research.google.com/…" gets https:// added). */
+        fun linkIn(goal: String): String? {
+            val m = Regex("""(?i)(?:https?://|www\.)[^\s,]+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|org|net|io|ai|in|ae|co)/[^\s,]*""").find(goal) ?: return null
+            val url = m.value.trimEnd('.', ')', '"', '\'')
+            return if (url.startsWith("http", ignoreCase = true)) url else "https://$url"
+        }
         /** With a brain that sees the screen, longer jobs (a web page with many steps) are worth trying. */
         const val MAX_STEPS_SEEING = 40
 
