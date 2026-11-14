@@ -37,6 +37,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
@@ -213,191 +214,153 @@ fun SettingsMenu(
     voiceLabel: (Boolean) -> String, onNextVoice: (Boolean) -> String,
 ) {
     ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surface) {
-        // It no longer shares the drawer with the chat list, so it scrolls.
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
-            Column(Modifier.fillMaxWidth().clickable(onClick = onHelp).padding(horizontal = 20.dp, vertical = 14.dp)) {
-                Text("✦ What can I do? ›", style = MaterialTheme.typography.titleMedium, color = XarvisCyan)
-                Text("Everything XARVIS can do, in plain words.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
-            }
-            Column(Modifier.fillMaxWidth().clickable(onClick = onBriefing).padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text("🌅 Morning briefing ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-                Text("Connect Gmail + Calendar for a daily briefing.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
-            }
-            Column(Modifier.fillMaxWidth().clickable(onClick = onEyes).padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text("👁 XARVIS Eyes ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-                Text("Point the camera and ask what I see. Or just say \"look\".", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
-            }
-            Column(Modifier.fillMaxWidth().clickable(onClick = onHands).padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text("🤲 XARVIS Hands ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-                Text("Lets me tap inside apps, like an imo or WhatsApp call. Switch it on here.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
-            }
-            Column(Modifier.fillMaxWidth().clickable(onClick = onRemote).padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text("🖥 Control linked phone ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-                Text("See and control your other phone's screen, like TeamViewer.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
-            }
-            Column(Modifier.fillMaxWidth().clickable(onClick = onGuardRemote).padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text("🛡 Guard my other phone ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-                Text("Its intruder alarm: speak through it, stop it, or sound it now.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
-            }
-            Column(Modifier.fillMaxWidth().clickable(onClick = onRelay).padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text("🌐 Always connected ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-                Text("Reach your other phones anywhere — mobile data, another country — without Tailscale or a VPN.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
-            }
-            Column(Modifier.fillMaxWidth().clickable(onClick = onAware).padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text("🛰 Situation ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-                Text("All your devices at a glance: battery, network, who's using them, missed calls. Say \"status report\".", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
-            }
-            Column(Modifier.fillMaxWidth().clickable(onClick = onTask).padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text("🧠 Task mode ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-                Text("Big jobs on this phone, planned and done by XARVIS: YouTube videos, comics… (say \"task: …\").", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
-            }
-            Column(Modifier.fillMaxWidth().clickable(onClick = onHelper).padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text("🤝 Help a family phone ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-                Text("See and fix a family member's phone from anywhere, when they ask (XARVIS Helper).", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
-            }
-            Column(Modifier.fillMaxWidth().clickable(onClick = onJobHunter).padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text("💼 Job Hunter ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-                Text("Your worldwide job search: drafts to approve, sent emails, replies, your CVs.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
-            }
-            HorizontalDivider(Modifier.padding(vertical = 4.dp), color = XarvisMuted.copy(alpha = 0.3f))
+        // Rex, 14 Nov 2026: "it's very much crowded… hide the menu inside each header". So the drawer shows only a
+        // few headers; tapping one opens a pop-up with that section's options.
+        var open by remember { mutableStateOf<String?>(null) }
+        // A row that opens another screen: the pop-up closes first.
+        @Composable
+        fun Go(title: String, detail: String, onClick: () -> Unit) = MenuLink(title, detail) { open = null; onClick() }
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(top = 8.dp, bottom = 24.dp)) {
             Text(
-                "BRAIN", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
-                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp),
+                "XARVIS", style = MaterialTheme.typography.headlineSmall, color = XarvisCyan,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
             )
-            // Fast/Smart only matter on a phone that runs Gemma itself (the S22, not the benco).
-            if (hasModel || smartBrain) {
-                BrainOption("Fast", "Gemma 4 E2B: quick answers.", selected = !smartBrain, enabled = enabled) { onSmartBrain(false) }
-                val detail = when (smartDownload) {
-                    is ModelDownload.Running -> {
-                        val pct = if (smartDownload.total > 0) (smartDownload.done * 100 / smartDownload.total).toInt() else 0
-                        "Downloading… $pct%. XARVIS switches when it's done."
+            MenuHeader("✦", "What can I do?", "Everything XARVIS can do, in plain words.", onClick = onHelp)
+            MenuHeader("🛠", "Tools", "Briefing, Eyes, Hands, Task mode, Job Hunter") { open = "tools" }
+            MenuHeader("📱", "My devices", "Control, guard and reach your other phones; Situation") { open = "devices" }
+            MenuHeader("🧠", "Brain", "Fast or Smart, cloud brains and their keys") { open = "brain" }
+            MenuHeader("🎙", "Voice", "Say \"Xarvis\", voices, your own voice") { open = "voice" }
+            MenuHeader("⚙", "Control", "XARVIS Code, Mod, folders, permissions, log") { open = "control" }
+        }
+        when (open) {
+            "tools" -> MenuPopup("🛠 Tools", onClose = { open = null }) {
+                Go("🌅 Morning briefing ›", "Connect Gmail + Calendar for a daily briefing.", onBriefing)
+                Go("👁 XARVIS Eyes ›", "Point the camera and ask what I see. Or just say \"look\".", onEyes)
+                Go("🤲 XARVIS Hands ›", "Lets me tap inside apps, like an imo or WhatsApp call. Switch it on here.", onHands)
+                Go("🧠 Task mode ›", "Big jobs on this phone, planned and done by XARVIS: YouTube videos, comics… (say \"task: …\").", onTask)
+                Go("💼 Job Hunter ›", "Your worldwide job search: drafts to approve, sent emails, replies, your CVs.", onJobHunter)
+            }
+            "devices" -> MenuPopup("📱 My devices", onClose = { open = null }) {
+                Go("🛰 Situation ›", "All your devices at a glance: battery, network, who's using them, missed calls. Say \"status report\".", onAware)
+                Go("🖥 Control linked phone ›", "See and control your other phone's screen, like TeamViewer.", onRemote)
+                Go("🛡 Guard my other phone ›", "Its intruder alarm: speak through it, stop it, or sound it now.", onGuardRemote)
+                Go("🌐 Always connected ›", "Reach your other phones anywhere — mobile data, another country — without Tailscale or a VPN.", onRelay)
+                Go("🤝 Help a family phone ›", "See and fix a family member's phone from anywhere, when they ask (XARVIS Helper).", onHelper)
+            }
+            "brain" -> MenuPopup("🧠 Brain", onClose = { open = null }) {
+                // Fast/Smart only matter on a phone that runs Gemma itself (the S22, not the benco).
+                if (hasModel || smartBrain) {
+                    BrainOption("Fast", "Gemma 4 E2B: quick answers.", selected = !smartBrain, enabled = enabled) { onSmartBrain(false) }
+                    val detail = when (smartDownload) {
+                        is ModelDownload.Running -> {
+                            val pct = if (smartDownload.total > 0) (smartDownload.done * 100 / smartDownload.total).toInt() else 0
+                            "Downloading… $pct%. XARVIS switches when it's done."
+                        }
+                        is ModelDownload.Waiting -> "Download paused: ${smartDownload.why}."
+                        is ModelDownload.Failed -> "Download failed: ${smartDownload.why}. Tap to try again."
+                        else -> "Gemma 4 E4B: about twice as smart, replies about half as fast. First time: a ~4 GB download."
                     }
-                    is ModelDownload.Waiting -> "Download paused: ${smartDownload.why}."
-                    is ModelDownload.Failed -> "Download failed: ${smartDownload.why}. Tap to try again."
-                    else -> "Gemma 4 E4B: about twice as smart, replies about half as fast. First time: a ~4 GB download."
+                    BrainOption("Smart", detail, selected = smartBrain, enabled = enabled) { onSmartBrain(true) }
                 }
-                BrainOption("Smart", detail, selected = smartBrain, enabled = enabled) { onSmartBrain(true) }
-            }
-            // No on-device model here (e.g. the benco): the download lives in the menu so it doesn't
-            // cover the chat. It's optional — the cloud brains and the linked phone already answer.
-            if (!hasModel) {
-                Text(
-                    "On-device AI (Gemma) — optional",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp),
-                )
-                Text(
-                    "For offline and fully-private answers on this phone. You already have the cloud brains and your linked phone, so this isn't required.",
-                    style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
-                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
-                )
-                Box(Modifier.padding(horizontal = 20.dp)) {
-                    com.xarvis.ai.ui.ModelSetup(modelDownload, onDownloadModel)
-                }
-            }
-            // Cloud works on any phone with internet (including the benco), so it's always shown.
-            CloudBrain(cloudEnabled, hasCloudKey, onCloud, onSaveKey, onClearKey, councilEnabled, onCouncil, cloudMemory, onCloudMemory)
-            if (cloudEnabled) BackupBrains(backups, onSaveBackup, onClearBackup)
-            JobHunterKeys(searchKeyHas, onSaveSearchKey, onClearSearchKey)
-            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
-            Text(
-                "VOICE", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
-                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp),
-            )
-            // "Xarvis", the wake word. On the S22 XARVIS listens itself (the switch); on a phone whose XARVIS may
-            // not use the microphone (the benco) the small XARVIS Ears app does, and the row opens it.
-            Row(
-                Modifier.fillMaxWidth().clickable { if (wakeHere) onWakeWord(!wakeWord) else onWakeScreen() }
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("Say \"Xarvis\"", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                // No on-device model here (e.g. the benco): the download lives in the menu so it doesn't
+                // cover the chat. It's optional — the cloud brains and the linked phone already answer.
+                if (!hasModel) {
                     Text(
-                        if (wakeHere) "Say \"Xarvis\" any time, screen on or off, wait for \"Yes, sir?\", then talk. It keeps listening after each answer. Uses some battery."
-                        else wakeNote,
+                        "On-device AI (Gemma) — optional",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp),
+                    )
+                    Text(
+                        "For offline and fully-private answers on this phone. You already have the cloud brains and your linked phone, so this isn't required.",
+                        style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
+                    )
+                    Box(Modifier.padding(horizontal = 20.dp)) {
+                        com.xarvis.ai.ui.ModelSetup(modelDownload, onDownloadModel)
+                    }
+                }
+                // Cloud works on any phone with internet (including the benco), so it's always shown.
+                CloudBrain(cloudEnabled, hasCloudKey, onCloud, onSaveKey, onClearKey, councilEnabled, onCouncil, cloudMemory, onCloudMemory)
+                if (cloudEnabled) BackupBrains(backups, onSaveBackup, onClearBackup)
+                JobHunterKeys(searchKeyHas, onSaveSearchKey, onClearSearchKey)
+            }
+            "voice" -> MenuPopup("🎙 Voice", onClose = { open = null }) {
+                // "Xarvis", the wake word. On the S22 XARVIS listens itself (the switch); on a phone whose XARVIS may
+                // not use the microphone (the benco) the small XARVIS Ears app does, and the row opens it.
+                Row(
+                    Modifier.fillMaxWidth().clickable { if (wakeHere) onWakeWord(!wakeWord) else onWakeScreen() }
+                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Say \"Xarvis\"", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                        Text(
+                            if (wakeHere) "Say \"Xarvis\" any time, screen on or off, wait for \"Yes, sir?\", then talk. It keeps listening after each answer. Uses some battery."
+                            else wakeNote,
+                            style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+                        )
+                    }
+                    if (wakeHere) Switch(checked = wakeWord, onCheckedChange = onWakeWord)
+                    else Text("›", style = MaterialTheme.typography.titleLarge, color = XarvisCyan)
+                }
+                if (wakeHere) Text(
+                    "Practice and settings ›", style = MaterialTheme.typography.labelLarge, color = XarvisCyan,
+                    modifier = Modifier.fillMaxWidth().clickable { open = null; onWakeScreen() }.padding(horizontal = 20.dp, vertical = 6.dp),
+                )
+                // Pick XARVIS's voices by ear: each tap plays the next one.
+                var english by remember { mutableStateOf(voiceLabel(false)) }
+                var hindi by remember { mutableStateOf(voiceLabel(true)) }
+                // The menu is drawn before the phone's speech engine has started: read the labels again once it has.
+                androidx.compose.runtime.LaunchedEffect(Unit) {
+                    repeat(10) {
+                        kotlinx.coroutines.delay(2000)
+                        english = voiceLabel(false)
+                        hindi = voiceLabel(true)
+                    }
+                }
+                VoiceButton("English voice", english) { english = onNextVoice(false) }
+                VoiceButton("Hindi voice", hindi) { hindi = onNextVoice(true) }
+                // Rex reads sentences aloud so XARVIS can learn to speak in his voice.
+                val ownVoice = remember { com.xarvis.ai.voice.OwnVoice.status }
+                // The benco build has no voice engine, so these only show where it can work.
+                if (!ownVoice.startsWith("not in")) {
+                Column(Modifier.fillMaxWidth().clickable { open = null; onRecordVoice() }.padding(horizontal = 20.dp, vertical = 10.dp)) {
+                    Text("Record my voice ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+                    Text(
+                        "Read sentences aloud so XARVIS can learn to speak like you. Voice engine: $ownVoice",
                         style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
                     )
                 }
-                if (wakeHere) Switch(checked = wakeWord, onCheckedChange = onWakeWord)
-                else Text("›", style = MaterialTheme.typography.titleLarge, color = XarvisCyan)
-            }
-            if (wakeHere) Text(
-                "Practice and settings ›", style = MaterialTheme.typography.labelLarge, color = XarvisCyan,
-                modifier = Modifier.fillMaxWidth().clickable { onWakeScreen() }.padding(horizontal = 20.dp, vertical = 6.dp),
-            )
-            // Pick XARVIS's voices by ear: each tap plays the next one.
-            var english by remember { mutableStateOf(voiceLabel(false)) }
-            var hindi by remember { mutableStateOf(voiceLabel(true)) }
-            // The menu is drawn before the phone's speech engine has started: read the labels again once it has.
-            androidx.compose.runtime.LaunchedEffect(Unit) {
-                repeat(10) {
-                    kotlinx.coroutines.delay(2000)
-                    english = voiceLabel(false)
-                    hindi = voiceLabel(true)
+                Column(Modifier.fillMaxWidth().clickable { open = null; onLoadVoice() }.padding(horizontal = 20.dp, vertical = 10.dp)) {
+                    Text("Load my voice ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+                    Text(
+                        "Pick xarvis-voice-hi.zip or xarvis-voice-en.zip from the training page (Google Drive → XARVIS voice).",
+                        style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+                    )
                 }
-            }
-            VoiceButton("English voice", english) { english = onNextVoice(false) }
-            VoiceButton("Hindi voice", hindi) { hindi = onNextVoice(true) }
-            // Rex reads sentences aloud so XARVIS can learn to speak in his voice.
-            val ownVoice = remember { com.xarvis.ai.voice.OwnVoice.status }
-            // The benco build has no voice engine, so these only show where it can work.
-            if (!ownVoice.startsWith("not in")) {
-            Column(Modifier.fillMaxWidth().clickable(onClick = onRecordVoice).padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text("Record my voice ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-                Text(
-                    "Read sentences aloud so XARVIS can learn to speak like you. Voice engine: $ownVoice",
-                    style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
-                )
-            }
-            Column(Modifier.fillMaxWidth().clickable(onClick = onLoadVoice).padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text("Load my voice ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-                Text(
-                    "Pick xarvis-voice-hi.zip or xarvis-voice-en.zip from the training page (Google Drive → XARVIS voice).",
-                    style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
-                )
-            }
-            }
-            val loaded = ownVoices()
-            if (loaded != null) {
-                var mine by remember { mutableStateOf(ownVoiceOn()) }
-                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Speak in my voice", style = MaterialTheme.typography.bodyLarge)
-                        Text("Loaded: $loaded. Off = the phone's voices.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+                }
+                val loaded = ownVoices()
+                if (loaded != null) {
+                    var mine by remember { mutableStateOf(ownVoiceOn()) }
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Speak in my voice", style = MaterialTheme.typography.bodyLarge)
+                            Text("Loaded: $loaded. Off = the phone's voices.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+                        }
+                        Switch(checked = mine, onCheckedChange = { mine = it; onOwnVoice(it) })
                     }
-                    Switch(checked = mine, onCheckedChange = { mine = it; onOwnVoice(it) })
                 }
+                Text(
+                    "Make XARVIS the phone's assistant ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan,
+                    modifier = Modifier.fillMaxWidth().clickable { open = null; onAssistantSettings() }.padding(horizontal = 20.dp, vertical = 10.dp),
+                )
             }
-            Text(
-                "Make XARVIS the phone's assistant ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan,
-                modifier = Modifier.fillMaxWidth().clickable(onClick = onAssistantSettings).padding(horizontal = 20.dp, vertical = 10.dp),
-            )
-            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = XarvisMuted.copy(alpha = 0.3f))
-            Text(
-                "CONTROL", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
-            )
-            // XARVIS Code: switch into a workspace that builds SEPARATE projects on GitHub (never this app).
-            Column(Modifier.fillMaxWidth().clickable(onClick = onXarvisCode).padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text("XARVIS Code ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-                Text("Build separate projects with AI — your XARVIS is never changed.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
-            }
-            Column(Modifier.fillMaxWidth().clickable(onClick = onGameMod).padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text("XARVIS Mod ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-                Text("Hand me an offline game's file (OBB/APK/ZIP) — I open, edit and rebuild it in the cloud.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
-            }
-            Column(Modifier.fillMaxWidth().clickable(onClick = onFolders).padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text("Search folders ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-                Text("Folders XARVIS may search when you ask \"search my phone for …\".", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
-            }
-            Column(Modifier.fillMaxWidth().clickable(onClick = onPermissions).padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text("Permissions ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-                Text("Choose what XARVIS may do by itself, what it asks first, and what's off.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
-            }
-            Column(Modifier.fillMaxWidth().clickable(onClick = onActivityLog).padding(horizontal = 20.dp, vertical = 10.dp)) {
-                Text("Activity log ›", style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
-                Text("Everything XARVIS did for you, newest first.", style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+            "control" -> MenuPopup("⚙ Control", onClose = { open = null }) {
+                Go("XARVIS Code ›", "Build separate projects with AI — your XARVIS is never changed.", onXarvisCode)
+                Go("XARVIS Mod ›", "Hand me an offline game's file (OBB/APK/ZIP) — I open, edit and rebuild it in the cloud.", onGameMod)
+                Go("Search folders ›", "Folders XARVIS may search when you ask \"search my phone for …\".", onFolders)
+                Go("Permissions ›", "Choose what XARVIS may do by itself, what it asks first, and what's off.", onPermissions)
+                Go("Activity log ›", "Everything XARVIS did for you, newest first.", onActivityLog)
             }
         }
     }
@@ -716,6 +679,52 @@ private fun ProviderKeyRow(
                 }
             }
             Text(brain.keyHint, style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+        }
+    }
+}
+
+/** One header in the ☰ menu: an icon, a name and what's inside; tapping it opens its pop-up. */
+@Composable
+private fun MenuHeader(icon: String, title: String, detail: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+            .background(XarvisCyan.copy(alpha = 0.07f)).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(icon, fontSize = 22.sp, modifier = Modifier.padding(end = 14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            Text(detail, style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+        }
+        Text("›", style = MaterialTheme.typography.titleLarge, color = XarvisCyan)
+    }
+}
+
+/** A row inside a pop-up that opens another screen. */
+@Composable
+private fun MenuLink(title: String, detail: String, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 10.dp)) {
+        Text(title, style = MaterialTheme.typography.bodyMedium, color = XarvisCyan)
+        Text(detail, style = MaterialTheme.typography.labelSmall, color = XarvisMuted)
+    }
+}
+
+/** A header's options, in a pop-up over the menu (scrolls when long). */
+@Composable
+private fun MenuPopup(title: String, onClose: () -> Unit, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose) {
+        androidx.compose.material3.Surface(
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = androidx.compose.foundation.BorderStroke(1.dp, XarvisCyan.copy(alpha = 0.4f)),
+        ) {
+            Column(Modifier.fillMaxWidth().heightIn(max = 620.dp)) {
+                Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, style = MaterialTheme.typography.titleLarge, color = XarvisCyan, modifier = Modifier.weight(1f))
+                    Text("✕", fontSize = 20.sp, color = XarvisMuted, modifier = Modifier.clickable(onClick = onClose).padding(12.dp))
+                }
+                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 16.dp), content = content)
+            }
         }
     }
 }
