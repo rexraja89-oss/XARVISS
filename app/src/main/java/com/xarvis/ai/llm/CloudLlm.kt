@@ -211,10 +211,12 @@ class CloudLlm(context: Context) : Brain {
     private fun call(model: String, key: String, systemPrompt: String, message: String, maxTokens: Int, imageB64: String? = null, mime: String? = null): String {
         val url = URL("$BASE/models/$model:generateContent?key=$key")
         val gen = JSONObject().put("maxOutputTokens", maxTokens).put("temperature", 0.7)
-        // 2.5+ flash "thinks" by default and can spend the whole budget thinking, leaving no text.
-        // Turn thinking off for a direct answer (only flash models accept a 0 budget).
+        // 2.5+ flash "thinks" first, and thinking counts against maxOutputTokens: unbounded, it once used the whole
+        // budget and left no text. So it gets a fixed thinking budget and that much more room on top (Rex, 14 Nov 2026:
+        // "make it strong in logic" — with thinking off, answers were quick but shallow).
         if (model.contains("flash") && (model.contains("latest") || versionAtLeast(model, 2, 5))) {
-            gen.put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+            gen.put("thinkingConfig", JSONObject().put("thinkingBudget", THINKING_BUDGET))
+            gen.put("maxOutputTokens", maxTokens + THINKING_BUDGET)
         }
         val userParts = JSONArray().put(JSONObject().put("text", message))
         if (imageB64 != null) {
@@ -256,6 +258,9 @@ class CloudLlm(context: Context) : Brain {
     }
 
     companion object {
+        /** Tokens Gemini may think with before answering (a few seconds; enough for a real check of its reasoning). */
+        private const val THINKING_BUDGET = 1024
+
         private const val TAG = "XarvisCloud"
         private const val BASE = "https://generativelanguage.googleapis.com/v1beta"
         /** How long a model rests after a 429 before it's tried first again (free limits count per minute). */
