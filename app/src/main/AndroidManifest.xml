@@ -17,7 +17,7 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- Put an emergency / requested call on speaker or a Bluetooth headset (handsfree). Normal permission. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-    <!-- "Hey Jarvis". Only RECORD_AUDIO: together with FOREGROUND_SERVICE_MICROPHONE the S22
+    <!-- "Xarvis" (the wake word). Only RECORD_AUDIO: together with FOREGROUND_SERVICE_MICROPHONE the S22
          refuses to install XARVIS ("package appears to be invalid"; found with test builds), and
          that permission is only checked from Android 14, so the S22 (Android 13) doesn't need it.
          On Android 14+ phones the wake word stays off; everything else works. -->
@@ -60,6 +60,8 @@
         <package android:name="com.xarvis.updater" />
         <!-- XARVIS Remote, so "update my S22" can say which version it's on afterwards. -->
         <package android:name="com.xarvis.remote" />
+        <!-- XARVIS Ears, so XARVIS can wake it (it holds the microphone for "Xarvis" where XARVIS may not). -->
+        <package android:name="com.xarvis.ears" />
         <!-- The phone's text-to-speech engine, for XARVIS's voice. -->
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
@@ -257,6 +259,13 @@
             android:name=".service.WakeWordService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <!-- XARVIS Ears (the small app that holds the microphone where XARVIS may not, e.g. on the benco) hands
+             over "Xarvis" and what Rex says here; XARVIS answers aloud. Signature permission: Rex's own apps only. -->
+        <service
+            android:name=".ears.EarsLinkService"
+            android:exported="true"
+            android:permission="com.xarvis.ai.permission.EYES" />
 
         <service
             android:name=".service.XarvisService"

@@ -65,7 +65,7 @@ data class XarvisUiState(
     val chatId: String = "",
     /** Read every reply aloud (the 🔊 switch); replies to the mic are always spoken. */
     val speakReplies: Boolean = false,
-    /** "Hey Jarvis" listening is switched on. */
+    /** "Say Xarvis" (this XARVIS listening for its name) is switched on. */
     val wakeWord: Boolean = false,
     /** The Smart brain (Gemma 4 E4B) is chosen, and its download when it's being fetched. */
     val smartBrain: Boolean = false,
@@ -623,7 +623,7 @@ class XarvisCore(context: Context) {
         val answer = kotlinx.coroutines.CompletableDeferred<com.xarvis.ai.policy.Answer>()
         askAnswer = answer
         _state.update { it.copy(ask = PendingAsk(category, action)) }
-        if (replySpoken) voice.speak("Shall I ${action.replaceFirstChar { it.lowercase() }}? Tap allow on the screen.")
+        if (replySpoken) voice.speak(com.xarvis.ai.voice.VoiceTalk.question(action, voiceSession))
         return try {
             kotlinx.coroutines.withTimeoutOrNull(ASK_WAIT_MS) { answer.await() } ?: com.xarvis.ai.policy.Answer.NO_ANSWER
         } finally {
@@ -754,6 +754,102 @@ class XarvisCore(context: Context) {
 
     /** XARVIS is thinking or talking: the wake word waits. */
     fun busy(): Boolean = _state.value.isProcessing || voice.isSpeaking
+
+    // ---- Talking after "Xarvis" (the wake word here on the S22, or XARVIS Ears on a phone like the benco) ----
+
+    /** A wake-word conversation is going on, so questions are asked for a spoken yes or no. */
+    @Volatile private var voiceSession = false
+
+    /** What XARVIS is doing, for the ears: they stay off the microphone unless this is idle (or talking, to be interrupted). */
+    fun voiceState(): Int {
+        val talk = com.xarvis.ai.voice.VoiceTalk
+        return when {
+            com.xarvis.ai.service.WakeWord.paused || com.xarvis.ai.service.WakeWord.guardHold -> talk.HOLD
+            _state.value.isProcessing -> talk.THINKING
+            voice.isSpeaking -> talk.SPEAKING
+            else -> talk.IDLE
+        }
+    }
+
+    /** "Xarvis" was heard ([interrupting]: while XARVIS was talking, so it stops). Says "Yes, sir?"; [done] once it's said. */
+    fun voiceWake(interrupting: Boolean, done: () -> Unit) {
+        voiceSession = true
+        if (interrupting) voice.stop()
+        voice.speak(com.xarvis.ai.voice.VoiceTalk.GREETING)
+        scope.launch { afterSpeaking(); done() }
+    }
+
+    /**
+     * What Rex said in a wake-word conversation: a yes or no to a pending "Shall I…?", an ending ("that's all"),
+     * or anything else, which XARVIS answers aloud. [done] once XARVIS has finished speaking — true to keep
+     * listening for more.
+     */
+    fun voiceHeard(text: String, done: (Boolean) -> Unit) {
+        val talk = com.xarvis.ai.voice.VoiceTalk
+        voiceSession = true
+        scope.launch {
+            if (_state.value.ask != null) {
+                val yes = talk.yesNo(text)
+                if (yes == null) voice.speak(talk.YES_OR_NO)
+                else answerAsk(if (yes) com.xarvis.ai.policy.Answer.ONCE else com.xarvis.ai.policy.Answer.NO)
+                done(untilAnswered())
+                return@launch
+            }
+            val closing = talk.closing(text)
+            if (closing != null) {
+                if (closing.isNotEmpty()) {
+                    voice.speak(closing)
+                    afterSpeaking()
+                }
+                done(false)
+                return@launch
+            }
+            if (_state.value.isProcessing) {
+                voice.speak(talk.BUSY)
+                afterSpeaking()
+                done(true)
+                return@launch
+            }
+            submit(text, spoken = true)
+            done(untilAnswered())
+        }
+    }
+
+    /** The wake-word conversation ended (Rex said nothing more). */
+    fun voiceOver() {
+        voiceSession = false
+    }
+
+    /**
+     * Waits until XARVIS has answered and said it — or is waiting for a yes or no to "Shall I…?", which the ears
+     * should now listen for. True: listen again.
+     */
+    private suspend fun untilAnswered(): Boolean {
+        kotlinx.coroutines.delay(200)
+        val deadline = System.currentTimeMillis() + VOICE_WAIT_MS
+        while (_state.value.isProcessing && System.currentTimeMillis() < deadline) {
+            if (_state.value.ask != null) {
+                afterSpeaking() // the question itself
+                if (_state.value.ask != null) return true
+            }
+            kotlinx.coroutines.delay(200)
+        }
+        afterSpeaking()
+        return true
+    }
+
+    /** Until XARVIS has stopped talking (the speech engine takes a moment to start), plus a breath so the ears don't hear its echo. */
+    private suspend fun afterSpeaking() {
+        kotlinx.coroutines.delay(250)
+        val deadline = System.currentTimeMillis() + VOICE_WAIT_MS
+        var quiet = 0
+        while (quiet < 2 && System.currentTimeMillis() < deadline) {
+            quiet = if (voice.isSpeaking) 0 else quiet + 1
+            kotlinx.coroutines.delay(100)
+        }
+        // The engine reports "done" when the sound is handed to the speaker, a moment before it has all played.
+        kotlinx.coroutines.delay(250)
+    }
 
     fun wakeWordChanged(on: Boolean) {
         _state.update { it.copy(wakeWord = on) }
@@ -1084,6 +1180,10 @@ class XarvisCore(context: Context) {
 
         /** Settings key: who asked for the update running now ({peer, from version, at}). */
         const val UPDATE_ASKED = "updateAsked"
+
+        /** The longest the ears wait for XARVIS to think and speak one answer. */
+        const val VOICE_WAIT_MS = 5 * 60_000L
+
         const val MEMORY_SYNC_START_DELAY_MS = 5_000L
         const val MEMORY_SYNC_INTERVAL_MS = 5 * 60_000L
         const val UPDATE_CHECK_INTERVAL_MS = 30 * 60_000L

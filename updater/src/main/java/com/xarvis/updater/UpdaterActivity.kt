@@ -142,7 +142,12 @@ class UpdaterActivity : Activity() {
                 "\n⏳ Its small update is still being made on GitHub (about 10 minutes after each release). Check again soon."
             } else ""
             for (app in UpdateEngine.APPS) {
-                val i = UpdateEngine.installed(this@UpdaterActivity, app) ?: continue
+                val i = UpdateEngine.installed(this@UpdaterActivity, app)
+                if (i == null) {
+                    // Not on this phone: offered (never part of "Update all" — a new app is Rex's choice).
+                    if (app.offer != null) offer(app, latest)
+                    continue
+                }
                 val row = addRow(i)
                 if (Release.isNewer(latest.version, i.version)) row.say("v${i.version} → v${latest.version} · looking at the one on this phone…")
                 val choice = withContext(Dispatchers.IO) { UpdateEngine.choose(i, latest) }
@@ -157,6 +162,20 @@ class UpdaterActivity : Activity() {
                 if (todo.isEmpty()) status.append("\n✓ Everything here is up to date.") else runUpdates(todo.toList())
             }
         }
+    }
+
+    /** A row for [app], which isn't on this phone, with an Install button once GitHub lists its file. */
+    private fun offer(app: UpdateEngine.App, latest: UpdateEngine.Latest) {
+        val i = UpdateEngine.absent(app)
+        val row = addRow(i)
+        val target = latest.release?.takeIf { it.version == latest.version }?.files?.get(i.file)
+        if (target == null) {
+            row.say(app.offer + "\nNot ready to install yet — check again in a few minutes.")
+            return
+        }
+        row.say(app.offer.orEmpty())
+        val item = Item(row, i, Choice.Full(i.file, target))
+        addButton(row, "⬇ Install — download ${UpdateEngine.mb(target.size)}") { runUpdates(listOf(item)) }
     }
 
     private fun show(row: Row, i: UpdateEngine.Installed, latest: UpdateEngine.Latest, choice: Choice) {
@@ -236,13 +255,13 @@ class UpdaterActivity : Activity() {
                     item.row.say(if (item.i.app.pkg == packageName) "Installing… (the Updater restarts itself — open it again after)" else "Installing…")
                     val outcome = runCatching {
                         Installer.installAndWait(applicationContext, apk, item.i.app.pkg, onConfirm = { confirm ->
-                            item.row.say("Android asks you to update $label — tap Update.")
+                            item.row.say(if (item.i.absent) "Android asks you to install $label — tap Install." else "Android asks you to update $label — tap Update.")
                             if (resumed) startActivity(confirm) else pendingConfirm = confirm
                         })
                     }.getOrElse { Installer.Outcome.Failed("the installer didn't start (${it.message})") }
                     item.row.say(
                         when (outcome) {
-                            Installer.Outcome.Installed -> "✅ Updated to v$version."
+                            Installer.Outcome.Installed -> if (item.i.absent) "✅ Installed v$version. Open $label from your apps to switch it on." else "✅ Updated to v$version."
                             Installer.Outcome.Cancelled -> "Cancelled — nothing changed. Tap Update to try again."
                             is Installer.Outcome.Failed -> "⚠ Android didn't install it: ${outcome.why}. Nothing changed."
                             else -> "⚠ Android wanted a tap. Nothing changed — tap Update to try again."
@@ -266,10 +285,10 @@ class UpdaterActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(10), 0, dp(10))
         }
-        box.addView(text(i.app.label + (i.build?.let { " ($it)" } ?: ""), 18f, bold = true))
+        box.addView(text(i.app.label + (i.build?.let { " ($it)" } ?: "") + if (i.absent) " — not on this phone" else "", 18f, bold = true))
         val note = text("", 14f, color = Color.DKGRAY)
         box.addView(note)
-        box.addView(text(UpdateEngine.quietNote(this, i), 12f, color = Color.GRAY))
+        if (!i.absent) box.addView(text(UpdateEngine.quietNote(this, i), 12f, color = Color.GRAY))
         list.addView(box)
         return Row(box, note)
     }

@@ -56,8 +56,9 @@ android {
     }
 
     // Two builds of the same app: "full" for the S22, and "benco" without the permission to place
-    // calls, the microphone permission, "Hey Jarvis" and the own-voice engine, which the benco
-    // refuses to install ("package appears to be invalid"). On the benco, calls open the dialer.
+    // calls, the microphone permission, the wake word and the own-voice engine, which the benco
+    // refuses to install ("package appears to be invalid"). On the benco, calls open the dialer and
+    // the small XARVIS Ears app listens for "Xarvis".
     flavorDimensions += "phone"
     productFlavors {
         create("full") { dimension = "phone" }
@@ -97,8 +98,10 @@ dependencies {
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.17.1")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("androidx.exifinterface:exifinterface:1.4.1")
-    // Runs the three small offline "Hey Jarvis" models (openWakeWord).
-    // "Hey Jarvis" and the own-voice engine are only in the S22's build; the benco refuses them.
+    // XARVIS's own ears on the S22: the offline wake word "Xarvis" and the listening loop (:wake). The benco's
+    // build has no microphone permission, so there the separate XARVIS Ears app (:ears) listens instead.
+    "fullImplementation"(project(":wake"))
+    // TensorFlow Lite: the wake word's two models (via :wake) and face recognition; S22 build only.
     "fullImplementation"("org.tensorflow:tensorflow-lite:2.17.0")
     // Offline speech engine for Rex's own voice; CI downloads the AAR into app/libs (see build.yml).
     "fullImplementation"(files("libs/sherpa-onnx-1.13.8.aar"))

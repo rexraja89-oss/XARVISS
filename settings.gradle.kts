@@ -32,3 +32,8 @@ include(":remote")
 // XARVIS Updater: updates XARVIS by downloading only what changed (a patch made on GitHub after each release), so an
 // update costs well under 1 MB of data instead of ~107 MB. Separate so XARVIS itself never needs the install permission.
 include(":updater")
+// XARVIS's ears: the offline wake word "Xarvis" and the listening loop, used by XARVIS on the S22 and by XARVIS Ears.
+include(":wake")
+// XARVIS Ears: a small separate app that holds only the microphone, for a phone whose XARVIS may not (the benco
+// refuses to install XARVIS with it). It hears "Xarvis" with the screen off and hands Rex's words to XARVIS.
+include(":ears")

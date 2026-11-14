@@ -27,6 +27,10 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
         super.onServiceConnected()
         HandsBridge.service = this
         log("Service connected.")
+        // "Xarvis" after a phone restart: Android gives the microphone to a service started by an accessibility
+        // app, so the ears come back by themselves (no need to open XARVIS first).
+        com.xarvis.ai.service.WakeWord.startIfOn(this)
+        com.xarvis.ai.ears.EarsLink.kick(this)
         // A call Rex asked for before Hands was switched on: run it now.
         HandsBridge.pendingCall?.let { (app, contact, video) ->
             HandsBridge.pendingCall = null

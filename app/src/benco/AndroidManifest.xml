@@ -3,7 +3,8 @@
   The benco rejects sideloaded apps that can place calls ("package appears to be invalid"), and
   it rejected v1.0.81 too, which had added the microphone permission, "Hey Jarvis" (TensorFlow
   Lite) and the own-voice engine. This build leaves all of those out; the mic button still works
-  through Google's speech screen, which needs no permission.
+  through Google's speech screen, which needs no permission, and "Xarvis" (the wake word) is heard
+  by the small XARVIS Ears app, which holds the microphone and talks to XARVIS (ears/EarsLinkService).
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.CALL_PHONE" tools:node="remove" />

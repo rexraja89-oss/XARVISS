@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The one sensitive permission: the microphone, to hear "Xarvis" and what Rex says next. There is no
+         INTERNET permission on purpose: this app can't send anything anywhere. Like XARVIS on the S22 it leaves out
+         FOREGROUND_SERVICE_MICROPHONE (the S22 refused that pair), which Android only checks from 14; both of
+         Rex's phones are on 13. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Listening with the screen off: a foreground service, its notification, and the processor kept awake. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- After a phone restart: puts its notification back (the microphone returns when XARVIS is opened once). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Asks once to be left out of battery saving, so the phone doesn't stop it overnight. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Lets Ears and XARVIS talk to each other and nobody else: a signature permission defined by XARVIS. -->
+    <uses-permission android:name="com.xarvis.ai.permission.EYES" />
+
+    <queries>
+        <!-- XARVIS, which thinks and answers. -->
+        <package android:name="com.xarvis.ai" />
+        <!-- The phone's speech recognizer, which turns what Rex says into words. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+        <!-- What this build is made from (see sourceFingerprint in build.gradle.kts): unchanged = no update needed. -->
+        <meta-data
+            android:name="xarvis.src"
+            android:value="${xarvisSrc}" />
+
+        <activity
+            android:name=".EarsActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- The ears. Off until Rex switches Ears on (EarsSwitch enables it), so XARVIS's "listen again" nudge
+             does nothing while Ears is off. Only XARVIS (the signature permission) and Ears itself can start it. -->
+        <service
+            android:name=".EarsService"
+            android:enabled="false"
+            android:exported="true"
+            android:foregroundServiceType="microphone"
+            android:permission="com.xarvis.ai.permission.EYES" />
+
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

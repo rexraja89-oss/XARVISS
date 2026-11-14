@@ -23,6 +23,10 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action !in STARTS) return
         if (AlwaysOn.isEnabled(context)) XarvisService.start(context)
+        // "Xarvis": the ears start again too. Android withholds the microphone from a service started here in the
+        // background; XARVIS Hands (S22) or opening XARVIS once gives it back (see WakeWordService).
+        WakeWord.startIfOn(context)
+        com.xarvis.ai.ears.EarsLink.kick(context)
         // Alarms are cleared on reboot (and on app update), so re-arm everything scheduled.
         com.xarvis.ai.brief.BriefingSchedule.schedule(context)
         com.xarvis.ai.remind.Reminders.reschedule(context)

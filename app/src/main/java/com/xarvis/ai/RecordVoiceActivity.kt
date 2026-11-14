@@ -78,7 +78,7 @@ class RecordVoiceActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        WakeWord.paused = true // "Hey Jarvis" lets go of the mic while Rex records
+        WakeWord.paused = true // the wake word lets go of the mic while Rex records
     }
 
     override fun onPause() {

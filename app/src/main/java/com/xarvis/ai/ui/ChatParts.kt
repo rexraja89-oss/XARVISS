@@ -197,7 +197,8 @@ fun AttachSheet(options: List<AttachOption>, onDismiss: () -> Unit) {
 @Composable
 fun SettingsMenu(
     enabled: Boolean,
-    wakeWord: Boolean, onWakeWord: (Boolean) -> Unit, onAssistantSettings: () -> Unit, onRecordVoice: () -> Unit,
+    wakeWord: Boolean, onWakeWord: (Boolean) -> Unit, wakeHere: Boolean = true, wakeNote: String = "", onWakeScreen: () -> Unit = {},
+    onAssistantSettings: () -> Unit, onRecordVoice: () -> Unit,
     onLoadVoice: () -> Unit, ownVoices: () -> String?, ownVoiceOn: () -> Boolean, onOwnVoice: (Boolean) -> Unit,
     onPermissions: () -> Unit, onActivityLog: () -> Unit, onFolders: () -> Unit, onXarvisCode: () -> Unit, onGameMod: () -> Unit,
     onHelp: () -> Unit, onBriefing: () -> Unit, onEyes: () -> Unit, onHands: () -> Unit, onRemote: () -> Unit = {}, onGuardRemote: () -> Unit = {}, onJobHunter: () -> Unit = {}, onRelay: () -> Unit = {}, onHelper: () -> Unit = {}, onTask: () -> Unit = {}, onAware: () -> Unit = {},
@@ -303,19 +304,28 @@ fun SettingsMenu(
                 "VOICE", style = MaterialTheme.typography.titleMedium, color = XarvisCyan,
                 modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp),
             )
+            // "Xarvis", the wake word. On the S22 XARVIS listens itself (the switch); on a phone whose XARVIS may
+            // not use the microphone (the benco) the small XARVIS Ears app does, and the row opens it.
             Row(
-                Modifier.fillMaxWidth().clickable { onWakeWord(!wakeWord) }.padding(horizontal = 20.dp, vertical = 8.dp),
+                Modifier.fillMaxWidth().clickable { if (wakeHere) onWakeWord(!wakeWord) else onWakeScreen() }
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("\"Hey Jarvis\"", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                    Text("Say \"Xarvis\"", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
                     Text(
-                        "Say \"Hey Jarvis\" (with a J), wait for the beep, then speak. Works with the screen off; after a phone restart, open XARVIS once. Uses some battery.",
+                        if (wakeHere) "Say \"Xarvis\" any time, screen on or off, wait for \"Yes, sir?\", then talk. It keeps listening after each answer. Uses some battery."
+                        else wakeNote,
                         style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
                     )
                 }
-                Switch(checked = wakeWord, onCheckedChange = onWakeWord)
+                if (wakeHere) Switch(checked = wakeWord, onCheckedChange = onWakeWord)
+                else Text("›", style = MaterialTheme.typography.titleLarge, color = XarvisCyan)
             }
+            if (wakeHere) Text(
+                "Practice and settings ›", style = MaterialTheme.typography.labelLarge, color = XarvisCyan,
+                modifier = Modifier.fillMaxWidth().clickable { onWakeScreen() }.padding(horizontal = 20.dp, vertical = 6.dp),
+            )
             // Pick XARVIS's voices by ear: each tap plays the next one.
             var english by remember { mutableStateOf(voiceLabel(false)) }
             var hindi by remember { mutableStateOf(voiceLabel(true)) }

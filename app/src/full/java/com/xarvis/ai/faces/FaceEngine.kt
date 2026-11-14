@@ -15,7 +15,7 @@ import java.nio.ByteOrder
 /**
  * XARVIS's face recognition, fully on the phone (S22 build): Google's BlazeFace finds faces and their
  * eyes, each face is levelled and cropped to 112×112 the way MobileFaceNet expects, and MobileFaceNet
- * turns it into a 192-number faceprint. Same TensorFlow Lite engine as "Hey Jarvis", so no new library.
+ * turns it into a 192-number faceprint. Same TensorFlow Lite engine as the wake word, so no new library.
  * The maths ([FaceMath]) was checked on public test photos before it shipped.
  */
 class FaceEngine(context: Context) : Closeable {

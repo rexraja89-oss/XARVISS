@@ -178,11 +178,13 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
     }
     // The mic: Android's speech recognizer listens, and XARVIS answers aloud.
     var listening by remember { mutableStateOf(false) }
-    // The "Hey Jarvis" switch needs the microphone permission first.
+    // The "Say Xarvis" switch needs the microphone permission first.
     val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) WakeWord.setEnabled(context, true)
-        else android.widget.Toast.makeText(context, "\"Hey Jarvis\" needs the microphone permission.", android.widget.Toast.LENGTH_LONG).show()
+        else android.widget.Toast.makeText(context, "\"Xarvis\" needs the microphone permission.", android.widget.Toast.LENGTH_LONG).show()
     }
+    // Whether this XARVIS listens for "Xarvis" itself (S22) or the XARVIS Ears app does (benco).
+    val wakeHere = remember { WakeWord.available(context) }
     // "Load my voice": the voice zip made by the training page.
     val pickVoice = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) viewModel.loadOwnVoice(uri) { msg ->
@@ -258,11 +260,25 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
                 onWakeWord = { on ->
                     if (!on) WakeWord.setEnabled(context, false)
                     else if (!WakeWord.available(context)) android.widget.Toast.makeText(
-                        context, "\"Hey Jarvis\" doesn't work on this phone's Android version yet (it needs Android 13 or older).",
-                        android.widget.Toast.LENGTH_LONG,
+                        context, "On this phone the XARVIS Ears app listens for \"Xarvis\".", android.widget.Toast.LENGTH_LONG,
                     ).show()
                     else if (PermissionGate.has(context, Manifest.permission.RECORD_AUDIO)) WakeWord.setEnabled(context, true)
                     else askMic.launch(Manifest.permission.RECORD_AUDIO)
+                },
+                wakeHere = wakeHere,
+                wakeNote = when {
+                    wakeHere -> ""
+                    !com.xarvis.ai.ears.EarsLink.installed(context) ->
+                        "On this phone the small XARVIS Ears app listens for \"Xarvis\" (screen on or off). Tap to get it in XARVIS Updater."
+                    com.xarvis.ai.ears.EarsLink.connected -> "XARVIS Ears is listening: say \"Xarvis\", wait for \"Yes, sir?\", then talk. Tap for practice and settings."
+                    else -> "XARVIS Ears is on this phone but not listening. Tap to open it and switch it on."
+                },
+                onWakeScreen = {
+                    if (wakeHere) WakeWord.openScreen(context)
+                    else if (!com.xarvis.ai.ears.EarsLink.open(context)) {
+                        android.widget.Toast.makeText(context, "Install XARVIS Ears from the list in XARVIS Updater.", android.widget.Toast.LENGTH_LONG).show()
+                        com.xarvis.ai.update.Updates.openUpdater(context)
+                    }
                 },
                 onAssistantSettings = { openAssistantSettings(context) },
                 onRecordVoice = {

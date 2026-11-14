@@ -14,14 +14,29 @@ import java.util.concurrent.atomic.AtomicBoolean
  * benco saying "update my S22").
  */
 object UpdateEngine {
-    class App(val label: String, val pkg: String)
+    /** [offer]: what the screen says to offer installing it on a phone that doesn't have it (null: only updated). */
+    class App(val label: String, val pkg: String, val offer: String? = null)
 
     /** As the screen lists them. */
     val APPS = listOf(
         App("XARVIS", "com.xarvis.ai"),
         App("XARVIS Remote", "com.xarvis.remote"),
+        App(
+            "XARVIS Ears", "com.xarvis.ears",
+            offer = "Optional. Hears \"Xarvis\" with the screen on or off and lets you talk with XARVIS hands-free — for a " +
+                "phone whose XARVIS can't use the microphone itself (the benco). The S22's XARVIS listens by itself " +
+                "(☰ → Say \"Xarvis\") and doesn't need it.",
+        ),
         App("XARVIS Updater", "com.xarvis.updater"),
     )
+
+    /** An app's APK on GitHub (XARVIS's depends on the phone's build, see [installed]). */
+    fun fileOf(pkg: String): String = when (pkg) {
+        "com.xarvis.remote" -> "XARVIS-Remote.apk"
+        "com.xarvis.ears" -> "XARVIS-Ears.apk"
+        "com.xarvis.updater" -> "XARVIS-Updater.apk"
+        else -> "XARVIS.apk"
+    }
 
     /**
      * Install order: XARVIS Remote first, then XARVIS (installing it restarts XARVIS), the Updater itself last
@@ -47,6 +62,8 @@ object UpdateEngine {
     class Installed(
         val app: App, val version: String, val apk: File, val file: String, val build: String?, val src: String?,
         val installer: String? = null,
+        /** Not on this phone yet: [version] is "0" and [apk] doesn't exist (a first install of an [App.offer]). */
+        val absent: Boolean = false,
     ) {
         /** Android installs this app's next update without its "update?" prompt (see [Installer]). */
         fun quiet(updater: String): Boolean = installer == updater || app.pkg == updater
@@ -61,8 +78,7 @@ object UpdateEngine {
         val (file, build) = when (app.pkg) {
             // The S22's build may place calls; the benco's build leaves that permission out.
             "com.xarvis.ai" -> if (info.requestedPermissions?.contains("android.permission.CALL_PHONE") == true) "XARVIS.apk" to "S22 build" else "XARVIS-benco.apk" to "benco build"
-            "com.xarvis.remote" -> "XARVIS-Remote.apk" to null
-            else -> "XARVIS-Updater.apk" to null
+            else -> fileOf(app.pkg) to null
         }
         val src = info.applicationInfo?.metaData?.getString("xarvis.src")?.takeIf { it.isNotBlank() }
         val installer = if (android.os.Build.VERSION.SDK_INT >= 30) {
@@ -70,6 +86,9 @@ object UpdateEngine {
         } else null
         return Installed(app, info.versionName ?: "0", apk, file, build, src, installer)
     }
+
+    /** [app] as something to install for the first time (it isn't on this phone). */
+    fun absent(app: App): Installed = Installed(app, "0", File("/nonexistent/${app.pkg}.apk"), fileOf(app.pkg), null, null, absent = true)
 
     /** The newest release ([tag], "v1.0.282") and its patches.json ([release] null while GitHub is still making it). */
     class Latest(val tag: String, val release: Release?) {

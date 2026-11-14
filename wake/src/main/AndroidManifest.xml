@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- The wake word screen: status, practice and sensitivity (XARVIS opens it; XARVIS Ears extends it). -->
+        <activity
+            android:name="com.xarvis.wake.WakeScreen"
+            android:exported="false"
+            android:label="Say Xarvis"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+    </application>
+</manifest>

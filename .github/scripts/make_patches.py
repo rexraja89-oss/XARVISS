@@ -33,7 +33,7 @@ MAGIC = b"XVPATCH1"
 # Which APKs get patches, and from how many earlier releases (the benco is often left a few releases behind).
 PATCHED = {"XARVIS.apk": 4, "XARVIS-benco.apk": 6}
 # Every APK the Updater can install gets its size and SHA-256 listed (a full download is checked too).
-LISTED = ["XARVIS.apk", "XARVIS-benco.apk", "XARVIS-Remote.apk", "XARVIS-Updater.apk"]
+LISTED = ["XARVIS.apk", "XARVIS-benco.apk", "XARVIS-Remote.apk", "XARVIS-Updater.apk", "XARVIS-Ears.apk"]
 # A patch bigger than this share of the full file isn't worth it.
 MAX_SHARE = 0.6
 

@@ -89,10 +89,10 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         (application as XarvisApp).core.screenVisible = true
         (application as XarvisApp).core.refresh() // battery, and whether a newer XARVIS is out
-        // "Hey Jarvis" can only get the mic from here (the app on screen), e.g. after a restart.
-        if (WakeWord.isEnabled(this) && PermissionGate.has(this, Manifest.permission.RECORD_AUDIO)) {
-            com.xarvis.ai.service.WakeWordService.start(this)
-        }
+        // "Xarvis" gets the microphone from here (the app on screen), e.g. after a restart: this XARVIS's own
+        // ears on the S22, and the XARVIS Ears app where XARVIS may not use the microphone (the benco).
+        WakeWord.startIfOn(this)
+        com.xarvis.ai.ears.EarsLink.kick(this)
     }
 
     override fun onDestroy() {

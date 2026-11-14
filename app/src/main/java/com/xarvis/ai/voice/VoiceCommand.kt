@@ -10,7 +10,7 @@ import android.util.Log
 
 /**
  * Listens for one spoken command with the phone's speech recognizer, without showing anything:
- * used after "Hey Jarvis" (screen off) and by the voice screen. Create and use it on the main thread.
+ * used by the voice screen (the wake word has its own, com.xarvis.wake.VoiceTurn). Create and use it on the main thread.
  */
 class VoiceCommand(
     private val context: Context,

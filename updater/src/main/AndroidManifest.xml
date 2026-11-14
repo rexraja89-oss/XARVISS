@@ -14,6 +14,7 @@
     <queries>
         <package android:name="com.xarvis.ai" />
         <package android:name="com.xarvis.remote" />
+        <package android:name="com.xarvis.ears" />
     </queries>
 
     <application

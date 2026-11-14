@@ -34,8 +34,15 @@ fun HelpScreen(onBack: () -> Unit) {
             "I reply with a bit of wit, in Hinglish when you write Hindi, and calmly when you sound stressed.",
             "Brains: Gemma on the phone, plus free cloud brains in ☰ → BRAIN. 🔒 keeps a chat on the phone; the AI council double-checks answers.",
         ))
+        Section("🎙️ Say \"Xarvis\" — any time, screen on or off", listOf(
+            "Say \"Hey Xarvis\" (most reliable) or just \"Xarvis\" — Zarvis or Jarvis both work. I answer \"Yes, sir?\" — after the beep, talk. I answer aloud and keep listening, so you can go on without saying my name again.",
+            "To end it: say nothing, or \"that's all\" / \"thank you\" / \"bas\". Say \"Xarvis\" while I'm talking to interrupt me.",
+            "When I ask \"Shall I call Atiq, sir?\", just say yes or no.",
+            "S22: ☰ → Say \"Xarvis\" (the switch); Practice and settings shows what I hear and how easily I wake.",
+            "benco: the small XARVIS Ears app listens (install it from XARVIS Updater, open it, Turn on). After a phone restart, open XARVIS once — Android gives the microphone back then.",
+            "It runs on the phone, offline; nothing is recorded. Anyone who says \"Xarvis\" can talk to me, also on a locked phone, and listening all day uses some battery.",
+        ))
         Section("🎙️ Voice", listOf(
-            "Say \"Hey Jarvis\" to wake me with the screen off (S22).",
             "Tap the mic to speak instead of type; I can speak my answers back.",
             "Long-press the XARVIS icon → \"Talk to XARVIS\", or make me the phone's assistant (☰).",
             "British voice, your own trained voice, or Hindi — set in ☰ → voice options.",

@@ -54,7 +54,7 @@ jobs:
     - name: Test and build debug APK
       run: |
         set -o pipefail
-        ./gradlew testFullDebugUnitTest :updater:testDebugUnitTest assembleDebug 2>&1 | tee build.log
+        ./gradlew testFullDebugUnitTest :updater:testDebugUnitTest :wake:testDebugUnitTest assembleDebug 2>&1 | tee build.log
     - name: Check the APK is signed with the permanent key
       run: |
         apksigner=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
@@ -87,6 +87,8 @@ jobs:
         cp remote/build/outputs/apk/debug/remote-debug.apk "out/XARVIS-Remote-v1.0.${{ github.run_number }}.apk"
         # XARVIS Updater: updates XARVIS with small patches (made by patches.yml after the release).
         cp updater/build/outputs/apk/debug/updater-debug.apk "out/XARVIS-Updater-v1.0.${{ github.run_number }}.apk"
+        # XARVIS Ears: the small microphone app that hears "Xarvis" where XARVIS itself may not (the benco).
+        cp ears/build/outputs/apk/debug/ears-debug.apk "out/XARVIS-Ears-v1.0.${{ github.run_number }}.apk"
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
@@ -108,9 +110,10 @@ jobs:
         cp "XARVIS-Helper-v$v.apk" XARVIS-Helper.apk
         cp "XARVIS-Remote-v$v.apk" XARVIS-Remote.apk
         cp "XARVIS-Updater-v$v.apk" XARVIS-Updater.apk
-        gh release create "v$v" "XARVIS-v$v.apk" "XARVIS-benco-v$v.apk" "XARVIS-Hands-v$v.apk" "XARVIS-Eyes-v$v.apk" "XARVIS-Helper-v$v.apk" "XARVIS-Remote-v$v.apk" "XARVIS-Updater-v$v.apk" XARVIS.apk XARVIS-benco.apk XARVIS-Hands.apk XARVIS-Eyes.apk XARVIS-Helper.apk XARVIS-Remote.apk XARVIS-Updater.apk --repo "${{ github.repository }}" \
+        cp "XARVIS-Ears-v$v.apk" XARVIS-Ears.apk
+        gh release create "v$v" "XARVIS-v$v.apk" "XARVIS-benco-v$v.apk" "XARVIS-Hands-v$v.apk" "XARVIS-Eyes-v$v.apk" "XARVIS-Helper-v$v.apk" "XARVIS-Remote-v$v.apk" "XARVIS-Updater-v$v.apk" "XARVIS-Ears-v$v.apk" XARVIS.apk XARVIS-benco.apk XARVIS-Hands.apk XARVIS-Eyes.apk XARVIS-Helper.apk XARVIS-Remote.apk XARVIS-Updater.apk XARVIS-Ears.apk --repo "${{ github.repository }}" \
           --target "${{ github.sha }}" --title "XARVIS v$v" --latest \
-          --notes "S22: XARVIS.apk. Benco: XARVIS-benco.apk (no permission to place calls; the benco rejects it). XARVIS-Hands.apk is the tiny Accessibility app; XARVIS-Eyes.apk is the camera app; XARVIS-Helper.apk is for a family phone that asks for help; XARVIS-Remote.apk is the separate remote-control app for your own phones; XARVIS-Updater.apk updates XARVIS with small patches (patches.json and the .patch files appear here a few minutes after the release). Always newest: https://github.com/${{ github.repository }}/releases/latest/download/XARVIS.apk , .../XARVIS-benco.apk, .../XARVIS-Hands.apk, .../XARVIS-Eyes.apk, .../XARVIS-Helper.apk, .../XARVIS-Remote.apk and .../XARVIS-Updater.apk"
+          --notes "S22: XARVIS.apk. Benco: XARVIS-benco.apk (no permission to place calls; the benco rejects it). XARVIS-Hands.apk is the tiny Accessibility app; XARVIS-Eyes.apk is the camera app; XARVIS-Helper.apk is for a family phone that asks for help; XARVIS-Remote.apk is the separate remote-control app for your own phones; XARVIS-Updater.apk updates XARVIS with small patches (patches.json and the .patch files appear here a few minutes after the release); XARVIS-Ears.apk is the small microphone app that hears \"Xarvis\" on a phone whose XARVIS can't (install it from XARVIS Updater). Always newest: https://github.com/${{ github.repository }}/releases/latest/download/XARVIS.apk , .../XARVIS-benco.apk, .../XARVIS-Hands.apk, .../XARVIS-Eyes.apk, .../XARVIS-Helper.apk, .../XARVIS-Remote.apk and .../XARVIS-Updater.apk"
     # A test-* branch (an install experiment): published as a pre-release that is never "latest", so
     # the phones' UPDATE button and the releases/latest links keep pointing at the real build.
     - name: Publish a test build (never "latest")
@@ -122,6 +125,7 @@ jobs:
         tag="${GITHUB_REF_NAME}-v$v"
         cd out
         cp "XARVIS-v$v.apk" "XARVIS-${GITHUB_REF_NAME}.apk"
-        gh release create "$tag" "XARVIS-${GITHUB_REF_NAME}.apk" --repo "${{ github.repository }}" \
+        cp "XARVIS-Ears-v$v.apk" "XARVIS-Ears-${GITHUB_REF_NAME}.apk"
+        gh release create "$tag" "XARVIS-${GITHUB_REF_NAME}.apk" "XARVIS-Ears-${GITHUB_REF_NAME}.apk" --repo "${{ github.repository }}" \
           --target "${{ github.sha }}" --title "TEST ${GITHUB_REF_NAME} v$v" --prerelease --latest=false \
           --notes "Install test only (S22 build). Not the normal update: install it over XARVIS to see if the phone accepts it."
