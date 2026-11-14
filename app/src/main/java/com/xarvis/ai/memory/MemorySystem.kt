@@ -131,6 +131,9 @@ class MemorySystem(context: Context) {
             .take(limit).reversed()
     }
 
+    /** Every saved exchange (for finding related earlier chats). */
+    suspend fun allExchanges(): List<Exchange> = dao.allByCategory(CATEGORY_INTERACTION).mapNotNull(::exchange)
+
     /** Every chat, most recently used first. */
     suspend fun chats(): List<ChatSummary> = chatsOf(dao.allByCategory(CATEGORY_INTERACTION).mapNotNull(::exchange))
 

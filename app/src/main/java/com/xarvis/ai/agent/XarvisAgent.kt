@@ -289,11 +289,29 @@ class XarvisAgent(
      * hardware?" and got "I'm ready, what's on the agenda?" — the cloud brains were sent his latest message only, and
      * Gemma never heard the turns the cloud answered).
      */
-    private suspend fun recentTurns(): String {
-        val here = runCatching { memory.chatExchanges(chatId).takeLast(RECENT_TURNS) }.getOrDefault(emptyList())
-        if (here.isEmpty()) return ""
-        return "The conversation so far (newest last). Rex's new message continues it — a short reply like \"yes\", " +
-            "\"do it\" or \"look for it\" answers your last question:\n" + historyNote(here)
+    private suspend fun recentTurns(count: Int = RECENT_TURNS, maxChars: Int = MAX_HISTORY_CHARS): String {
+        val all = runCatching { memory.allExchanges() }.getOrDefault(emptyList())
+        val here = all.filter { it.chat == chatId }.sortedBy { it.time }.takeLast(count)
+        // Earlier chats on the same subject (Related): what Rex says now plus the last turns is the subject.
+        val topic = currentMessage + " " + here.takeLast(2).joinToString(" ") { it.user + " " + it.reply.takeLast(300) }
+        val related = runCatching { com.xarvis.ai.memory.Related.find(all, chatId, topic, System.currentTimeMillis()) }
+            .getOrDefault(emptyList())
+        return buildString {
+            if (related.isNotEmpty()) {
+                append("Earlier conversations with Rex that relate to this (use them if they help — mention them naturally, " +
+                    "like someone who remembers; ignore them if they don't fit):\n")
+                related.sortedBy { it.time }.forEach {
+                    append("[").append(WHEN.format(java.util.Date(it.time))).append("] Rex: ").append(it.user.take(200))
+                        .append(" | You: ").append(it.reply.take(300)).append("\n")
+                }
+            }
+            if (here.isNotEmpty()) {
+                if (isNotEmpty()) append("\n")
+                append("The conversation so far (newest last). Rex's new message continues it — understand it in this light; " +
+                    "a short reply like \"yes\", \"do it\" or \"look for it\" answers your last question:\n")
+                append(historyNote(here, maxChars))
+            }
+        }
     }
 
     /** What the brain is asked: the turn's own words, plus Rex's message when this is a follow-up ask. */
@@ -303,6 +321,8 @@ class XarvisAgent(
 
     private suspend fun chatHere(text: String, onPartial: (String) -> Unit): String {
         val turns = recentTurns()
+        // The cloud brains have room for much more of the chat than Gemma on the phone.
+        val cloudTurns = if (useCloud()) recentTurns(CLOUD_TURNS, CLOUD_HISTORY_CHARS) else turns
         // If the cloud was meant to answer but couldn't, why: carried into the via tag so Rex
         // can see the reason under the bubble (he can't read the device log).
         var cloudNote: String? = null
@@ -313,7 +333,7 @@ class XarvisAgent(
                 // Rex chose "only what I mark remember": the cloud brain gets his saved FACTS (so it
                 // can recall them like ChatGPT), plus his health record for health questions. Off → none.
                 val base = if (cloudMemory()) buildPrompt(facts(), health = healthContextThisTurn) else buildPrompt(emptyList())
-                val sys = if (turns.isEmpty()) base else "$base\n\n$turns"
+                val sys = if (cloudTurns.isEmpty()) base else "$base\n\n$cloudTurns"
                 val msg = IDENTITY_REMINDER + withQuestion(text)
                 val answer = if (councilEnabled()) {
                     cloud.council(sys, msg) { stage -> onPartial(stage) }
@@ -972,6 +992,9 @@ class XarvisAgent(
         private const val HISTORY_EXCHANGES = 8
         /** Exchanges of this chat sent with every brain call. */
         private const val RECENT_TURNS = 6
+        /** The cloud brains get much more of the chat (they have room for it). */
+        private const val CLOUD_TURNS = 20
+        private const val CLOUD_HISTORY_CHARS = 12000
         private const val RECENT_CHAT_TOPICS = 5
 
         fun newChatId(): String = "chat-" + System.currentTimeMillis()
@@ -981,13 +1004,13 @@ class XarvisAgent(
         private val WHEN = java.text.SimpleDateFormat("d MMM h:mm a", java.util.Locale.ENGLISH)
 
         /** Recent exchanges for the prompt, newest kept when they don't all fit. */
-        internal fun historyNote(exchanges: List<com.xarvis.ai.memory.Exchange>): String {
+        internal fun historyNote(exchanges: List<com.xarvis.ai.memory.Exchange>, maxChars: Int = MAX_HISTORY_CHARS): String {
             // A reply's start says what it was about and its end usually asks the question Rex answers next
             // ("Shall we start by researching the hardware?"), so long replies keep both.
             fun short(t: String, n: Int) = if (t.length <= n) t else t.take(n / 3) + " … " + t.takeLast(n * 2 / 3)
             val lines = exchanges.map { "Rex: ${short(it.user, 240)}\nYou: ${short(it.reply, 480)}" }
             var used = 0
-            return lines.reversed().takeWhile { used += it.length + 1; used <= MAX_HISTORY_CHARS }.reversed().joinToString("\n")
+            return lines.reversed().takeWhile { used += it.length + 1; used <= maxChars }.reversed().joinToString("\n")
         }
 
         private const val MAX_FACT_CHARS = 3000
