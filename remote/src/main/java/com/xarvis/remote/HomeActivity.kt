@@ -127,7 +127,8 @@ class HomeActivity : Activity() {
             )
             body.addView(small("Remove ${p.name}") { confirmRemove(p) })
         }
-        body.addView(button("➕ Link a phone to control") { invite() })
+        body.addView(button("📱 Set up a phone that's next to me (scan)") { invite(nearby = true) }.apply { textSize = 17f })
+        body.addView(small("Or send an invite to a phone far away…") { invite() })
 
         // Being controlled: this phone.
         body.addView(heading("THIS PHONE CAN BE CONTROLLED"))
@@ -167,8 +168,9 @@ class HomeActivity : Activity() {
                 body.addView(small("Remove ${p.name}") { confirmRemove(p) })
             }
         }
+        body.addView(button("📷 Scan the code on my other phone") { scanInvite() }.apply { textSize = 17f })
         val box = EditText(this).apply {
-            hint = "Paste the invite from your other phone here"
+            hint = "…or paste the invite from your other phone here"
             minLines = 2
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
         }
@@ -202,7 +204,7 @@ class HomeActivity : Activity() {
     // ---- linking ----
 
     /** On the controlling phone: an invite for the phone to control (shared, and copied). */
-    private fun invite() {
+    private fun invite(nearby: Boolean = false) {
         if (link.relay.config() == null) {
             AlertDialog.Builder(this).setTitle("Relay login first")
                 .setMessage("The invite carries the relay login to the other phone, so this phone needs it first: copy it from XARVIS, or type it in (RELAY LOGIN below).")
@@ -211,6 +213,10 @@ class HomeActivity : Activity() {
             return
         }
         val code = link.createInvite() ?: return
+        if (nearby) {
+            NearbySetup.show(this, code)
+            return
+        }
         val message = "XARVIS Remote invite (for my own phone). On the phone to control: install XARVIS Remote " +
             "(${Updates.APK_URL}), open it and paste this whole message under THIS PHONE CAN BE CONTROLLED.\n\n$code"
         getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("XARVIS Remote invite", message))
@@ -251,6 +257,31 @@ class HomeActivity : Activity() {
             build()
         }
     }
+
+    /** The new phone scans the code the other phone shows ([NearbySetup]). */
+    private fun scanInvite() {
+        NearbySetup.scan(this, { text ->
+            if (DeviceLink.parseInvite(text) != null) accept(text)
+            else toast("That's not the link code. On the other phone: XARVIS Remote → 📱 Set up a phone that's next to me → Next →, then scan again.")
+        }, { reason -> toast(reason) })
+    }
+
+    /**
+     * An invite copied on this phone (e.g. the camera read the code and Rex tapped Copy): link at once. Not one this
+     * phone made itself, and not one it already used.
+     */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus) return
+        val text = runCatching { getSystemService(ClipboardManager::class.java)?.primaryClip?.getItemAt(0)?.text?.toString() }.getOrNull() ?: return
+        val inv = DeviceLink.parseInvite(text) ?: return
+        if (inv.optString("d") == link.deviceId || link.pairedPeers().any { it.id == inv.optString("d") }) return
+        if (text == lastClipTried) return
+        lastClipTried = text
+        accept(text)
+    }
+
+    private var lastClipTried: String? = null
 
     private fun pastedInvite(intent: Intent) {
         if (intent.action != Intent.ACTION_SEND) return

@@ -68,4 +68,8 @@ android {
 dependencies {
     implementation(project(":shared"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    // Linking a phone that's next to this one: the code shown (ZXing) and the code scanned (Google's scanner, no
+    // camera permission needed — Play services shows the camera).
+    implementation("com.google.zxing:core:3.5.3")
+    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
 }
