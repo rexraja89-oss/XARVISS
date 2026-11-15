@@ -147,6 +147,7 @@ class WakeEars(context: Context, private val host: WakeHost) {
         var viaEarbuds = false
         var sinceCheck = 0
         var loud = false
+        var flips = 0
         try {
             while (running) {
                 val state = if (handling) WakeHost.HOLD else host.state()
@@ -177,7 +178,12 @@ class WakeEars(context: Context, private val host: WakeHost) {
                 if (++sinceCheck >= CHECK_CHUNKS) {
                     sinceCheck = 0
                     loud = EarbudMic.alarmOrRinging(appContext)
-                    if (EarbudMic.wanted(appContext, settings.earbuds) != viaEarbuds) {
+                    // Switch only when it has been different for 3 checks in a row (6 s) — or at once when a call
+                    // comes: the earbuds are its, and every switch is heard in them.
+                    val want = EarbudMic.wanted(appContext, settings.earbuds)
+                    flips = if (want != viaEarbuds) flips + 1 else 0
+                    if (flips >= 3 || (viaEarbuds && EarbudMic.inCall(appContext))) {
+                        flips = 0
                         runCatching { record.stop(); record.release() }
                         record = null
                         continue

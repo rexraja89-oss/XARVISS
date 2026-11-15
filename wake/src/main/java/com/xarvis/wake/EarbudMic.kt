@@ -31,8 +31,18 @@ object EarbudMic {
         }
     }.getOrDefault(false)
 
-    /** A phone call is ringing or going on (Android owns the earbud then). */
-    fun inCall(c: Context): Boolean = runCatching { audio(c)!!.mode != AudioManager.MODE_NORMAL }.getOrDefault(false)
+    /**
+     * A phone call (or a WhatsApp/imo call) is ringing or going on: the earbuds belong to it. Our own earbud link
+     * doesn't count — it can put the phone in "communication" mode itself, which used to make XARVIS let go and grab
+     * again every few seconds (Rex, 15 Nov 2026: the call kept connecting and disconnecting on his Bluetooth).
+     */
+    fun inCall(c: Context): Boolean = runCatching {
+        when (audio(c)!!.mode) {
+            AudioManager.MODE_NORMAL -> false
+            AudioManager.MODE_IN_COMMUNICATION -> !active
+            else -> true
+        }
+    }.getOrDefault(false)
 
     /** Something loud of the phone's own is playing that drowns a voice: an alarm or a ringtone. */
     fun alarmOrRinging(c: Context): Boolean = runCatching {
@@ -43,13 +53,25 @@ object EarbudMic {
         }
     }.getOrDefault(false)
 
-    fun wanted(c: Context, allowed: Boolean): Boolean = allowed && connected(c) && !mediaPlaying(c) && !inCall(c)
+    /** Not for a while after a call: going back and forth on the earbuds is what disturbs a call. */
+    @Volatile private var quietUntil = 0L
+
+    fun wanted(c: Context, allowed: Boolean): Boolean {
+        if (!allowed || !connected(c) || mediaPlaying(c)) return false
+        if (inCall(c)) {
+            quietUntil = System.currentTimeMillis() + AFTER_CALL_MS
+            return false
+        }
+        return System.currentTimeMillis() >= quietUntil
+    }
 
     /** Switches the earbud mic on; true once it's ready (≤ 2 s). */
     @Suppress("DEPRECATION")
     fun on(c: Context): Boolean {
         val a = audio(c) ?: return false
         if (active && a.isBluetoothScoOn) return true
+        // Someone else (a call) already has the earbuds' call link: never take it over.
+        if (a.mode != AudioManager.MODE_NORMAL || a.isBluetoothScoOn) return false
         return runCatching {
             a.startBluetoothSco()
             a.isBluetoothScoOn = true
@@ -66,8 +88,12 @@ object EarbudMic {
         active = false
         runCatching {
             val a = audio(c)!!
-            a.isBluetoothScoOn = false
+            // Only drop OUR request. Switching the whole phone's call link off would also pull a real call off
+            // the earbuds — that's what made Rex's call connect and disconnect.
             a.stopBluetoothSco()
+            if (a.mode == AudioManager.MODE_NORMAL || a.mode == AudioManager.MODE_IN_COMMUNICATION) a.isBluetoothScoOn = false
         }
     }
+
+    private const val AFTER_CALL_MS = 60_000L
 }

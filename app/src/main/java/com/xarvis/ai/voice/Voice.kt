@@ -100,7 +100,11 @@ class Voice(context: Context) {
         // The earbud mic is on (call mode): answer on the call channel, so it's heard in the earbuds, not out of
         // the phone's speaker in another room.
         @Suppress("DEPRECATION")
-        val earbuds = runCatching { appContext.getSystemService(android.media.AudioManager::class.java).isBluetoothScoOn }.getOrDefault(false)
+        val earbuds = runCatching {
+            val a = appContext.getSystemService(android.media.AudioManager::class.java)
+            // Not during a real phone call: the caller would hear XARVIS.
+            a.isBluetoothScoOn && a.mode != android.media.AudioManager.MODE_IN_CALL && a.mode != android.media.AudioManager.MODE_RINGTONE
+        }.getOrDefault(false)
         tts.setAudioAttributes(
             android.media.AudioAttributes.Builder()
                 .setUsage(if (earbuds) android.media.AudioAttributes.USAGE_VOICE_COMMUNICATION else android.media.AudioAttributes.USAGE_ASSISTANT)
