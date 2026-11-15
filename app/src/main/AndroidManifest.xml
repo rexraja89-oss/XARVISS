@@ -53,6 +53,11 @@
     <uses-permission android:name="com.xarvis.ai.permission.EYES" />
 
     <!-- Lets the agent find launchable apps for "open <app>" commands. -->
+    <!-- XARVIS Shield (install test 15 Nov 2026): the SIM-swap alarm sees the network refuse the SIM, and the
+         checkup/new-app alarm sees every app, not only those with a home-screen icon. -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
     <queries>
         <!-- The XARVIS Hands helper app, so XARVIS can send it commands. -->
         <package android:name="com.xarvis.hands" />
@@ -313,6 +318,17 @@
         <receiver
             android:name=".task.NightShiftReceiver"
             android:exported="false" />
+
+        <!-- XARVIS Shield on a phone without Hands (the benco): Settings → Notification access → XARVIS. -->
+        <service
+            android:name=".shield.ShieldNotifications"
+            android:exported="true"
+            android:label="XARVIS Shield"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <!-- XARVIS Shield: checkup, scam checker, and Share → "Check with XARVIS Shield". -->
         <activity
