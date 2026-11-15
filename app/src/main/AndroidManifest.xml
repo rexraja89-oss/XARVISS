@@ -55,6 +55,8 @@
          checkup/new-app alarm sees every app, not only those with a home-screen icon. -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!-- "Receive this call" / "disconnect this call" by voice (install test 15 Nov 2026). -->
+    <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
 
     <queries>
         <!-- The XARVIS Hands helper app, so XARVIS can send it commands. -->
