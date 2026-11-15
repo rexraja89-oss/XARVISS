@@ -32,6 +32,8 @@ class BootReceiver : BroadcastReceiver() {
         com.xarvis.ai.remind.Reminders.reschedule(context)
         com.xarvis.ai.remind.Nudges.schedulePoll(context)
         com.xarvis.ai.task.NightShiftRunner.schedule(context)
+        // Call forwarding: re-arm, and make a switch missed while the phone was off.
+        com.xarvis.ai.phone.CallForward.apply(context)
     }
 
     private companion object {

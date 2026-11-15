@@ -246,6 +246,10 @@ fun SettingsMenu(
                 Go("🛡 Guard my other phone ›", "Its intruder alarm: speak through it, stop it, or sound it now.", onGuardRemote)
                 Go("🌐 Always connected ›", "Reach your other phones anywhere — mobile data, another country — without Tailscale or a VPN.", onRelay)
                 Go("🤝 Help a family phone ›", "See and fix a family member's phone from anywhere, when they ask (XARVIS Helper).", onHelper)
+                val context = androidx.compose.ui.platform.LocalContext.current
+                Go("📞 Call forwarding ›", "Calls to this phone ring on your other number during the hours you choose.") {
+                    context.startActivity(android.content.Intent(context, com.xarvis.ai.phone.CallForwardActivity::class.java))
+                }
             }
             "brain" -> MenuPopup("🧠 Brain", onClose = { open = null }) {
                 // Fast/Smart only matter on a phone that runs Gemma itself (the S22, not the benco).

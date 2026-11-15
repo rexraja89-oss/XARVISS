@@ -306,6 +306,15 @@
             android:name=".task.NightShiftReceiver"
             android:exported="false" />
 
+        <!-- Call forwarding on a schedule: XARVIS switches it at the start and end of the time frame. -->
+        <activity
+            android:name=".phone.CallForwardActivity"
+            android:exported="false"
+            android:label="Call forwarding" />
+        <receiver
+            android:name=".phone.CallForwardReceiver"
+            android:exported="false" />
+
         <!-- Spoken reminders + proactive nudges (calendar heads-up, low battery). -->
         <receiver
             android:name=".remind.ProactiveReceiver"
