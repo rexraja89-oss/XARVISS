@@ -2,7 +2,16 @@ package com.xarvis.remote
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.ComponentName
+import android.content.Intent
 import android.graphics.Bitmap
+import android.nfc.NdefMessage
+import android.nfc.NdefRecord
+import android.nfc.NfcAdapter
+import android.nfc.Tag
+import android.nfc.cardemulation.CardEmulation
+import android.nfc.tech.Ndef
+import android.provider.Settings
 import android.graphics.Color
 import android.view.Gravity
 import android.view.WindowManager
@@ -32,23 +41,74 @@ object NearbySetup {
     fun show(activity: Activity, invite: String) {
         val step1 = page(
             activity, "Step 1 of 2 — install the app",
-            "On the NEW phone: open the Camera and point it at this code. Tap the link it shows, download XARVIS Remote and " +
+            "TOUCH the backs of the two phones together (NFC on both) — or on the NEW phone open the Camera and point it at this code. Tap the link it shows, download XARVIS Remote and " +
                 "install it (if Android warns: Settings → Allow from this source; Play Protect: More details → Install anyway). " +
                 "Already installed? Tap Next.",
             Updates.APK_URL,
         )
         val step2 = page(
             activity, "Step 2 of 2 — link",
-            "On the NEW phone: open XARVIS Remote → tap “📷 Scan the code on my other phone” and point it at this code. " +
+            "On the NEW phone: open XARVIS Remote → tap “📲 Touch my other phone” and touch the backs together — or “📷 Scan the code…” and point it at this code. " +
                 "It links by itself. (The code holds your relay login — show it only to your own phone.)",
             invite,
         )
-        val first = AlertDialog.Builder(activity).setView(step1).setNegativeButton("Close", null).create()
+        val download = NdefMessage(NdefRecord.createUri(Updates.APK_URL))
+        val link = NdefMessage(NdefRecord.createTextRecord("en", invite))
+        val first = AlertDialog.Builder(activity).setView(step1).setNegativeButton("Close") { _, _ -> touch(activity, null) }.create()
         first.setButton(AlertDialog.BUTTON_POSITIVE, "Next →") { _, _ ->
-            AlertDialog.Builder(activity).setView(step2).setPositiveButton("Done", null).create().also { bright(it) }.show()
+            touch(activity, link)
+            AlertDialog.Builder(activity).setView(step2).setPositiveButton("Done", null)
+                .setOnDismissListener { touch(activity, null) }.create().also { bright(it) }.show()
         }
+        first.setOnCancelListener { touch(activity, null) }
         bright(first)
+        touch(activity, download)
         first.show()
+    }
+
+    /** What a touch gives ([TouchTagService]); null stops answering. This app first in line for the tag while it's on. */
+    private fun touch(activity: Activity, message: NdefMessage?) {
+        TouchTagService.armed = message
+        val nfc = NfcAdapter.getDefaultAdapter(activity) ?: return
+        runCatching {
+            val emulation = CardEmulation.getInstance(nfc)
+            if (message != null) emulation.setPreferredService(activity, ComponentName(activity, TouchTagService::class.java))
+            else emulation.unsetPreferredService(activity)
+        }
+    }
+
+    /**
+     * On the new phone: waits for the other phone's touch and gives the text it holds to [found] (on the main
+     * thread). Returns false (with [failed] told why) if this phone can't. [stopListening] ends it.
+     */
+    fun listen(activity: Activity, found: (String) -> Unit, failed: (String) -> Unit): Boolean {
+        val nfc = NfcAdapter.getDefaultAdapter(activity)
+        if (nfc == null) {
+            failed("This phone has no NFC, so touching can't work. Use 📷 Scan, or paste the invite.")
+            return false
+        }
+        if (!nfc.isEnabled) {
+            failed("Turn NFC on (in the settings that open now), then tap “Touch my other phone” again.")
+            runCatching { activity.startActivity(Intent(Settings.ACTION_NFC_SETTINGS)) }
+            return false
+        }
+        nfc.enableReaderMode(activity, { tag ->
+            val text = read(tag) ?: return@enableReaderMode
+            activity.runOnUiThread { found(text) }
+        }, NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_NFC_B, null)
+        return true
+    }
+
+    fun stopListening(activity: Activity) {
+        runCatching { NfcAdapter.getDefaultAdapter(activity)?.disableReaderMode(activity) }
+    }
+
+    /** All the text in the tag's records (an invite is found anywhere in it). */
+    private fun read(tag: Tag): String? = runCatching {
+        val ndef = Ndef.get(tag) ?: return null
+        val message = ndef.cachedNdefMessage ?: ndef.run { connect(); try { ndefMessage } finally { close() } }
+        message?.records?.joinToString("\n") { String(it.payload, Charsets.UTF_8) }
+    }.getOrNull()
     }
 
     /** On the new phone: scans the invite the other phone shows; [found] gets its text. Nothing to install. */

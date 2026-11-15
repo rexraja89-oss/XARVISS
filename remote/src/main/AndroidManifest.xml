@@ -17,6 +17,11 @@
     <!-- One tap to copy the relay login from XARVIS on the same phone (same signing key only). -->
     <uses-permission android:name="com.xarvis.ai.permission.EYES" />
 
+    <!-- Touch to link (NFC): optional, the codes work without it. -->
+    <uses-permission android:name="android.permission.NFC" />
+    <uses-feature android:name="android.hardware.nfc" android:required="false" />
+    <uses-feature android:name="android.hardware.nfc.hce" android:required="false" />
+
     <queries>
         <package android:name="com.xarvis.ai" />
     </queries>
@@ -86,5 +91,17 @@
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
+        <!-- Touch to link: answers as an NFC tag only while "Set up a phone that's next to me" is showing. -->
+        <service
+            android:name=".TouchTagService"
+            android:exported="true"
+            android:permission="android.permission.BIND_NFC_SERVICE">
+            <intent-filter>
+                <action android:name="android.nfc.cardemulation.action.HOST_APDU_SERVICE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.nfc.cardemulation.host_apdu_service"
+                android:resource="@xml/touch_tag" />
+        </service>
     </application>
 </manifest>

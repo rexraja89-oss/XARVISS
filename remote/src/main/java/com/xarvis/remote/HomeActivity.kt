@@ -168,7 +168,8 @@ class HomeActivity : Activity() {
                 body.addView(small("Remove ${p.name}") { confirmRemove(p) })
             }
         }
-        body.addView(button("📷 Scan the code on my other phone") { scanInvite() }.apply { textSize = 17f })
+        body.addView(button("📲 Touch my other phone (NFC)") { touchInvite() }.apply { textSize = 17f })
+        body.addView(button("📷 Scan the code on my other phone") { scanInvite() })
         val box = EditText(this).apply {
             hint = "…or paste the invite from your other phone here"
             minLines = 2
@@ -256,6 +257,26 @@ class HomeActivity : Activity() {
             )
             build()
         }
+    }
+
+    /** The new phone reads the invite from the other phone by touch ([TouchTagService] there). */
+    private fun touchInvite() {
+        var waiting: AlertDialog? = null
+        val on = NearbySetup.listen(this, { text ->
+            if (DeviceLink.parseInvite(text) == null) {
+                toast("That touch held the download link. On the other phone tap Next →, then touch again.")
+                return@listen
+            }
+            NearbySetup.stopListening(this)
+            waiting?.dismiss()
+            accept(text)
+        }, { reason -> toast(reason) })
+        if (!on) return
+        waiting = AlertDialog.Builder(this).setTitle("📲 Touch the phones")
+            .setMessage("On the other phone: XARVIS Remote → 📱 Set up a phone that's next to me → Next →.\n\nThen hold the BACKS of the two phones together (middle to middle) for a second or two.")
+            .setNegativeButton("Cancel", null)
+            .setOnDismissListener { NearbySetup.stopListening(this) }
+            .show()
     }
 
     /** The new phone scans the code the other phone shows ([NearbySetup]). */
