@@ -247,6 +247,9 @@ fun SettingsMenu(
                 Go("🌐 Always connected ›", "Reach your other phones anywhere — mobile data, another country — without Tailscale or a VPN.", onRelay)
                 Go("🤝 Help a family phone ›", "See and fix a family member's phone from anywhere, when they ask (XARVIS Helper).", onHelper)
                 val context = androidx.compose.ui.platform.LocalContext.current
+                Go("🛡 XARVIS Shield ›", "Your bodyguard: scam messages, dangerous apps, SIM theft, security checkup.") {
+                    context.startActivity(android.content.Intent(context, com.xarvis.ai.shield.ShieldActivity::class.java))
+                }
                 Go("📞 Call forwarding ›", "Calls to this phone ring on your other number during the hours you choose.") {
                     context.startActivity(android.content.Intent(context, com.xarvis.ai.phone.CallForwardActivity::class.java))
                 }

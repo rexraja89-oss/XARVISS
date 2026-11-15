@@ -306,6 +306,19 @@
             android:name=".task.NightShiftReceiver"
             android:exported="false" />
 
+        <!-- XARVIS Shield: checkup, scam checker, and Share → "Check with XARVIS Shield". -->
+        <activity
+            android:name=".shield.ShieldActivity"
+            android:exported="true"
+            android:label="Check with XARVIS Shield"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <!-- Call forwarding on a schedule: XARVIS switches it at the start and end of the time frame. -->
         <activity
             android:name=".phone.CallForwardActivity"

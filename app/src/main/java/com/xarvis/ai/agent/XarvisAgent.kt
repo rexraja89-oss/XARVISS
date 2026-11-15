@@ -125,6 +125,12 @@ class XarvisAgent(
     }
 
     /** "status report" / "what's going on" / "what's new on my S22" / "any missed calls" (aware/Board). */
+    /** XARVIS Shield: the checkup, or "is this link/message a scam?" — rules on the phone, never the brain. */
+    private fun shieldCommand(cmd: com.xarvis.ai.shield.ShieldCommands.Cmd): Reply = when (cmd) {
+        com.xarvis.ai.shield.ShieldCommands.Cmd.Checkup -> Reply(com.xarvis.ai.shield.Checkup.report(appContext))
+        is com.xarvis.ai.shield.ShieldCommands.Cmd.Check -> Reply(com.xarvis.ai.shield.ShieldCommands.judge(cmd.text))
+    }
+
     private suspend fun awareCommand(cmd: com.xarvis.ai.aware.AwareCommands.Cmd, onPartial: (String) -> Unit): Reply? {
         val board = com.xarvis.ai.aware.Board.instance ?: return null
         onPartial("🛰 Checking in with your devices…")
@@ -180,6 +186,7 @@ class XarvisAgent(
                     )
                 }
                 ?: UpdateCommands.parse(message)?.let { updateCommand(it) }
+                ?: com.xarvis.ai.shield.ShieldCommands.parse(message)?.let { shieldCommand(it) }
                 ?: com.xarvis.ai.aware.AwareCommands.parse(message)?.let { awareCommand(it, onPartial) }
                 // Before "open X on my S22 and …": a job with real actions in it is for Task mode.
                 ?: com.xarvis.ai.task.TaskCommands.parse(message)?.takeIf { taskPlausible(it) }?.let { taskCommand(it) }

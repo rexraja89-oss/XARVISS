@@ -99,7 +99,15 @@ class Board(
                 override fun onLost(network: Network) = push("network")
             })
         }
-        HandsBridge.notification = { pkg, title, text -> noteNotification(pkg, title, text) }
+        HandsBridge.notification = { pkg, title, text ->
+            runCatching { com.xarvis.ai.shield.Shield.onNotification(pkg, label(pkg), title, text) }
+            noteNotification(pkg, title, text)
+        }
+        // XARVIS Shield: scam messages, new apps, SIM swap. Its alarms come through here (chat + notification).
+        com.xarvis.ai.shield.Shield.start(app, scope, { shieldAlert(it) }) { text ->
+            val peers = link.pairedPeers()
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) { peers.forEach { p -> runCatching { link.sendTaskNews(p, text) } } }
+        }
         scope.launch {
             delay(45_000)
             while (true) {
@@ -378,6 +386,13 @@ class Board(
     fun recentAlerts(): List<String> {
         val a = prefs.getString("alertLog", null)?.let { runCatching { JSONArray(it) }.getOrNull() } ?: return emptyList()
         return (0 until a.length()).mapNotNull { a.optJSONObject(it) }.map { "${Situation.clock(it.optLong("at"))} · ${it.optString("t")}" }
+    }
+
+    /** XARVIS Shield's alarms: always shown, even with "Speak up by myself" off. */
+    private fun shieldAlert(text: String) {
+        val was = alertsOn
+        if (!was) prefs.edit().putBoolean("alerts", true).apply()
+        try { alert(text) } finally { if (!was) prefs.edit().putBoolean("alerts", false).apply() }
     }
 
     private fun alert(text: String) {
