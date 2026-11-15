@@ -126,6 +126,7 @@ jobs:
         cd out
         cp "XARVIS-v$v.apk" "XARVIS-${GITHUB_REF_NAME}.apk"
         cp "XARVIS-Ears-v$v.apk" "XARVIS-Ears-${GITHUB_REF_NAME}.apk"
-        gh release create "$tag" "XARVIS-${GITHUB_REF_NAME}.apk" "XARVIS-Ears-${GITHUB_REF_NAME}.apk" --repo "${{ github.repository }}" \
+        cp "XARVIS-benco-v$v.apk" "XARVIS-benco-${GITHUB_REF_NAME}.apk"
+        gh release create "$tag" "XARVIS-${GITHUB_REF_NAME}.apk" "XARVIS-benco-${GITHUB_REF_NAME}.apk" "XARVIS-Ears-${GITHUB_REF_NAME}.apk" --repo "${{ github.repository }}" \
           --target "${{ github.sha }}" --title "TEST ${GITHUB_REF_NAME} v$v" --prerelease --latest=false \
-          --notes "Install test only (S22 build). Not the normal update: install it over XARVIS to see if the phone accepts it."
+          --notes "Install test only: XARVIS-<test>.apk for the S22, XARVIS-benco-<test>.apk for the benco. Not the normal update: install it over XARVIS to see if the phone accepts it. The next real release has a small patch from it."

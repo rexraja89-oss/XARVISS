@@ -161,6 +161,15 @@ def release_cmd(repo: str, tag: str, dry_run: bool = False, back: int = 0) -> No
         (r for r in releases if not r["draft"] and not r["prerelease"] and (number(r["tag_name"]) or 0) and number(r["tag_name"]) < target),
         key=lambda r: number(r["tag_name"]), reverse=True,
     )
+    # Install tests (pre-releases "test-<name>-v1.0.N" with XARVIS-test-<name>.apk): Rex may have installed one on
+    # the S22, so the next real release also gets a patch from the newest two — else his next update is 107 MB.
+    tests = []
+    for r in releases:
+        m = re.fullmatch(r"(test-[\w.-]+)-v1\.0\.(\d+)", r["tag_name"])
+        # Not test-direct: every push there is a pre-release too, but Rex never installs those.
+        if r["prerelease"] and not r["draft"] and m and m.group(1) != "test-direct" and int(m.group(2)) < target:
+            tests.append((int(m.group(2)), r, m.group(1)))
+    tests = [(r, branch) for _, r, branch in sorted(tests, key=lambda t: t[0], reverse=True)[:2]]
     work = tempfile.mkdtemp(prefix="patches-")
     cache = {}
 
@@ -195,10 +204,12 @@ def release_cmd(repo: str, tag: str, dry_run: bool = False, back: int = 0) -> No
             continue
         new = fetch(this, name, required=True)
         stem = name[:-4]
-        for rel in older[:keep]:
-            if name not in {a["name"] for a in rel["assets"]}:
+        # A test build's copy is called e.g. XARVIS-test-shield.apk / XARVIS-benco-test-shield.apk.
+        sources = [(rel, name) for rel in older[:keep]] + [(rel, f"{stem}-{branch}.apk") for rel, branch in tests]
+        for rel, src_name in sources:
+            if src_name not in {a["name"] for a in rel["assets"]}:
                 continue
-            old = fetch(rel, name)
+            old = fetch(rel, src_name)
             if old is None:
                 continue
             t = time.time()
@@ -215,11 +226,11 @@ def release_cmd(repo: str, tag: str, dry_run: bool = False, back: int = 0) -> No
                 f.write(patch)
             uploads.append(path)
             manifest["patches"].append({
-                "file": name, "from": rel["tag_name"][1:], "fromSha256": sha256(old), "asset": asset,
+                "file": name, "from": rel["tag_name"].split("-v")[-1] if rel["prerelease"] else rel["tag_name"][1:], "fromSha256": sha256(old), "asset": asset,
                 "size": len(patch), "sha256": sha256(patch),
             })
             print(f"{asset}: {len(patch) / 1e6:.2f} MB (full {len(new) / 1e6:.1f} MB) in {time.time() - t:.0f} s")
-            cache.pop((rel["tag_name"], name), None)  # memory: the runner holds several 100 MB files otherwise
+            cache.pop((rel["tag_name"], src_name), None)  # memory: the runner holds several 100 MB files otherwise
     path = os.path.join(work, "patches.json")
     with open(path, "w") as f:
         json.dump(manifest, f, indent=1)
