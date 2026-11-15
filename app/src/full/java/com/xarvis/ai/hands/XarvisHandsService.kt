@@ -257,6 +257,27 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
         return true
     }
 
+    override fun pressAnywhere(labels: List<String>): String? {
+        val roots = runCatching { windows.mapNotNull { it.root } }.getOrDefault(emptyList()).ifEmpty { listOfNotNull(rootInActiveWindow) }
+        for (label in labels) {
+            val word = Regex("(^|[^a-z])" + Regex.escape(label.lowercase()) + "($|[^a-z])")
+            for (root in roots) {
+                val node = findFirst(root) { n -> val s = text(n).lowercase(); s.isNotEmpty() && s.length <= 40 && word.containsMatchIn(s) } ?: continue
+                val target = if (node.isClickable) node else clickableSelfOrAncestor(node) ?: node
+                val clicked = target.isClickable && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                log("press '$label' -> ${if (clicked) "clicked" else "swipe"}")
+                if (!clicked) {
+                    // Samsung's answer/decline and alarm-dismiss circles want a drag, not a tap.
+                    val r = Rect().also { target.getBoundsInScreen(it) }
+                    val dm = resources.displayMetrics
+                    gesture("swipe", r.exactCenterX(), r.exactCenterY(), r.exactCenterX(), (r.exactCenterY() - dm.heightPixels * 0.3f).coerceAtLeast(10f), 350)
+                }
+                return label
+            }
+        }
+        return null
+    }
+
     override fun screenElements(): String {
         val root = rootInActiveWindow
         val dm = android.util.DisplayMetrics()

@@ -52,6 +52,13 @@ object HandsBridge {
          */
         fun lockPad(w: Int, h: Int): String? = null
         /** Opens the app [packageName] (Hands may start apps from the background; XARVIS itself may not). */
+        /**
+         * Taps the first button whose label is one of [labels] (whole words, any case) in ANY window on screen —
+         * an alarm's or a call's pop-up over another app too; buttons that only answer to a drag get a swipe up.
+         * Returns the label tapped, or null.
+         */
+        fun pressAnywhere(labels: List<String>): String? = null
+
         fun openApp(packageName: String): Boolean
 
         /** Opens a web address in the browser (Task mode); false where it can't. */

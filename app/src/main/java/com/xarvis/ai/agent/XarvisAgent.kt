@@ -19,6 +19,7 @@ import java.io.File
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 
 /** What XARVIS says, and the files it made or found (shown with OPEN and SHARE). */
 data class Reply(val text: String, val files: List<SavedFile> = emptyList(), val via: String? = null)
@@ -125,6 +126,120 @@ class XarvisAgent(
     }
 
     /** "status report" / "what's going on" / "what's new on my S22" / "any missed calls" (aware/Board). */
+    // ---- Hands-free control: alarm, calls, YouTube (agent/PhoneControl) ----
+
+    private var adWatch: kotlinx.coroutines.Job? = null
+    private val controlScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+
+    private suspend fun phoneControl(cmd: PhoneControl.Cmd): Reply {
+        val hands = com.xarvis.ai.hands.HandsBridge.service
+            ?: return Reply("I need XARVIS Hands for that, sir — ☰ → XARVIS Hands → switch it on." +
+                if (com.xarvis.ai.hands.HandsBridge.builtIn) "" else " (On this phone that's the separate XARVIS Hands app.)")
+        val telecom = appContext.getSystemService(android.telecom.TelecomManager::class.java)
+        val canAnswer = appContext.checkSelfPermission("android.permission.ANSWER_PHONE_CALLS") == android.content.pm.PackageManager.PERMISSION_GRANTED
+        fun screen() = screenFrom(hands.screenElements())
+        suspend fun videos(): List<PhoneControl.Video> {
+            repeat(8) {
+                val s = screen()
+                val v = PhoneControl.videos(s.elements, s.height)
+                if (v.isNotEmpty()) return v
+                kotlinx.coroutines.delay(700)
+            }
+            return emptyList()
+        }
+        return when (cmd) {
+            PhoneControl.Cmd.AlarmOff -> Reply(
+                hands.pressAnywhere(listOf("Dismiss", "Stop", "Turn off", "Dismiss alarm"))?.let { "Alarm off, sir." }
+                    ?: "I don't see a ringing alarm, sir.",
+            )
+            PhoneControl.Cmd.Snooze -> Reply(hands.pressAnywhere(listOf("Snooze"))?.let { "Snoozed, sir." } ?: "I don't see an alarm to snooze, sir.")
+            PhoneControl.Cmd.Answer -> {
+                @Suppress("DEPRECATION", "MissingPermission")
+                val ok = (canAnswer && runCatching { telecom.acceptRingingCall(); true }.getOrDefault(false)) ||
+                    hands.pressAnywhere(listOf("Answer", "Accept", "Answer call")) != null
+                Reply(if (ok) "📞" else "I don't see a ringing call, sir.")
+            }
+            PhoneControl.Cmd.HangUp -> {
+                @Suppress("DEPRECATION", "MissingPermission")
+                val ok = (canAnswer && runCatching { telecom.endCall() }.getOrDefault(false)) ||
+                    hands.pressAnywhere(listOf("End call", "Decline", "Reject", "Hang up", "End")) != null
+                Reply(if (ok) "Call ended, sir." else "I don't see a call to end, sir.")
+            }
+            is PhoneControl.Cmd.YouTube -> {
+                val opened = if (cmd.query.isBlank()) hands.openApp(YOUTUBE)
+                else runCatching {
+                    val url = "https://www.youtube.com/results?search_query=" + java.net.URLEncoder.encode(cmd.query, "UTF-8")
+                    appContext.startActivity(
+                        android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                            .setPackage(YOUTUBE).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                    true
+                }.getOrDefault(false) || hands.openApp(YOUTUBE)
+                if (!opened) return Reply("I couldn't open YouTube, sir. Is the phone unlocked?")
+                kotlinx.coroutines.delay(2500)
+                Reply(PhoneControl.readOut(videos()))
+            }
+            is PhoneControl.Cmd.Scroll -> {
+                val s = screen()
+                val w = s.width.takeIf { it > 0 } ?: 1080
+                val h = s.height.takeIf { it > 0 } ?: 2300
+                val (from, to) = if (cmd.down) h * 0.75f to h * 0.3f else h * 0.3f to h * 0.75f
+                hands.gesture("swipe", w / 2f, from, w / 2f, to, 350)
+                kotlinx.coroutines.delay(1200)
+                if (screen().app.contains("youtube", true)) Reply(PhoneControl.readOut(videos())) else Reply("Scrolled, sir.")
+            }
+            PhoneControl.Cmd.Back -> { hands.globalAction("back"); Reply("Back, sir.") }
+            PhoneControl.Cmd.Read -> {
+                val s = screen()
+                if (s.app.contains("youtube", true)) Reply(PhoneControl.readOut(videos()))
+                else Reply(hands.screenText().take(600).ifBlank { "I can't read anything on the screen, sir." })
+            }
+            is PhoneControl.Cmd.Play -> {
+                val v = PhoneControl.pick(videos(), cmd.index, cmd.words)
+                    ?: return Reply("I couldn't find that video on the screen, sir. Say \"read the titles\" and pick one.")
+                hands.gesture("tap", v.x.toFloat(), v.y.toFloat(), v.x.toFloat(), v.y.toFloat(), 60)
+                watchAds(hands)
+                Reply("Playing ${v.title}. I'll skip the ads as soon as YouTube lets me.")
+            }
+            PhoneControl.Cmd.SkipAd -> {
+                val skip = PhoneControl.skipButton(screen().elements)
+                if (skip != null) {
+                    hands.gesture("tap", skip.x.toFloat(), skip.y.toFloat(), skip.x.toFloat(), skip.y.toFloat(), 60)
+                    Reply("Skipped, sir.")
+                } else {
+                    watchAds(hands)
+                    Reply("It can't be skipped yet — I'll press Skip the moment it appears.")
+                }
+            }
+        }
+    }
+
+    /**
+     * Watches a YouTube video for up to 3 minutes: taps "Skip ad" whenever it appears (an ad break can bring
+     * several), quietly — Rex is listening to the video, not to XARVIS.
+     */
+    private fun watchAds(hands: com.xarvis.ai.hands.HandsBridge.Hands) {
+        adWatch?.cancel()
+        adWatch = controlScope.launch {
+            val end = System.currentTimeMillis() + 180_000
+            var quiet = 0
+            while (System.currentTimeMillis() < end) {
+                kotlinx.coroutines.delay(1000)
+                val s = screenFrom(hands.screenElements())
+                if (!s.app.contains("youtube", true)) break
+                val skip = PhoneControl.skipButton(s.elements)
+                if (skip != null) {
+                    hands.gesture("tap", skip.x.toFloat(), skip.y.toFloat(), skip.x.toFloat(), skip.y.toFloat(), 60)
+                    com.xarvis.ai.hands.HandsBridge.log("YouTube: skipped an ad")
+                    quiet = 0
+                    continue
+                }
+                quiet = if (PhoneControl.adShowing(s.elements)) 0 else quiet + 1
+                if (quiet >= 25) break
+            }
+        }
+    }
+
     /** XARVIS Shield: the checkup, or "is this link/message a scam?" — rules on the phone, never the brain. */
     private fun shieldCommand(cmd: com.xarvis.ai.shield.ShieldCommands.Cmd): Reply = when (cmd) {
         com.xarvis.ai.shield.ShieldCommands.Cmd.Checkup -> Reply(com.xarvis.ai.shield.Checkup.report(appContext))
@@ -186,6 +301,7 @@ class XarvisAgent(
                     )
                 }
                 ?: UpdateCommands.parse(message)?.let { updateCommand(it) }
+                ?: PhoneControl.parse(message)?.let { phoneControl(it) }
                 ?: com.xarvis.ai.shield.ShieldCommands.parse(message)?.let { shieldCommand(it) }
                 ?: com.xarvis.ai.aware.AwareCommands.parse(message)?.let { awareCommand(it, onPartial) }
                 // Before "open X on my S22 and …": a job with real actions in it is for Task mode.
@@ -984,6 +1100,7 @@ class XarvisAgent(
             (com.xarvis.ai.task.NightShiftRunner.lastReport(appContext)?.let { "\n\nLast night:\n$it" } ?: "")
 
     companion object {
+        private const val YOUTUBE = "com.google.android.youtube"
         /** The S22's answer when a "do my X" names no skill there (the benco then lets the chat answer). */
         const val NO_SKILL = "no skill called"
 

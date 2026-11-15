@@ -51,6 +51,11 @@ class WakeSettings(context: Context) {
         get() = prefs.getBoolean("followUp", true)
         set(value) = prefs.edit().putBoolean("followUp", value).apply()
 
+    /** Listen through Bluetooth earbuds while they're connected and nothing is playing ([EarbudMic]). */
+    var earbuds: Boolean
+        get() = prefs.getBoolean("earbuds", true)
+        set(value) = prefs.edit().putBoolean("earbuds", value).apply()
+
     /** "Xarvis" while XARVIS is talking stops it and gets its attention. */
     var bargeIn: Boolean
         get() = prefs.getBoolean("bargeIn", true)
@@ -139,6 +144,9 @@ class WakeEars(context: Context, private val host: WakeHost) {
         val rule = HitRule()
         var record: AudioRecord? = null
         var deadChunks = 0
+        var viaEarbuds = false
+        var sinceCheck = 0
+        var loud = false
         try {
             while (running) {
                 val state = if (handling) WakeHost.HOLD else host.state()
@@ -153,13 +161,27 @@ class WakeEars(context: Context, private val host: WakeHost) {
                     continue
                 }
                 if (record == null) {
+                    viaEarbuds = EarbudMic.wanted(appContext, settings.earbuds) && EarbudMic.on(appContext)
+                    if (!viaEarbuds) EarbudMic.off(appContext)
                     record = openMic() ?: run { status = "Couldn't open the microphone"; Thread.sleep(2000); null } ?: continue
                     detector.reset()
                     gate.reset()
                     rule.reset()
                     kept.clear()
                     deadChunks = 0
-                    status = LISTENING
+                    status = if (viaEarbuds) LISTENING_EARBUDS else LISTENING
+                    sinceCheck = 0
+                }
+                // Every 2 s: earbuds in or out, music started or stopped → switch microphones; an alarm or ringtone
+                // is drowning the phone's own mic → listen harder.
+                if (++sinceCheck >= CHECK_CHUNKS) {
+                    sinceCheck = 0
+                    loud = EarbudMic.alarmOrRinging(appContext)
+                    if (EarbudMic.wanted(appContext, settings.earbuds) != viaEarbuds) {
+                        runCatching { record.stop(); record.release() }
+                        record = null
+                        continue
+                    }
                 }
                 var read = 0
                 while (read < chunk.size && running) {
@@ -186,7 +208,11 @@ class WakeEars(context: Context, private val host: WakeHost) {
                     deadChunks = 0
                 }
                 // While XARVIS itself is talking, be surer before interrupting it.
-                val threshold = if (interrupting) maxOf(settings.sensitivity.threshold, INTERRUPT_THRESHOLD) else settings.sensitivity.threshold
+                val threshold = when {
+                    interrupting -> maxOf(settings.sensitivity.threshold, INTERRUPT_THRESHOLD)
+                    loud -> minOf(settings.sensitivity.threshold, Sensitivity.HIGH.threshold)
+                    else -> settings.sensitivity.threshold
+                }
                 val wasAwake = gate.open
                 val awake = gate.feed(level)
                 var score = 0f
@@ -221,6 +247,7 @@ class WakeEars(context: Context, private val host: WakeHost) {
             status = "Stopped: ${e.message ?: e.javaClass.simpleName}"
         } finally {
             record?.let { runCatching { it.stop(); it.release() } }
+            EarbudMic.off(appContext)
             detector.close()
         }
     }
@@ -333,6 +360,9 @@ class WakeEars(context: Context, private val host: WakeHost) {
     companion object {
         private const val TAG = "XarvisEars"
         private const val LISTENING = "Listening for \"Xarvis\""
+        private const val LISTENING_EARBUDS = "Listening for \"Xarvis\" through your earbuds"
+        /** 25 chunks of 80 ms = 2 s. */
+        private const val CHECK_CHUNKS = 25
         private const val STARTING = "Starting…"
         private const val BLOCKED = "Android is keeping the microphone from XARVIS"
         /** 5 s of pure digital silence before asking Android whether the microphone is being withheld. */

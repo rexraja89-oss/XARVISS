@@ -93,6 +93,24 @@ class MainActivity : ComponentActivity() {
         // ears on the S22, and the XARVIS Ears app where XARVIS may not use the microphone (the benco).
         WakeWord.startIfOn(this)
         com.xarvis.ai.ears.EarsLink.kick(this)
+        askCallControlOnce()
+    }
+
+    /**
+     * "Receive this call" / "disconnect this call" by voice, and the Shield's SIM watch: Android's own call controls,
+     * asked for once — only in a build that declares them (they're added after an install test).
+     */
+    private fun askCallControlOnce() {
+        val prefs = getSharedPreferences("settings", MODE_PRIVATE)
+        if (prefs.getBoolean("askedCallControl", false)) return
+        val declared = runCatching {
+            packageManager.getPackageInfo(packageName, PackageManager.GET_PERMISSIONS).requestedPermissions.orEmpty().toSet()
+        }.getOrDefault(emptySet())
+        val want = listOf("android.permission.ANSWER_PHONE_CALLS", Manifest.permission.READ_PHONE_STATE)
+            .filter { it in declared && ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (want.isEmpty()) return
+        prefs.edit().putBoolean("askedCallControl", true).apply()
+        toolPermissions.launch(want.toTypedArray())
     }
 
     override fun onDestroy() {
