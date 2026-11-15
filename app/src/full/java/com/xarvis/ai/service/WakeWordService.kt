@@ -78,6 +78,12 @@ class WakeWordService : Service() {
             shutDown()
             return START_NOT_STICKY
         }
+        // Started again while it runs (XARVIS came on screen, Hands connected): if Android had been giving it silence
+        // (started in the background after an update or restart), a fresh start now gets the real microphone.
+        ears?.takeIf { it.deaf }?.let {
+            it.stop()
+            ears = WakeEars(this, host).also { e -> e.start() }
+        }
         if (ears == null) {
             ears = WakeEars(this, host).also { it.start() }
             // The microphone keeps the phone's processor awake by itself; this makes sure of it on every phone.

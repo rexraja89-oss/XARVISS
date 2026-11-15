@@ -71,6 +71,12 @@ class EarsService : Service() {
             shutDown()
             return START_NOT_STICKY
         }
+        // Nudged again while running (XARVIS on screen, a notification tap): if Android had been giving the ears silence
+        // (started in the background after a restart or update), a fresh start now gets the real microphone.
+        ears?.takeIf { it.deaf }?.let { old ->
+            old.stop()
+            ears = WakeEars(this, link ?: XarvisLink(this).also { l -> link = l; l.connect() }).also { e -> e.start() }
+        }
         if (ears == null) {
             val xarvis = XarvisLink(this).also { link = it }
             xarvis.onChange = {

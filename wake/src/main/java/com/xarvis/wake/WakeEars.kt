@@ -91,10 +91,16 @@ class WakeEars(context: Context, private val host: WakeHost) {
     @Volatile var onMicBlocked: (() -> Unit)? = null
 
     /** In a few words, for the notification and the wake word screen. */
-    @Volatile var status: String = "Starting…"
+    @Volatile var status: String = STARTING
         private set
 
     val isRunning: Boolean get() = running
+
+    /**
+     * Android handed this listener silence instead of the microphone (it was started in the background — after a
+     * phone restart or an app update). Starting it again from something on screen gives it the real microphone.
+     */
+    val deaf: Boolean get() = status.startsWith(BLOCKED) || status == STARTING
 
     fun start() {
         if (running) return
@@ -172,7 +178,7 @@ class WakeEars(context: Context, private val host: WakeHost) {
                 // A background app that may not use the microphone gets pure silence, not an error.
                 if (level == 0f) {
                     if (++deadChunks == DEAD_CHUNKS && silenced(record)) {
-                        status = "Android is keeping the microphone from XARVIS"
+                        status = BLOCKED
                         main.post { onMicBlocked?.invoke() }
                     }
                 } else {
@@ -327,6 +333,8 @@ class WakeEars(context: Context, private val host: WakeHost) {
     companion object {
         private const val TAG = "XarvisEars"
         private const val LISTENING = "Listening for \"Xarvis\""
+        private const val STARTING = "Starting…"
+        private const val BLOCKED = "Android is keeping the microphone from XARVIS"
         /** 5 s of pure digital silence before asking Android whether the microphone is being withheld. */
         private const val DEAD_CHUNKS = 62
         private const val INTERRUPT_THRESHOLD = 0.8f
