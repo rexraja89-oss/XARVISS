@@ -109,7 +109,6 @@ object NearbySetup {
         val message = ndef.cachedNdefMessage ?: ndef.run { connect(); try { ndefMessage } finally { close() } }
         message?.records?.joinToString("\n") { String(it.payload, Charsets.UTF_8) }
     }.getOrNull()
-    }
 
     /** On the new phone: scans the invite the other phone shows; [found] gets its text. Nothing to install. */
     fun scan(activity: Activity, found: (String) -> Unit, failed: (String) -> Unit) {
