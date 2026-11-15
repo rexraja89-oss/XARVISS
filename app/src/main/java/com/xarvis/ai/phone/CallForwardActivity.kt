@@ -39,7 +39,16 @@ class CallForwardActivity : Activity() {
         col.addView(text("📞 Call forwarding", 24f, cyan))
         col.addView(text("Calls to this phone ring on your other number during the hours you choose. XARVIS switches it on at the start and off at the end, every day.", 14f, muted))
         if (!CallForward.allowed(this)) {
-            col.addView(text("This phone's XARVIS can't place calls, so it can't switch forwarding. Set it up on the S22.", 16f, Color.WHITE).pad(16))
+            if (canAsk()) {
+                // The S22 build has the permission, but Android hasn't been asked for it yet.
+                col.addView(text("XARVIS needs Android's \"Phone\" permission to switch forwarding.", 16f, Color.WHITE).pad(16))
+                col.addView(Button(this).apply {
+                    text = "✅ Allow XARVIS to make calls"; isAllCaps = false
+                    setOnClickListener { requestPermissions(arrayOf(android.Manifest.permission.CALL_PHONE), 1) }
+                })
+            } else {
+                col.addView(text("This phone's XARVIS can't place calls, so it can't switch forwarding. Set it up on the S22.", 16f, Color.WHITE).pad(16))
+            }
         }
         col.addView(text("Forward to (your benco number, with the country code)", 13f, cyan).pad(20))
         number = EditText(this).apply {
@@ -77,6 +86,23 @@ class CallForwardActivity : Activity() {
         ).pad(16))
         setContentView(ScrollView(this).apply { setBackgroundColor(Color.BLACK); addView(col) })
         showStatus()
+    }
+
+    /** This build declares CALL_PHONE (the S22's; the benco's drops it). */
+    private fun canAsk(): Boolean = runCatching {
+        packageManager.getPackageInfo(packageName, android.content.pm.PackageManager.GET_PERMISSIONS)
+            .requestedPermissions?.contains(android.Manifest.permission.CALL_PHONE) == true
+    }.getOrDefault(false)
+
+    @Deprecated("A plain Activity result")
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (CallForward.allowed(this)) {
+            save()
+            recreate()
+        } else {
+            say("Without it XARVIS can't switch forwarding. Settings → Apps → XARVIS → Permissions → Phone → Allow.")
+        }
     }
 
     private fun pick(start: Boolean) {
