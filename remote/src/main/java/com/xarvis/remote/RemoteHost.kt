@@ -148,7 +148,7 @@ object RemoteHost {
         val viaRelay = req.optString("route") == "relay"
         val maxSide = req.optInt("max", 1440).coerceIn(480, 2400).let { if (viaRelay) minOf(it, RELAY_MAX_SIDE) else it }
         val kbps = req.optInt("kbps", 4000).coerceIn(500, 20_000).let { if (viaRelay) minOf(it, RELAY_KBPS) else it }
-        val rate = BitrateControl(max = kbps * 1000, start = BitrateControl.startFor(req.optString("route"), kbps * 1000))
+        val rate = BitrateControl(max = kbps * 1000, min = BitrateControl.minFor(req.optString("route")), start = BitrateControl.startFor(req.optString("route"), kbps * 1000))
         val enc = projection?.let { p -> withContext(Dispatchers.Main) { startEncoder(context, p, w, h, maxSide, rate.current) } }
         accept(
             JSONObject().put("ok", true).put("mode", if (enc != null) "video" else "jpeg")

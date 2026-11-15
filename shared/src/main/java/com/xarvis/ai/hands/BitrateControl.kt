@@ -64,6 +64,10 @@ class BitrateControl(private val max: Int, min: Int = MIN_BPS, start: Int = max)
         private const val EASY_WINDOWS = 3
 
         /** Where a stream starts: full rate at home; away from home (Direct, relay) lower, and up from there. */
+        /** The floor for a route: the relay's cap is already 500 kbps, so there it may go down to 150 kbps. */
+        fun minFor(route: String): Int = if (route == "relay") RELAY_MIN_BPS else MIN_BPS
+        const val RELAY_MIN_BPS = 150_000
+
         fun startFor(route: String, max: Int): Int = if (route == "wifi" || route == "tailscale") max else minOf(max, 2_000_000)
     }
 }

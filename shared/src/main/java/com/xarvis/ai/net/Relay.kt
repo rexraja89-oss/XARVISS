@@ -193,10 +193,15 @@ class Relay(context: Context, private val deviceId: String) {
     // ---- messages ----
 
     /** Sends one line to [toDevice] on connection [cid]; split into pieces when it's too big. Throws when offline. */
-    fun sendLine(toDevice: String, cid: String, kind: String, line: String) {
+    fun sendLine(toDevice: String, cid: String, kind: String, line: String, paced: Boolean = false) {
         val m = mqtt?.takeIf { !it.closed } ?: throw LinkException("the relay isn't connected")
         val topic = mailbox(toDevice)
-        Envelope.split(deviceId, cid, kind, line).forEach { m.publish(topic, it.toByteArray(Charsets.UTF_8), qos = 1) }
+        Envelope.split(deviceId, cid, kind, line).forEach {
+            // A live stream waits until the relay has taken what was sent before: the wait is what tells the
+            // video to get lighter, and old pictures never queue up for seconds.
+            if (paced) m.awaitRoom(STREAM_WINDOW_BYTES, STREAM_WAIT_MS)
+            m.publish(topic, it.toByteArray(Charsets.UTF_8), qos = 1)
+        }
     }
 
     private fun handle(topic: String, payload: ByteArray) {
@@ -294,6 +299,11 @@ class Relay(context: Context, private val deviceId: String) {
     }
 
     companion object {
+        /** Live streams keep at most this much on the way to the relay (~0.5 s of relay video). */
+        const val STREAM_WINDOW_BYTES = 40_000L
+        /** …and wait at most this long for the relay before sending anyway. */
+        const val STREAM_WAIT_MS = 3_000L
+
         private const val TAG = "XarvisRelay"
         private const val HOST = "relay_host"
         private const val USER = "relay_user"

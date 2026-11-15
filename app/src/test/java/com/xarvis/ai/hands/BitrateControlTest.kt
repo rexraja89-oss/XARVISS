@@ -51,4 +51,13 @@ class BitrateControlTest {
         assertEquals(2_000_000, BitrateControl.startFor("direct", 4_000_000))
         assertTrue(BitrateControl.startFor("relay", 500_000) <= 500_000)
     }
+
+    @Test fun relayVideoCanGetLighterThanItsCap() {
+        val c = BitrateControl(max = 500_000, min = BitrateControl.minFor("relay"))
+        var now = 0L
+        // Every frame waits half its time for room on the line: the rate falls, below 500k, to the relay floor.
+        repeat(400) { now += 50_000_000L; c.sent(25_000_000L, now) }
+        assertEquals(BitrateControl.RELAY_MIN_BPS, c.current)
+        assertEquals(BitrateControl.MIN_BPS, BitrateControl.minFor("direct"))
+    }
 }

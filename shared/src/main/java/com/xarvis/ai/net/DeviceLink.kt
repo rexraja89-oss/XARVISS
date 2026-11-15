@@ -276,7 +276,7 @@ class DeviceLink(
         override fun sendLine(line: String) {
             val kind = if (opened) "d" else "o"
             opened = true
-            relay.sendLine(peerId, cid, kind, line)
+            relay.sendLine(peerId, cid, kind, line, paced = stream)
         }
 
         override fun receiveLine(): String {

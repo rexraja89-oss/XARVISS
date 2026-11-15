@@ -141,7 +141,7 @@ object HelperSession {
         val kbps = req.optInt("kbps", 4000).coerceIn(300, 8000).let { if (viaRelay) minOf(it, 500) else it }
         val (w, h) = realSize(context)
         // Away from home the video starts lighter and follows what the line carries.
-        val rate = BitrateControl(max = kbps * 1000, start = BitrateControl.startFor(req.optString("route"), kbps * 1000))
+        val rate = BitrateControl(max = kbps * 1000, min = BitrateControl.minFor(req.optString("route")), start = BitrateControl.startFor(req.optString("route"), kbps * 1000))
         val enc = withContext(Dispatchers.Main) { startEncoder(context, p, w, h, maxSide, rate.current) }
             ?: throw LinkException("their phone couldn't start sharing its screen")
         accept(

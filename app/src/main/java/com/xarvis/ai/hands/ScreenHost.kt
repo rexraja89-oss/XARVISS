@@ -167,7 +167,7 @@ object ScreenHost {
         val maxSide = req.optInt("max", 1440).coerceIn(480, 2400).let { if (viaRelay) minOf(it, RELAY_MAX_SIDE) else it }
         val kbps = req.optInt("kbps", 4000).coerceIn(500, 20_000).let { if (viaRelay) minOf(it, RELAY_KBPS) else it }
         // Away from home the video starts lighter and follows what the line carries (BitrateControl).
-        val rate = BitrateControl(max = kbps * 1000, start = BitrateControl.startFor(req.optString("route"), kbps * 1000))
+        val rate = BitrateControl(max = kbps * 1000, min = BitrateControl.minFor(req.optString("route")), start = BitrateControl.startFor(req.optString("route"), kbps * 1000))
         val video = withContext(Dispatchers.Main) {
             ScreenVideo.start(context, maxSide, rate.current)
         }

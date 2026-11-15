@@ -40,6 +40,9 @@ class Mqtt(
     private val nextId = AtomicInteger(1)
     /** QoS 1 messages the server hasn't acknowledged yet (re-sent by the relay after a reconnect). */
     val unacked = ConcurrentHashMap<Int, ByteArray>()
+    /** Bytes of QoS 1 messages still waiting for the server's PUBACK (see [awaitRoom]). */
+    private val unackedBytes = java.util.concurrent.atomic.AtomicLong()
+    private val room = Object()
     @Volatile var lastHeard = System.currentTimeMillis()
         private set
     @Volatile var closed = false
@@ -102,7 +105,9 @@ class Mqtt(
                         if (p.qos == 1) write(Packets.puback(p.packetId))
                         runCatching { listener.onMessage(p.topic, p.payload) }
                     }
-                    Packets.PUBACK -> if (body.size >= 2) unacked.remove(((body[0].toInt() and 0xFF) shl 8) or (body[1].toInt() and 0xFF))
+                    Packets.PUBACK -> if (body.size >= 2) {
+                        unacked.remove(((body[0].toInt() and 0xFF) shl 8) or (body[1].toInt() and 0xFF))?.let { acked(it.size) }
+                    }
                     else -> Unit // SUBACK, PINGRESP
                 }
             }
@@ -126,8 +131,35 @@ class Mqtt(
     fun publish(topic: String, payload: ByteArray, qos: Int = 1, retain: Boolean = false) {
         val id = if (qos > 0) newId() else 0
         val packet = Packets.publish(topic, payload, qos, retain, id, dup = false)
-        if (qos > 0) unacked[id] = Packets.publish(topic, payload, qos, retain, id, dup = true)
+        if (qos > 0) {
+            unacked.put(id, Packets.publish(topic, payload, qos, retain, id, dup = true))?.let { acked(it.size) }
+            unackedBytes.addAndGet(packet.size.toLong())
+        }
         write(packet)
+    }
+
+    private fun acked(size: Int) {
+        unackedBytes.addAndGet(-size.toLong())
+        synchronized(room) { room.notifyAll() }
+    }
+
+    /**
+     * Waits (≤ [timeoutMs]) until fewer than [limit] bytes are still unacknowledged by the server, and returns how
+     * long it waited. Live video needs this: a socket write returns as soon as the phone's own buffer takes the
+     * bytes, and that buffer holds many seconds of video, so without it a slow upload piles up seconds of delay
+     * (Rex's helper session: 18 s behind) while the sender thinks everything is fine.
+     */
+    fun awaitRoom(limit: Long, timeoutMs: Long): Long {
+        val start = System.currentTimeMillis()
+        val end = start + timeoutMs
+        synchronized(room) {
+            while (!closed && unackedBytes.get() >= limit) {
+                val left = end - System.currentTimeMillis()
+                if (left <= 0) break
+                room.wait(minOf(left, 100))
+            }
+        }
+        return System.currentTimeMillis() - start
     }
 
     /** Re-sends what a previous connection never got acknowledged. */
@@ -142,6 +174,7 @@ class Mqtt(
 
     fun close() {
         closed = true
+        synchronized(room) { room.notifyAll() }
         runCatching { socket?.close() }
     }
 
