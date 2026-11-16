@@ -59,5 +59,10 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/xarvis_accessibility_config" />
         </service>
+        <!-- Watch mode: the front camera watches the room with the screen off (Android 13: no extra permission). -->
+        <service
+            android:name=".watch.WatchService"
+            android:exported="false"
+            android:foregroundServiceType="camera" />
     </application>
 </manifest>

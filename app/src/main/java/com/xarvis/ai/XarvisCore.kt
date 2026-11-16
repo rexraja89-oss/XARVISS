@@ -358,6 +358,12 @@ class XarvisCore(context: Context) {
                     com.xarvis.ai.task.NightShiftRunner.clear(appContext)
                     "Night shift cleared."
                 }
+                // Watch mode asked from the other phone; its alerts go to every linked phone.
+                "watch" -> {
+                    val reply = com.xarvis.ai.watch.Watch.handle(appContext, req.optString("op"), req.optInt("hours"))
+                    if (req.optString("op") == "start" && reply.startsWith("👁")) post("👁 ${peer.name} asked me to watch the room.")
+                    reply
+                }
                 // Awareness: the other phone's status card in, this phone's back (aware/Board).
                 "state" -> board.answer(peer, req.optJSONObject("card"))
                 // "update my S22" from the other phone: XARVIS Updater updates everything here in the background.
@@ -388,8 +394,10 @@ class XarvisCore(context: Context) {
         }
 
         override fun taskNews(from: String, text: String) {
-            post("🧠 $from: $text")
-            com.xarvis.ai.task.TaskManager.notice(appContext, "🧠 Task on $from", text)
+            // Watch mode's alerts come the same way: their own heading, so they don't read as a task.
+            val watch = text.startsWith("👁") || text.startsWith("📷")
+            post(if (watch) "$text — $from" else "🧠 $from: $text")
+            com.xarvis.ai.task.TaskManager.notice(appContext, if (watch) "👁 Watch mode · $from" else "🧠 Task on $from", text)
         }
 
         override suspend fun facesInPhoto(jpeg: ByteArray): String {

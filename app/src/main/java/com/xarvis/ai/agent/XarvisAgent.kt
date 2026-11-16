@@ -126,6 +126,20 @@ class XarvisAgent(
     }
 
     /** "status report" / "what's going on" / "what's new on my S22" / "any missed calls" (aware/Board). */
+    /** Watch mode: here on the S22, else asked of the S22 (the benco has no camera). */
+    private suspend fun watchCommand(cmd: com.xarvis.ai.watch.WatchCommands.Cmd): Reply {
+        if (com.xarvis.ai.watch.Watch.available(appContext)) return Reply(com.xarvis.ai.watch.Watch.handle(appContext, cmd))
+        val peer = link.pairedPeers().firstOrNull() ?: return Reply("Watch mode needs the S22, sir, and no phone is linked.")
+        val (op, hours) = com.xarvis.ai.watch.WatchCommands.op(cmd)
+        return try {
+            val text = link.remoteTask(peer, org.json.JSONObject().put("action", "watch").put("op", op).put("hours", hours))
+            Reply("${peer.name}: $text")
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Reply("I couldn't reach ${peer.name}: ${e.message ?: e.javaClass.simpleName}")
+        }
+    }
+
     // ---- Hands-free control: alarm, calls, YouTube (agent/PhoneControl) ----
 
     private var adWatch: kotlinx.coroutines.Job? = null
@@ -301,6 +315,7 @@ class XarvisAgent(
                     )
                 }
                 ?: UpdateCommands.parse(message)?.let { updateCommand(it) }
+                ?: com.xarvis.ai.watch.WatchCommands.parse(message)?.let { watchCommand(it) }
                 ?: PhoneControl.parse(message)?.let { phoneControl(it) }
                 ?: com.xarvis.ai.shield.ShieldCommands.parse(message)?.let { shieldCommand(it) }
                 ?: com.xarvis.ai.aware.AwareCommands.parse(message)?.let { awareCommand(it, onPartial) }
