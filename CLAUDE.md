@@ -192,6 +192,8 @@ Rex asked XARVIS to respond with human-like emotion and, in distress, to place a
 
 ## Things learned the hard way
 
+- **Never put an "op" key in a link op `task` body** (17 Nov 2026): `DeviceLink.request` writes its own `"op"` ("task") into the same JSON, so the other phone read "task" — "wake up my S22" answered "I don't know that rescue request", and Watch mode from the benco had the same bug. Watch and Rescue now send their sub-command as `"what"`.
+
 - Android silently ignores `startActivity` from an app in the background (no exception), so XARVIS once said "Opening LinkedIn" and nothing opened: a slow reply had arrived after Rex switched away. `workflow/LaunchNotice` checks `inForeground()` (process importance FOREGROUND); when XARVIS isn't in front, `WorkflowEngine.backgroundNote` still tries the launch, posts a heads-up "Tap to open X" notification (always allowed) and says so. Used by `LaunchApp` and `openUrl`. Opening apps never goes through XARVIS Hands (Hands is only imo/WhatsApp calls).
 
 - LiteRT-LM's GPU path corrupts text on the S22 (fp16 on a 2022 Adreno driver): obviously with the `-gpu` model build, subtly (odd mangled words) with the general build. `LocalLlm.calibrate()` compares GPU and CPU answers once per model file and picked **CPU** (~15 tokens/s). Don't switch the S22 to GPU; don't reintroduce the `-gpu` model (it can't run on CPU).

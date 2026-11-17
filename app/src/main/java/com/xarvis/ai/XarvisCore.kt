@@ -360,13 +360,15 @@ class XarvisCore(context: Context) {
                 }
                 // Watch mode asked from the other phone; its alerts go to every linked phone.
                 "watch" -> {
-                    val reply = com.xarvis.ai.watch.Watch.handle(appContext, req.optString("op"), req.optInt("hours"))
-                    if (req.optString("op") == "start" && reply.startsWith("👁")) post("👁 ${peer.name} asked me to watch the room.")
+                    // "what", not "op": DeviceLink.request puts its own "op" ("task") into the same JSON.
+                    val what = req.optString("what")
+                    val reply = com.xarvis.ai.watch.Watch.handle(appContext, what, req.optInt("hours"))
+                    if (what == "start" && reply.startsWith("👁")) post("👁 ${peer.name} asked me to watch the room.")
                     reply
                 }
                 // "rescue my S22" from the other phone: get this phone unstuck, news back as it goes (rescue/Rescuer).
                 "rescue" -> {
-                    val op = req.optString("op").ifBlank { "rescue" }
+                    val op = req.optString("what").ifBlank { "rescue" } // not "op": DeviceLink uses that key itself
                     when (op) {
                         "stop", "restart_ask" -> Unit
                         "restart" -> post("🔄 ${peer.name} asked me to restart this phone.")

@@ -132,7 +132,7 @@ class XarvisAgent(
         val peer = link.pairedPeers().firstOrNull() ?: return Reply("Watch mode needs the S22, sir, and no phone is linked.")
         val (op, hours) = com.xarvis.ai.watch.WatchCommands.op(cmd)
         return try {
-            val text = link.remoteTask(peer, org.json.JSONObject().put("action", "watch").put("op", op).put("hours", hours))
+            val text = link.remoteTask(peer, org.json.JSONObject().put("action", "watch").put("what", op).put("hours", hours))
             Reply("${peer.name}: $text")
         } catch (e: Exception) {
             if (e is CancellationException) throw e
@@ -155,7 +155,7 @@ class XarvisAgent(
         val peer = peers.firstOrNull { it.name == named } ?: peers.firstOrNull()
             ?: return Reply("No phone is linked to rescue, sir.")
         return try {
-            val text = link.remoteTask(peer, org.json.JSONObject().put("action", "rescue").put("op", cmd.op))
+            val text = link.remoteTask(peer, org.json.JSONObject().put("action", "rescue").put("what", cmd.op))
             Reply("${peer.name}: $text")
         } catch (e: Exception) {
             if (e is CancellationException) throw e
