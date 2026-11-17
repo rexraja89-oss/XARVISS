@@ -247,6 +247,21 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
         return ("[$app]\n" + lines.joinToString("\n")).take(6000)
     }
 
+    override fun allText(): String {
+        val roots = runCatching { windows.mapNotNull { it.root } }.getOrDefault(emptyList()).ifEmpty { listOfNotNull(rootInActiveWindow) }
+        val lines = ArrayList<String>()
+        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
+            if (n == null || depth > 40 || lines.size > 400) return
+            if (n.isVisibleToUser) (n.text ?: n.contentDescription)?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { lines += it }
+            for (i in 0 until n.childCount) walk(n.getChild(i), depth + 1)
+        }
+        roots.forEach { walk(it, 0) }
+        val app = rootInActiveWindow?.packageName?.toString()?.let { pkg ->
+            runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
+        }.orEmpty()
+        return ("[$app]\n" + lines.distinct().joinToString("\n")).take(6000)
+    }
+
     override fun tapText(label: String): Boolean {
         val node = findByText(rootInActiveWindow, label) ?: return false.also { log("tap '$label': not on screen") }
         if (isDangerous(label) || isDangerous(text(node))) {

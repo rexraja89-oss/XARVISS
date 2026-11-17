@@ -140,6 +140,29 @@ class XarvisAgent(
         }
     }
 
+    /**
+     * "rescue / wake up my S22": run on the linked phone it names (or the first one); on the S22 itself, with no
+     * other phone named, it runs here and reports in notifications.
+     */
+    private suspend fun rescueCommand(cmd: com.xarvis.ai.rescue.RescueCommands.Cmd, message: String): Reply {
+        val peers = link.pairedPeers()
+        val named = DeviceLink.namedIn(message, peers.map { it.name })
+        if (named == null && com.xarvis.ai.hands.HandsBridge.builtIn) {
+            return Reply(com.xarvis.ai.rescue.Rescuer.handle(appContext, cmd.op) { line ->
+                com.xarvis.ai.task.TaskManager.notice(appContext, "🛟 Rescue", line)
+            })
+        }
+        val peer = peers.firstOrNull { it.name == named } ?: peers.firstOrNull()
+            ?: return Reply("No phone is linked to rescue, sir.")
+        return try {
+            val text = link.remoteTask(peer, org.json.JSONObject().put("action", "rescue").put("op", cmd.op))
+            Reply("${peer.name}: $text")
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Reply("I couldn't reach ${peer.name}: ${e.message ?: e.javaClass.simpleName}. If it's on but unreachable, XARVIS Remote's view may still get through.")
+        }
+    }
+
     // ---- Hands-free control: alarm, calls, YouTube (agent/PhoneControl) ----
 
     private var adWatch: kotlinx.coroutines.Job? = null
@@ -316,6 +339,7 @@ class XarvisAgent(
                 }
                 ?: UpdateCommands.parse(message)?.let { updateCommand(it) }
                 ?: com.xarvis.ai.watch.WatchCommands.parse(message)?.let { watchCommand(it) }
+                ?: com.xarvis.ai.rescue.RescueCommands.parse(message)?.let { rescueCommand(it, message) }
                 ?: PhoneControl.parse(message)?.let { phoneControl(it) }
                 ?: com.xarvis.ai.shield.ShieldCommands.parse(message)?.let { shieldCommand(it) }
                 ?: com.xarvis.ai.aware.AwareCommands.parse(message)?.let { awareCommand(it, onPartial) }
