@@ -1067,7 +1067,8 @@ class DeviceLink(
 
         // A family phone Rex helps may only ask for help (and say hello); on XARVIS Helper, only remote help is answered.
         if (peer.kind == Peer.KIND_HELPER && op !in FROM_HELPER) return error("not allowed from XARVIS Helper")
-        if (helperApp && op !in HELPER_ANSWERS) return error("${if (remoteApp) "XARVIS Remote" else "XARVIS Helper"} doesn't do \"$op\"")
+        // XARVIS Remote also hears "help": the controlled phone saying it restarted and waits for the pattern.
+        if (helperApp && op !in HELPER_ANSWERS && !(remoteApp && op == "help")) return error("${if (remoteApp) "XARVIS Remote" else "XARVIS Helper"} doesn't do \"$op\"")
 
         // Remember its Tailscale address, to reach it later from outside home Wi-Fi.
         req.optString("tailnet").takeIf { it.isNotEmpty() && it != peer.tailnetHost }?.let {

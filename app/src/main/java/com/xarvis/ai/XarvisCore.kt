@@ -367,7 +367,11 @@ class XarvisCore(context: Context) {
                 // "rescue my S22" from the other phone: get this phone unstuck, news back as it goes (rescue/Rescuer).
                 "rescue" -> {
                     val op = req.optString("op").ifBlank { "rescue" }
-                    if (op != "stop") post("🛟 ${peer.name} asked me to ${if (op == "help") "call for help" else if (op == "wake") "wake up" else "get unstuck"}.")
+                    when (op) {
+                        "stop", "restart_ask" -> Unit
+                        "restart" -> post("🔄 ${peer.name} asked me to restart this phone.")
+                        else -> post("🛟 ${peer.name} asked me to ${if (op == "help") "call for help" else if (op == "wake") "wake up" else "get unstuck"}.")
+                    }
                     // Lines come seconds apart, so each goes on its own (no queue left waiting for an end line).
                     com.xarvis.ai.rescue.Rescuer.handle(appContext, op) { line ->
                         scope.launch(Dispatchers.IO) { runCatching { link.sendTaskNews(peer, line) } }
@@ -405,7 +409,7 @@ class XarvisCore(context: Context) {
         override fun taskNews(from: String, text: String) {
             // Watch mode's alerts come the same way: their own heading, so they don't read as a task.
             val watch = text.startsWith("👁") || text.startsWith("📷")
-            val rescue = text.startsWith("🛟")
+            val rescue = text.startsWith("🛟") || text.startsWith("🔄") || text.startsWith("🔐")
             post(if (watch || rescue) "$text — $from" else "🧠 $from: $text")
             com.xarvis.ai.task.TaskManager.notice(
                 appContext,

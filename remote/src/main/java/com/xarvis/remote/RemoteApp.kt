@@ -2,6 +2,8 @@ package com.xarvis.remote
 
 import android.app.Application
 import android.content.Context
+import android.content.SharedPreferences
+import android.os.UserManager
 import com.xarvis.ai.net.DeviceLink
 import com.xarvis.ai.net.LinkException
 import com.xarvis.ai.net.Peer
@@ -19,6 +21,27 @@ class RemoteApp : Application() {
     lateinit var link: DeviceLink
         private set
 
+    /**
+     * Every setting (identity, pairing keys, relay login, "hosting") lives in device storage, which Android opens
+     * at boot before the pattern (Direct Boot), so XARVIS Remote works right after a restart. The link code asks the
+     * application context for its prefs, so redirecting them here is enough. Moved over once, while unlocked.
+     */
+    @Volatile private var device: Context? = null
+
+    private fun storage(): Context = device ?: synchronized(this) {
+        device ?: createDeviceProtectedStorageContext().also { dp ->
+            val flags = dp.getSharedPreferences(STORAGE_FLAGS, MODE_PRIVATE)
+            if (!flags.getBoolean(MOVED, false) && getSystemService(UserManager::class.java)?.isUserUnlocked != false) {
+                MOVED_PREFS.forEach { runCatching { dp.moveSharedPreferencesFrom(baseContext, it) } }
+                flags.edit().putBoolean(MOVED, true).commit()
+            }
+            device = dp
+        }
+    }
+
+    override fun getSharedPreferences(name: String?, mode: Int): SharedPreferences =
+        storage().getSharedPreferences(name, mode)
+
     override fun onCreate() {
         super.onCreate()
         link = DeviceLink(this, RemoteHandler(this), helperApp = true, remoteApp = true)
@@ -28,6 +51,11 @@ class RemoteApp : Application() {
 
     companion object {
         fun link(context: Context): DeviceLink = (context.applicationContext as RemoteApp).link
+
+        private const val STORAGE_FLAGS = "storage"
+        private const val MOVED = "moved_to_device_storage"
+        /** Prefs XARVIS Remote and its link code use: link (identity, peers, keys), relay, brainkeys (relay login), remote. */
+        private val MOVED_PREFS = listOf("link", "relay", "brainkeys", "remote")
     }
 }
 
@@ -38,10 +66,10 @@ object RemotePrefs {
 
     /** "Let my linked phones control this phone": on for the S22 (off by default). */
     fun hosting(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(HOSTING, false)
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(HOSTING, false)
 
     fun setHosting(context: Context, on: Boolean) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(HOSTING, on).apply()
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(HOSTING, on).apply()
         if (on) {
             RemoteService.start(context)
         } else {
@@ -83,5 +111,6 @@ private class RemoteHandler(private val app: Context) : DeviceLink.Handler {
     override suspend fun brainOneShot(system: String, text: String): String? = null
     override suspend fun guard(from: String, action: String, req: JSONObject): JSONObject = no()
     override suspend fun guardAlert(from: String, text: String, jpeg: ByteArray?) {}
-    override suspend fun helpRequest(peer: Peer, text: String) {}
+    /** The phone this one controls restarted and waits for the pattern (RestartNews): tap → its screen. */
+    override suspend fun helpRequest(peer: Peer, text: String) = RestartNews.show(app, peer, text)
 }

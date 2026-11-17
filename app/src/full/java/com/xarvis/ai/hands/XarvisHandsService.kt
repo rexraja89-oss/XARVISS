@@ -206,6 +206,7 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
             "notifications" -> AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS
             "quick" -> AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS
             "lock" -> AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN
+            "power" -> AccessibilityService.GLOBAL_ACTION_POWER_DIALOG
             else -> return false
         }
         return performGlobalAction(action)
@@ -245,6 +246,23 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
         val lines = items.sortedWith(compareBy({ it.first.top }, { it.first.left })).map { it.second }.distinct()
         log("read the screen of $app: ${lines.size} lines")
         return ("[$app]\n" + lines.joinToString("\n")).take(6000)
+    }
+
+    override fun pressExact(label: String, last: Boolean): Boolean {
+        val roots = runCatching { windows.mapNotNull { it.root } }.getOrDefault(emptyList()).ifEmpty { listOfNotNull(rootInActiveWindow) }
+        val found = ArrayList<Pair<Rect, AccessibilityNodeInfo>>()
+        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
+            if (n == null || depth > 40 || found.size > 20) return
+            if (n.isVisibleToUser && text(n).trim().equals(label, ignoreCase = true)) found += Rect().also { n.getBoundsInScreen(it) } to n
+            for (i in 0 until n.childCount) walk(n.getChild(i), depth + 1)
+        }
+        roots.forEach { walk(it, 0) }
+        val (r, node) = (if (last) found.maxByOrNull { it.first.top } else found.minByOrNull { it.first.top }) ?: return false
+        val target = if (node.isClickable) node else clickableSelfOrAncestor(node)
+        val clicked = target != null && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        if (!clicked) gesture("tap", r.exactCenterX(), r.exactCenterY(), 0f, 0f, 60)
+        log("press exactly '$label' -> ${if (clicked) "clicked" else "tapped"}")
+        return true
     }
 
     override fun allText(): String {

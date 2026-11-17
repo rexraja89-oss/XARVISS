@@ -37,6 +37,10 @@
         <meta-data
             android:name="xarvis.src"
             android:value="${xarvisSrc}" />
+        <!-- XARVIS on the same phone reads this before "restart my S22": this build is reachable before the first unlock. -->
+        <meta-data
+            android:name="xarvis.directboot"
+            android:value="true" />
         <activity
             android:name=".HomeActivity"
             android:exported="true"
@@ -64,14 +68,18 @@
             android:exported="false"
             android:excludeFromRecents="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <!-- Direct Boot (17 Nov 2026): after a restart these start before the first unlock, so Rex can still
+             reach the phone from far away and draw the pattern himself. Their settings live in device storage. -->
         <service
             android:name=".RemoteService"
+            android:directBootAware="true"
             android:exported="false"
             android:foregroundServiceType="connectedDevice|mediaProjection" />
         <!-- Taps, typing and screenshots for the controlling phone. exported=true is required for Accessibility
              services (only the system can bind it: BIND_ACCESSIBILITY_SERVICE). -->
         <service
             android:name=".RemoteHands"
+            android:directBootAware="true"
             android:exported="true"
             android:label="@string/app_name"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
@@ -84,8 +92,10 @@
         </service>
         <receiver
             android:name=".BootReceiver"
+            android:directBootAware="true"
             android:exported="true">
             <intent-filter>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />

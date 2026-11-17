@@ -35,6 +35,7 @@ object Rescuer {
     @Volatile private var job: Job? = null
     private var wake: PowerManager.WakeLock? = null
 
+    private const val REMOTE_PKG = "com.xarvis.remote"
     const val HELP_LINE = "Excuse me. This is XARVIS, Rex's phone. Please turn me face up, or uncover my top edge. Thank you."
     private const val SETTLE_MS = 1_600L
     private const val KEEP_ON_MS = 2 * 60_000L
@@ -54,6 +55,26 @@ object Rescuer {
                 callForHelp(app)
                 "🛟 Calling out loud, 3 times: “$HELP_LINE”"
             }
+            "restart_ask" -> restartWarning(app)
+            "restart" -> {
+                val hands = HandsBridge.service
+                    ?: return "I can't restart: XARVIS Hands is off here, and only it can press Restart in the power menu."
+                job?.cancel()
+                job = scope.launch {
+                    try {
+                        restart(app, hands, report)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        report("🔄 The restart hit a problem: ${e.message ?: e.javaClass.simpleName}")
+                    }
+                }
+                "🔄 Restarting now. " + if (remoteReady(app) == null) {
+                    "In about a minute XARVIS Remote tells you I'm up: open it → 🖥 Control, and draw your pattern."
+                } else {
+                    "I'll be unreachable until someone unlocks me by hand."
+                }
+            }
             "wake", "rescue" -> {
                 job?.cancel()
                 job = scope.launch {
@@ -69,6 +90,61 @@ object Rescuer {
             }
             else -> "I don't know that rescue request."
         }
+    }
+
+    /**
+     * Whether XARVIS Remote on this phone comes up before the first unlock after a restart: a build with Direct Boot
+     * (its "xarvis.directboot" meta-data) and its Accessibility switched on. Null = ready, else why not.
+     */
+    fun remoteReady(context: Context): String? {
+        val info = runCatching {
+            context.packageManager.getApplicationInfo(REMOTE_PKG, android.content.pm.PackageManager.GET_META_DATA)
+        }.getOrNull() ?: return "XARVIS Remote isn't installed here"
+        if (info.metaData?.getBoolean("xarvis.directboot") != true) return "XARVIS Remote here is an older version (update it first)"
+        val a11y = runCatching {
+            android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+        }.getOrNull().orEmpty()
+        if (!a11y.contains("$REMOTE_PKG/", ignoreCase = true)) return "XARVIS Remote's Accessibility is off here"
+        return null
+    }
+
+    private fun restartWarning(context: Context): String {
+        val why = remoteReady(context)
+        return if (why == null) {
+            "🔄 Ready to restart. Right after it, XARVIS Remote comes up before your pattern and tells you; open it → 🖥 Control and draw your pattern. Everything else (XARVIS, Hands, the wake word, Watch mode) waits for that first unlock. Say “yes, restart my S22” to go."
+        } else {
+            "⚠ After a restart I'm unreachable until someone unlocks me by hand — $why. Say “yes, restart my S22” only if that's OK."
+        }
+    }
+
+    /** Power menu → Restart → Restart again (Samsung asks twice). If Samsung wants the pattern first, say so. */
+    private suspend fun restart(context: Context, hands: HandsBridge.Hands, report: (String) -> Unit) {
+        delay(2_000) // the "restarting" reply reaches the other phone first
+        wakeScreen(context)
+        delay(800)
+        if (!hands.globalAction("power")) {
+            report("🔄 Android didn't open the power menu, so I couldn't restart.")
+            return release()
+        }
+        delay(1_500)
+        if (!hands.pressExact("Restart", last = false)) {
+            report("🔄 I opened the power menu but found no Restart button. ${look(context).line()}")
+            hands.globalAction("back")
+            return release()
+        }
+        delay(1_500)
+        hands.pressExact("Restart", last = true) // Samsung's confirm (the same word, lower down)
+        delay(6_000)
+        // Still here: Samsung wants the pattern before a restart ("Lock network and security"), or it didn't take.
+        val l = look(context)
+        report(
+            if (l.state == State.PAD || l.state == State.TOUCH_GUARD) {
+                "🔐 Samsung wants your pattern before it restarts. ${l.line()} Draw it in the remote view, then say “yes, restart my S22” again."
+            } else {
+                "🔄 The restart didn't go through. ${l.line()}"
+            },
+        )
+        release()
     }
 
     private class Look(val state: State, val near: Boolean?, val app: String?) {

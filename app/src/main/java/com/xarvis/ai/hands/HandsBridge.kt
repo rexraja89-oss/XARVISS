@@ -27,7 +27,7 @@ object HandsBridge {
         fun screenshot(onFrame: (android.graphics.Bitmap?) -> Unit)
         /** "tap" / "long" at ([x],[y]), or "swipe" to ([x2],[y2]) over [ms]; screen pixels. */
         fun gesture(kind: String, x: Float, y: Float, x2: Float, y2: Float, ms: Long): Boolean
-        /** "back", "home", "recents", "notifications", "quick", "lock". */
+        /** "back", "home", "recents", "notifications", "quick", "lock", "power" (the power menu). */
         fun globalAction(name: String): Boolean
         /** Types [text] into the field that has the cursor (and presses Enter if [enter]). */
         fun typeText(text: String, enter: Boolean): Boolean
@@ -42,6 +42,8 @@ object HandsBridge {
         // ---- XARVIS acting on this phone for the linked one ("open WhatsApp on my S22 and read…") ----
         /** The text on the screen right now, top to bottom, with the app's name first. */
         fun screenText(): String
+        /** Clicks the visible item whose label is exactly [label] (any window); the lowest on screen when [last]. */
+        fun pressExact(label: String, last: Boolean): Boolean = false
         /** Like [screenText] but from every window on screen (the lock screen and Samsung's overlays too). */
         fun allText(): String = screenText()
         /** Taps the visible thing labelled [label] (never payments, passwords, OTPs…); whether it did. */
