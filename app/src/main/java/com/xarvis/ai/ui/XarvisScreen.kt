@@ -51,6 +51,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Button
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.runtime.CompositionLocalProvider
@@ -522,7 +523,7 @@ private fun Header(
                 "☰", fontSize = 26.sp, color = XarvisCyan,
                 modifier = Modifier.clip(CircleShape).clickable(onClick = onMenu).padding(end = 12.dp, top = 2.dp, bottom = 2.dp),
             )
-            Text("XARVIS", style = MaterialTheme.typography.titleLarge, color = XarvisCyan)
+            RgbTitle()
             Spacer(Modifier.weight(1f))
             if (isProcessing) {
                 CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = XarvisPurple)
@@ -841,4 +842,47 @@ private fun openCameraNow(
         com.xarvis.ai.files.CameraShots.discard(context, uri)
         android.widget.Toast.makeText(context, "No camera app answered.", android.widget.Toast.LENGTH_LONG).show()
     }
+}
+
+
+/**
+ * The header's "XARVIS" (Rex, 17 Nov 2026: "bold, RGB colour & strong appearance"): heaviest weight, a rainbow
+ * gradient that flows through the letters, and a glow whose colour follows it.
+ */
+@Composable
+private fun RgbTitle() {
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "rgb")
+    val p by t.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            androidx.compose.animation.core.tween(4000, easing = androidx.compose.animation.core.LinearEasing),
+        ),
+        label = "rgbShift",
+    )
+    val span = 420f
+    val rgb = listOf(
+        androidx.compose.ui.graphics.Color(0xFFFF1744), androidx.compose.ui.graphics.Color(0xFFFFEA00),
+        androidx.compose.ui.graphics.Color(0xFF00E676), androidx.compose.ui.graphics.Color(0xFF00E5FF),
+        androidx.compose.ui.graphics.Color(0xFF2979FF), androidx.compose.ui.graphics.Color(0xFFD500F9),
+        androidx.compose.ui.graphics.Color(0xFFFF1744),
+    )
+    val brush = androidx.compose.ui.graphics.Brush.linearGradient(
+        colors = rgb,
+        start = androidx.compose.ui.geometry.Offset(p * span, 0f),
+        end = androidx.compose.ui.geometry.Offset(p * span + span, span * 0.25f),
+        tileMode = androidx.compose.ui.graphics.TileMode.Repeated,
+    )
+    val glow = androidx.compose.ui.graphics.Color.hsv((p * 360f) % 360f, 1f, 1f)
+    Text(
+        "XARVIS",
+        style = MaterialTheme.typography.titleLarge.copy(
+            brush = brush,
+            // The theme's monospace has no heavy weight; Roboto Black does.
+            fontFamily = androidx.compose.ui.text.font.FontFamily.SansSerif,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
+            fontSize = 27.sp,
+            letterSpacing = 4.sp,
+            shadow = androidx.compose.ui.graphics.Shadow(color = glow.copy(alpha = 0.85f), blurRadius = 18f),
+        ),
+    )
 }
