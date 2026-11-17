@@ -27,6 +27,8 @@ class RescueTest {
         assertEquals(Cmd.Restart, RescueCommands.parse("Xarvis, reboot my phone"))
         assertEquals(Cmd.RestartYes, RescueCommands.parse("yes, restart my S22"))
         assertEquals(Cmd.RestartYes, RescueCommands.parse("Yes restart my s22 ultra now"))
+        assertEquals(Cmd.Restart, RescueCommands.parse("Restart"))
+        assertEquals(Cmd.RestartYes, RescueCommands.parse("yes restart"))
         assertNull(RescueCommands.parse("restart the video"))
         assertNull(RescueCommands.parse("wake me up at 7"))
         assertNull(RescueCommands.parse("help me write a letter"))

@@ -36,7 +36,7 @@ object RescueCommands {
         re(LEAD + PHONE + """\s+call\s+(?:out\s+)?for\s+help""" + TAIL),
         re(LEAD + """(?:ask|tell)\s+(?:someone|somebody|anyone)\s+to\s+(?:turn|flip|pick\s+up|uncover)\s+""" + PHONE + """(?:\s+(?:over|up|face\s+up))?""" + TAIL),
     )
-    private val RESTART = re(LEAD + """(yes[,.!]?\s+(?:please\s+)?|go ahead[,.!]?\s+(?:and\s+)?)?(?:restart|reboot)\s+""" + PHONE + TAIL)
+    private val RESTART = re(LEAD + """(yes[,.!]?\s+(?:please\s+)?|go ahead[,.!]?\s+(?:and\s+)?)?(?:restart|reboot)(?:\s+""" + PHONE + """)?""" + TAIL)
     private val STOP = re(LEAD + """(?:stop|cancel|end)\s+(?:the\s+)?(?:rescue|rescuing)(?:\s+(?:on\s+)?""" + PHONE + """)?""" + TAIL)
 
     fun parse(message: String): Cmd? {
