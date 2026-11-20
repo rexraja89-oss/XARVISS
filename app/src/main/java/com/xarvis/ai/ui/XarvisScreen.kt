@@ -397,14 +397,6 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
         val newChat = state.messages.none { it.fromUser }
         val rainAlpha by animateFloatAsState(if (newChat) 1f else 0f, tween(1800), label = "rain")
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            // Rex's picture behind everything, faint (17 Nov 2026: "under the chat UI… not strong, lite"); edges fade out.
-            Image(
-                painter = painterResource(R.drawable.xarvis_bg_skull),
-                contentDescription = null,
-                modifier = Modifier.matchParentSize(),
-                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                alpha = 0.22f,
-            )
             if (rainAlpha > 0.01f) CodeRain(Modifier.matchParentSize(), alpha = rainAlpha)
             LazyColumn(
                 state = listState,
