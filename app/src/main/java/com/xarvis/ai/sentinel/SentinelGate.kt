@@ -255,7 +255,7 @@ class SentinelGate(
     }
 
     /** Listens for the code, again and again until it's given or time is up. */
-    private fun listen() = main.post {
+    private fun listen(): Boolean = main.post {
         val c = _ui.value as? Ui.Challenge ?: return@post
         if (c.listening || context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) return@post
         _ui.value = c.copy(listening = true)
@@ -270,7 +270,7 @@ class SentinelGate(
         }.also { it.start() }
     }
 
-    private fun stopListening() = main.post {
+    private fun stopListening(): Boolean = main.post {
         listener?.cancel()
         listener = null
     }
