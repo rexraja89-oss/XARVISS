@@ -163,6 +163,35 @@ class XarvisAgent(
         }
     }
 
+    /**
+     * "fill this form": on this phone when it has XARVIS Hands built in (the S22) and no other phone was named,
+     * else on the linked phone (its summary comes back as news). The cloud brain matches boxes to the CV; without
+     * a cloud key, Gemma does.
+     */
+    private suspend fun formCommand(cmd: com.xarvis.ai.form.FormCommands.Cmd, message: String): Reply {
+        val peers = link.pairedPeers()
+        val named = DeviceLink.namedIn(message, peers.map { it.name })
+        if (!cmd.remote && named == null && com.xarvis.ai.hands.HandsBridge.builtIn) {
+            val text = com.xarvis.ai.form.FormRunner.fillHere(appContext, { s, p -> formBrain(s, p) }) { line ->
+                com.xarvis.ai.task.TaskManager.notice(appContext, "✍ Filling the form", line)
+            }
+            com.xarvis.ai.task.TaskManager.notice(appContext, "✍ Form", text)
+            return Reply(text)
+        }
+        val peer = peers.firstOrNull { it.name == named } ?: peers.firstOrNull()
+            ?: return Reply("Form filling runs on the S22, sir, and no phone is linked.")
+        return try {
+            Reply("${peer.name}: " + link.remoteTask(peer, org.json.JSONObject().put("action", "form")))
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Reply("I couldn't reach ${peer.name}: ${e.message ?: e.javaClass.simpleName}")
+        }
+    }
+
+    /** The brain for form filling: the cloud chain when there's a key (Rex: "cloud brain is fine"), else Gemma. */
+    suspend fun formBrain(system: String, prompt: String): String =
+        if (cloud.anyKey()) cloud.chat(system, prompt, maxTokens = 3000) {}.text else llm.oneShot(system, prompt)
+
     // ---- Hands-free control: alarm, calls, YouTube (agent/PhoneControl) ----
 
     private var adWatch: kotlinx.coroutines.Job? = null
@@ -340,6 +369,7 @@ class XarvisAgent(
                 ?: UpdateCommands.parse(message)?.let { updateCommand(it) }
                 ?: com.xarvis.ai.watch.WatchCommands.parse(message)?.let { watchCommand(it) }
                 ?: com.xarvis.ai.rescue.RescueCommands.parse(message)?.let { rescueCommand(it, message) }
+                ?: com.xarvis.ai.form.FormCommands.parse(message)?.let { formCommand(it, message) }
                 ?: PhoneControl.parse(message)?.let { phoneControl(it) }
                 ?: com.xarvis.ai.shield.ShieldCommands.parse(message)?.let { shieldCommand(it) }
                 ?: com.xarvis.ai.aware.AwareCommands.parse(message)?.let { awareCommand(it, onPartial) }

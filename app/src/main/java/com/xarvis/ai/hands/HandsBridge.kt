@@ -42,6 +42,8 @@ object HandsBridge {
         // ---- XARVIS acting on this phone for the linked one ("open WhatsApp on my S22 and read…") ----
         /** The text on the screen right now, top to bottom, with the app's name first. */
         fun screenText(): String
+        /** Puts [text] in the text box at ([x], [y]) (screen px), replacing what's there; false if there's none. */
+        fun setField(x: Int, y: Int, text: String): Boolean = false
         /** Clicks the visible item whose label is exactly [label] (any window); the lowest on screen when [last]. */
         fun pressExact(label: String, last: Boolean): Boolean = false
         /** Like [screenText] but from every window on screen (the lock screen and Samsung's overlays too). */

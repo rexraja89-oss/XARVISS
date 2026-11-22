@@ -47,6 +47,9 @@ class PhoneAgent(
         val n: Int, val label: String, val tappable: Boolean, val editable: Boolean, val password: Boolean, val x: Int, val y: Int,
         /** The app's own name for it ("connect_button"), when it has one: how a taught skill finds it again. */
         val id: String = "",
+        /** For text boxes: the hint (placeholder) and what's typed in it now ("" = empty). */
+        val hint: String = "",
+        val value: String = "",
     )
 
     data class Screen(val app: String, val elements: List<Element>, val width: Int, val height: Int)

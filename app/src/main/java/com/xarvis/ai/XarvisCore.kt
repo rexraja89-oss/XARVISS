@@ -366,6 +366,18 @@ class XarvisCore(context: Context) {
                     if (what == "start" && reply.startsWith("👁")) post("👁 ${peer.name} asked me to watch the room.")
                     reply
                 }
+                // "fill the form on my S22" from the other phone: fill what's on this screen; the summary goes back.
+                "form" -> {
+                    val news = taskNewsTo(peer)
+                    post("✍ ${peer.name} asked me to fill the form on this screen.")
+                    scope.launch {
+                        val text = runCatching {
+                            com.xarvis.ai.form.FormRunner.fillHere(appContext, { s, p -> agent.formBrain(s, p) }) { news(it) }
+                        }.getOrElse { "✍ The form filling hit a problem: ${it.message ?: it.javaClass.simpleName}" }
+                        news(if (text.startsWith("✍")) "🏁 $text" else "🏁 ✍ $text")
+                    }
+                    "✍ On it — filling the form on my screen. Watch it in the remote view; nothing gets sent."
+                }
                 // "rescue my S22" from the other phone: get this phone unstuck, news back as it goes (rescue/Rescuer).
                 "rescue" -> {
                     val op = req.optString("what").ifBlank { "rescue" } // not "op": DeviceLink uses that key itself
@@ -411,12 +423,14 @@ class XarvisCore(context: Context) {
         override fun taskNews(from: String, text: String) {
             // Watch mode's alerts come the same way: their own heading, so they don't read as a task.
             val watch = text.startsWith("👁") || text.startsWith("📷")
-            val rescue = text.startsWith("🛟") || text.startsWith("🔄") || text.startsWith("🔐")
+            val form = text.startsWith("✍") || text.startsWith("🏁 ✍")
+            val rescue = text.startsWith("🛟") || text.startsWith("🔄") || text.startsWith("🔐") || form
             post(if (watch || rescue) "$text — $from" else "🧠 $from: $text")
             com.xarvis.ai.task.TaskManager.notice(
                 appContext,
                 when {
                     watch -> "👁 Watch mode · $from"
+                    form -> "✍ Form · $from"
                     rescue -> "🛟 Rescue · $from"
                     else -> "🧠 Task on $from"
                 },

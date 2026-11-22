@@ -265,6 +265,28 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
         return true
     }
 
+    override fun setField(x: Int, y: Int, text: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        var best: AccessibilityNodeInfo? = null
+        var bestArea = Int.MAX_VALUE
+        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
+            if (n == null || depth > 40) return
+            if (n.isEditable && !n.isPassword && n.isVisibleToUser) {
+                val r = Rect().also { n.getBoundsInScreen(it) }
+                if (r.contains(x, y) && r.width() * r.height() < bestArea) { best = n; bestArea = r.width() * r.height() }
+            }
+            for (i in 0 until n.childCount) walk(n.getChild(i), depth + 1)
+        }
+        walk(root, 0)
+        val field = best ?: return false
+        field.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        val b = Bundle()
+        b.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        val ok = field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b)
+        log("form box at $x,$y -> ${if (ok) "filled" else "refused"} (${text.length} chars)")
+        return ok
+    }
+
     override fun allText(): String {
         val roots = runCatching { windows.mapNotNull { it.root } }.getOrDefault(emptyList()).ifEmpty { listOfNotNull(rootInActiveWindow) }
         val lines = ArrayList<String>()
@@ -318,7 +340,7 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
         getSystemService(android.hardware.display.DisplayManager::class.java)?.getDisplay(android.view.Display.DEFAULT_DISPLAY)?.getRealMetrics(dm)
         val out = org.json.JSONObject().put("w", dm.widthPixels).put("h", dm.heightPixels)
         if (root == null) return out.put("app", "").put("els", org.json.JSONArray()).toString()
-        class E(val r: Rect, val label: String, val tap: Boolean, val edit: Boolean, val pw: Boolean, val id: String)
+        class E(val r: Rect, val label: String, val tap: Boolean, val edit: Boolean, val pw: Boolean, val id: String, val hint: String = "", val value: String = "")
         val found = ArrayList<E>()
         fun tappable(n: AccessibilityNodeInfo): Boolean {
             var c: AccessibilityNodeInfo? = n
@@ -344,7 +366,8 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
                 if (label.isNotEmpty() || n.isEditable) {
                     val r = Rect().also { n.getBoundsInScreen(it) }
                     if (r.width() > 0 && r.height() > 0) {
-                        found += E(r, label.replace('\n', ' ').take(80), tappable(n), n.isEditable, n.isPassword, n.viewIdResourceName?.substringAfter(":id/").orEmpty())
+                        val value = if (n.isEditable && !n.isShowingHintText && !n.isPassword) text.take(80) else ""
+                        found += E(r, label.replace('\n', ' ').take(80), tappable(n), n.isEditable, n.isPassword, n.viewIdResourceName?.substringAfter(":id/").orEmpty(), hint.take(80), value)
                     }
                 }
             }
@@ -359,7 +382,10 @@ class XarvisHandsService : AccessibilityService(), HandsBridge.Hands {
             .take(60).forEach { e ->
                 els.put(
                     org.json.JSONObject().put("t", e.label).put("c", e.tap).put("e", e.edit).put("p", e.pw)
-                        .put("x", e.r.centerX()).put("y", e.r.centerY()).apply { if (e.id.isNotEmpty()) put("i", e.id) },
+                        .put("x", e.r.centerX()).put("y", e.r.centerY()).apply {
+                            if (e.id.isNotEmpty()) put("i", e.id)
+                            if (e.edit) { if (e.hint.isNotEmpty()) put("h", e.hint); if (e.value.isNotEmpty()) put("v", e.value) }
+                        },
                 )
             }
         // Teach mode looks every few seconds: not worth a log line each time.

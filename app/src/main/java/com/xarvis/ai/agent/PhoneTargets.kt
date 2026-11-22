@@ -21,6 +21,7 @@ internal fun screenFrom(json: String): PhoneAgent.Screen {
         PhoneAgent.Element(
             n = i + 1, label = e.optString("t"), tappable = e.optBoolean("c"), editable = e.optBoolean("e"),
             password = e.optBoolean("p"), x = e.optInt("x"), y = e.optInt("y"), id = e.optString("i"),
+            hint = e.optString("h"), value = e.optString("v"),
         )
     }
     return PhoneAgent.Screen(o.optString("app"), elements, o.optInt("w"), o.optInt("h"))
