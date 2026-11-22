@@ -425,11 +425,13 @@ class XarvisCore(context: Context) {
             val watch = text.startsWith("👁") || text.startsWith("📷")
             val form = text.startsWith("✍") || text.startsWith("🏁 ✍")
             val rescue = text.startsWith("🛟") || text.startsWith("🔄") || text.startsWith("🔐") || form
-            post(if (watch || rescue) "$text — $from" else "🧠 $from: $text")
+            val door = text.startsWith("🔑") || text.startsWith("✅ The code") || text.startsWith("✅ It was you") || text.startsWith("🔒 Nobody")
+            post(if (watch || rescue || door) "$text — $from" else "🧠 $from: $text")
             com.xarvis.ai.task.TaskManager.notice(
                 appContext,
                 when {
                     watch -> "👁 Watch mode · $from"
+                    door -> "🔑 Sentinel · $from"
                     form -> "✍ Form · $from"
                     rescue -> "🛟 Rescue · $from"
                     else -> "🧠 Task on $from"
@@ -491,6 +493,17 @@ class XarvisCore(context: Context) {
 
     /** The link to the other phone, for the remote-control screen (RemoteScreenActivity). */
     val deviceLink: DeviceLink get() = link
+
+    /** The Sentinel at the door: who opened XARVIS (S22; see sentinel/SentinelGate). */
+    val gate: com.xarvis.ai.sentinel.SentinelGate by lazy {
+        com.xarvis.ai.sentinel.SentinelGate(appContext, scope, link, object : com.xarvis.ai.sentinel.SentinelGate.Io {
+            override fun remoteControlled() = synchronized(controlLock) { controlledBy != null }
+            override fun speak(text: String, pitch: Float, rate: Float) = voice.speak(text, pitch, rate)
+            override suspend fun afterSpeaking() = this@XarvisCore.afterSpeaking()
+            override fun stopSpeaking() = voice.stop()
+            override fun post(text: String) = this@XarvisCore.post(text)
+        })
+    }
 
     private val controlLock = Any()
     private var controlledBy: String? = null
@@ -581,6 +594,7 @@ class XarvisCore(context: Context) {
     fun submit(command: String, photo: Uri? = null, document: Uri? = null, spoken: Boolean = false) {
         val text = command.trim()
         if ((text.isEmpty() && photo == null && document == null) || _state.value.isProcessing) return
+        if (gate.closed()) return // the Sentinel wants its code first
         val shown = text.ifEmpty { if (photo != null) "What's in this photo?" else "What's in this file?" }
         val question = ChatMessage(true, shown)
         val answer = ChatMessage(false, "")
@@ -840,6 +854,7 @@ class XarvisCore(context: Context) {
      * listening for more.
      */
     fun voiceHeard(text: String, done: (Boolean) -> Unit) {
+        if (gate.closed()) { done(false); return }
         val talk = com.xarvis.ai.voice.VoiceTalk
         voiceSession = true
         if (talk.closing(text) == null) _voiceLive.value = VoiceLive(active = true, heard = text)

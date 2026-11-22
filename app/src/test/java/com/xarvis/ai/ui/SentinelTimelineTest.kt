@@ -29,4 +29,14 @@ class SentinelTimelineTest {
         val b = SentinelTimeline.box(1080f, 1700f)
         assertTrue(b[2] > 1000f && b[1] > 0f && b[1] + b[3] < 1700f)
     }
+
+    @Test
+    fun theEyeAtTheDoor() {
+        assertTrue(SentinelTimeline.moodEye(SentinelTimeline.LOOKING, 1f, 0f) > 0.5f)          // lit while it looks
+        assertTrue(SentinelTimeline.moodEye(SentinelTimeline.STRANGER, 1f, 0f) > 1.2f)
+        assertEquals(0.3f, SentinelTimeline.moodEye(SentinelTimeline.CALM, 1f, 0.3f), 0f)
+        assertTrue(SentinelTimeline.moodFlash(SentinelTimeline.STRANGER, 0.01f) > 0.8f)
+        assertTrue(SentinelTimeline.moodFlash(SentinelTimeline.OWNER, 0.01f) < 0.5f)
+        assertEquals(0f, SentinelTimeline.moodFlash(SentinelTimeline.STRANGER, 3f), 0f)
+    }
 }

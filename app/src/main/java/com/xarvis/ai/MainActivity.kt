@@ -67,7 +67,10 @@ class MainActivity : ComponentActivity() {
                     showSplash = false
                 }
                 Crossfade(targetState = showSplash, animationSpec = tween(700), label = "splash") { splash ->
-                    if (splash) XarvisSplash() else XarvisScreen()
+                    if (splash) XarvisSplash() else androidx.compose.foundation.layout.Box {
+                        XarvisScreen()
+                        com.xarvis.ai.ui.SentinelDoor() // a stranger meets the Sentinel over everything (S22)
+                    }
                 }
             }
         }
@@ -82,6 +85,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         (application as XarvisApp).core.screenVisible = false
+        (application as XarvisApp).core.gate.left()
         super.onPause()
     }
 
@@ -89,6 +93,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         (application as XarvisApp).core.screenVisible = true
         (application as XarvisApp).core.refresh() // battery, and whether a newer XARVIS is out
+        (application as XarvisApp).core.gate.opened() // the Sentinel looks at who opened XARVIS (S22)
         // "Xarvis" gets the microphone from here (the app on screen), e.g. after a restart: this XARVIS's own
         // ears on the S22, and the XARVIS Ears app where XARVIS may not use the microphone (the benco).
         WakeWord.startIfOn(this)

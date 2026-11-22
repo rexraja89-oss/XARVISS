@@ -757,4 +757,26 @@ private fun SentinelSwitch() {
         }
         Switch(checked = on, onCheckedChange = { on = it; SentinelFace.set(context, it) })
     }
+    // The Sentinel at the door: only where it can see (the S22 with Rex's face taught).
+    val gate = remember { (context.applicationContext as com.xarvis.ai.XarvisApp).core.gate }
+    if (!context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_FRONT)) return
+    var watch by remember { mutableStateOf(gate.enabled()) }
+    val ready = remember { gate.possible() }
+    Row(
+        Modifier.fillMaxWidth().clickable { watch = !watch; gate.setEnabled(watch) }.padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Sentinel watches the door", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+            Text(
+                when {
+                    !ready -> "Teach me your face first: ☰ → XARVIS Eyes → ➕ Teach a face (name it Rex)."
+                    watch -> "When XARVIS opens I look through the front camera: you get a greeting; a stranger gets a code challenge sent to your other phone, and a minute before the phone locks. Nobody in view (or you through the remote view) = nothing."
+                    else -> "Off: XARVIS opens for anyone, as before."
+                },
+                style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+            )
+        }
+        Switch(checked = watch, onCheckedChange = { watch = it; gate.setEnabled(it) })
+    }
 }

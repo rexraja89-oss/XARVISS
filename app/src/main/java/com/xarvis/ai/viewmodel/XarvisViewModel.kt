@@ -20,6 +20,8 @@ class XarvisViewModel(application: Application) : AndroidViewModel(application) 
     fun submit(command: String, photo: android.net.Uri? = null, document: android.net.Uri? = null, spoken: Boolean = false) =
         core.submit(command, photo, document, spoken)
 
+    val gate get() = core.gate
+
     fun toggleSpeaker() = core.toggleSpeaker()
 
     fun stop() = core.stop()

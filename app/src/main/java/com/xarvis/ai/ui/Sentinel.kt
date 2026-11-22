@@ -42,6 +42,12 @@ object SentinelFace {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY, on).apply()
     fun available(): Boolean = Build.VERSION.SDK_INT >= 33
 
+    /** What the Sentinel is doing at the door (sentinel/SentinelGate): drives its eye and lightning. */
+    const val CALM = SentinelTimeline.CALM
+    const val LOOKING = SentinelTimeline.LOOKING
+    const val OWNER = SentinelTimeline.OWNER
+    const val STRANGER = SentinelTimeline.STRANGER
+
     /** Where the left eye sits in each pose (x, y as 0–1 of the figure's picture); from make_atlas.py. */
     internal val EYE = floatArrayOf(
         0.5925f, 0.4558f, 0.5925f, 0.4558f, 0.5925f, 0.4558f, 0.5925f, 0.4558f, 0.5925f, 0.4558f, 0.5925f, 0.4558f, 0.5925f, 0.4558f, 0.5925f, 0.4558f, 0.5925f, 0.4558f, 0.5925f, 0.4548f, 0.5925f, 0.4530f, 0.5925f, 0.4507f, 0.5925f, 0.4478f, 0.5925f, 0.4445f, 0.5925f, 0.4409f, 0.5925f, 0.4369f, 0.5925f, 0.4328f, 0.5925f, 0.4273f, 0.5925f, 0.4206f, 0.5925f, 0.4134f, 0.5925f, 0.4071f, 0.5925f, 0.4030f, 0.5925f, 0.4019f, 0.5925f, 0.4034f, 0.5925f, 0.4065f, 0.5925f, 0.4094f, 0.5925f, 0.4110f, 0.5914f, 0.4111f, 0.5853f, 0.4111f, 0.5755f, 0.4111f, 0.5637f, 0.4111f, 0.5514f, 0.4111f, 0.5400f, 0.4111f, 0.5310f, 0.4111f, 0.5255f, 0.4111f, 0.5246f, 0.4111f, 0.5246f, 0.4111f, 0.5246f, 0.4111f, 0.5246f, 0.4111f, 0.5246f, 0.4111f, 0.5293f, 0.4111f, 0.5387f, 0.4111f, 0.5510f, 0.4111f, 0.5647f, 0.4111f, 0.5776f, 0.4111f, 0.5876f, 0.4111f, 0.5924f, 0.4111f, 0.5925f, 0.4111f,
@@ -49,16 +55,16 @@ object SentinelFace {
 }
 
 @Composable
-fun Sentinel(modifier: Modifier, alpha: Float, thinking: Boolean, typing: Boolean) {
+fun Sentinel(modifier: Modifier, alpha: Float, thinking: Boolean, typing: Boolean, mood: Int = SentinelFace.CALM) {
     if (Build.VERSION.SDK_INT < 33) {
         CodeRain(modifier, alpha); return
     }
-    SentinelShader(modifier, alpha, thinking, typing)
+    SentinelShader(modifier, alpha, thinking, typing, mood)
 }
 
 @RequiresApi(33)
 @Composable
-private fun SentinelShader(modifier: Modifier, alpha: Float, thinking: Boolean, typing: Boolean) {
+private fun SentinelShader(modifier: Modifier, alpha: Float, thinking: Boolean, typing: Boolean, mood: Int) {
     val context = LocalContext.current
     // If this phone's graphics driver refuses the program, fall back to the plain rain instead of crashing.
     var broken by remember { mutableStateOf(false) }
@@ -79,6 +85,9 @@ private fun SentinelShader(modifier: Modifier, alpha: Float, thinking: Boolean, 
     val think by rememberUpdatedState(thinking)
     val type by rememberUpdatedState(typing)
     var time by remember { mutableFloatStateOf(0f) }
+    // The Sentinel at the door: when its mood changes (it decided who's there), lightning answers.
+    var moodAt by remember { mutableFloatStateOf(-10f) }
+    LaunchedEffect(mood) { if (mood == SentinelFace.STRANGER || mood == SentinelFace.OWNER) moodAt = time }
     var rainClock by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(Unit) {
         val start = withFrameNanos { it }
@@ -108,8 +117,8 @@ private fun SentinelShader(modifier: Modifier, alpha: Float, thinking: Boolean, 
         shader.setFloatUniform("iTime", t)
         shader.setFloatUniform("iRain", rainClock)
         shader.setFloatUniform("iPose", pose)
-        shader.setFloatUniform("iFlash", SentinelTimeline.flash(t))
-        shader.setFloatUniform("iEye", SentinelTimeline.eye(t, think, type))
+        shader.setFloatUniform("iFlash", maxOf(SentinelTimeline.flash(t), SentinelTimeline.moodFlash(mood, t - moodAt)))
+        shader.setFloatUniform("iEye", SentinelTimeline.moodEye(mood, t, SentinelTimeline.eye(t, think, type)))
         shader.setFloatUniform("iEyeUV", ex, ey)
         shader.setFloatUniform("iBox", box[0], box[1], box[2], box[3])
         shader.setFloatUniform("iCell", cellW, cellW * 1.45f)

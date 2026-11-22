@@ -82,6 +82,35 @@ object SentinelTimeline {
         return (x - kotlin.math.floor(x)).toFloat()
     }
 
+    // What the Sentinel is doing at the door (sentinel/SentinelGate).
+    const val CALM = 0
+    const val LOOKING = 1
+    const val OWNER = 2
+    const val STRANGER = 3
+
+    /**
+     * The eye at the door: scanning while the camera looks (a sweeping flicker, lit even before the story's 6.6 s),
+     * a steady warm glow for Rex, burning for a stranger. CALM = the story's own [base].
+     */
+    fun moodEye(mood: Int, t: Float, base: Float): Float = when (mood) {
+        LOOKING -> maxOf(base, 0.55f + 0.45f * kotlin.math.abs(sin(t * 6f)))
+        OWNER -> maxOf(base, 0.95f)
+        STRANGER -> 1.45f + 0.2f * sin(t * 3f)
+        else -> base
+    }
+
+    /** A strike [since] seconds after the Sentinel decides: a bright one for a stranger, a soft one for Rex. */
+    fun moodFlash(mood: Int, since: Float): Float {
+        if (since < 0f || since > 1.5f) return 0f
+        val amp = when (mood) { STRANGER -> 1f; OWNER -> 0.35f; else -> return 0f }
+        var v = 0f
+        for ((off, a) in listOf(0f to 1f, 0.18f to 0.6f, 0.42f to 0.45f)) {
+            val x = since - off
+            if (x >= 0f) v = maxOf(v, amp * a * exp(-x / 0.09f))
+        }
+        return v
+    }
+
     /** Where the figure sits in an area [w]×[h] (px): left, top, width, height. Its pictures are 400:360. */
     fun box(w: Float, h: Float): FloatArray {
         val bw = minOf(w * 1.1f, h * 0.62f * (400f / 360f))
