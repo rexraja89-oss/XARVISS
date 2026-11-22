@@ -314,6 +314,7 @@ fun SettingsMenu(
                     "Practice and settings ›", style = MaterialTheme.typography.labelLarge, color = XarvisCyan,
                     modifier = Modifier.fillMaxWidth().clickable { open = null; onWakeScreen() }.padding(horizontal = 20.dp, vertical = 6.dp),
                 )
+                SentinelSwitch()
                 // Pick XARVIS's voices by ear: each tap plays the next one.
                 var english by remember { mutableStateOf(voiceLabel(false)) }
                 var hindi by remember { mutableStateOf(voiceLabel(true)) }
@@ -733,5 +734,27 @@ private fun MenuPopup(title: String, onClose: () -> Unit, content: @Composable a
                 Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 16.dp), content = content)
             }
         }
+    }
+}
+
+/** ☰ → 🎙 Voice: the Sentinel face on/off (Rex: "keep a way to undo"). Off = the plain 0/1 rain, as before. */
+@Composable
+private fun SentinelSwitch() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    if (!SentinelFace.available()) return
+    var on by remember { mutableStateOf(SentinelFace.enabled(context)) }
+    Row(
+        Modifier.fillMaxWidth().clickable { on = !on; SentinelFace.set(context, on) }.padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Sentinel face", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+            Text(
+                if (on) "A new chat opens on the hooded figure in the 0/1 rain; it looks up and its eye lights when I'm ready. Off = the plain rain."
+                else "Off: a new chat shows the plain 0/1 rain.",
+                style = MaterialTheme.typography.labelSmall, color = XarvisMuted,
+            )
+        }
+        Switch(checked = on, onCheckedChange = { on = it; SentinelFace.set(context, it) })
     }
 }

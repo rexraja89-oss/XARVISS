@@ -397,7 +397,11 @@ fun XarvisScreen(viewModel: XarvisViewModel = viewModel()) {
         val newChat = state.messages.none { it.fromUser }
         val rainAlpha by animateFloatAsState(if (newChat) 1f else 0f, tween(1800), label = "rain")
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (rainAlpha > 0.01f) CodeRain(Modifier.matchParentSize(), alpha = rainAlpha)
+            if (rainAlpha > 0.01f) {
+                // ☰ → 🎙 Voice → "Sentinel face": the hooded figure in the rain; off = the plain rain as before.
+                if (SentinelFace.enabled(context)) Sentinel(Modifier.matchParentSize(), rainAlpha, state.isProcessing, input.isNotBlank())
+                else CodeRain(Modifier.matchParentSize(), alpha = rainAlpha)
+            }
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
