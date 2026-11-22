@@ -475,7 +475,7 @@ class XarvisCore(context: Context) {
 
     private val _state: MutableStateFlow<XarvisUiState> = MutableStateFlow(
         XarvisUiState(
-            messages = listOf(ChatMessage(false, welcome())),
+            messages = opening(),
             capabilities = device.capabilities(),
             linkedCount = link.pairedPeers().size,
             speakReplies = settings.getBoolean("speakReplies", false),
@@ -934,7 +934,7 @@ class XarvisCore(context: Context) {
         scope.launch {
             agent.openChat(id)
             val past = if (id == null) emptyList() else runCatching { memory.chatExchanges(id) }.getOrDefault(emptyList())
-            val messages = if (past.isEmpty()) listOf(ChatMessage(false, welcome()))
+            val messages = if (past.isEmpty()) opening()
                 else past.flatMap { listOf(ChatMessage(true, it.user), ChatMessage(false, it.reply)) }
             _state.update { it.copy(messages = messages, chatId = agent.chatId) }
         }
@@ -1225,6 +1225,10 @@ class XarvisCore(context: Context) {
     }
 
     /** The next opening greeting in sequence (Rex asked); advances each session, then loops. */
+    /** A new chat's first lines: none while the Sentinel face is on (a greeting bubble would cover it). */
+    private fun opening(): List<ChatMessage> =
+        if (com.xarvis.ai.ui.SentinelFace.enabled(appContext)) emptyList() else listOf(ChatMessage(false, welcome()))
+
     private fun welcome(): String {
         val i = settings.getInt("greetingIndex", 0).mod(GREETINGS.size)
         settings.edit().putInt("greetingIndex", (i + 1).mod(GREETINGS.size)).apply()
