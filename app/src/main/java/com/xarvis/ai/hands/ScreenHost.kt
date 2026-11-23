@@ -179,6 +179,7 @@ object ScreenHost {
                 // Only the S22 build can do live video (screen sharing); the benco sends pictures.
                 .put("smoothable", com.xarvis.ai.workflow.hasScreen(context, "com.xarvis.ai.hands.ScreenConsentActivity")),
         )
+        val window = com.xarvis.ai.hands.PictureWindow() // pictures on their way to the viewer (no backlog on the relay)
         try {
             coroutineScope {
                 // The viewer's fingers, keys and pings.
@@ -200,6 +201,7 @@ object ScreenHost {
                                     }
                                 }
                                 StreamMsg.PING -> ch.send(StreamMsg.PONG, payload)
+                                StreamMsg.SHOWN -> window.shown()
                                 StreamMsg.KEY_FRAME -> video?.let { v ->
                                     v.config?.let { ch.send(StreamMsg.VIDEO_CONFIG, it) }
                                     v.keyFrame()
@@ -259,11 +261,14 @@ object ScreenHost {
                                     delay(500)
                                     continue
                                 }
+                                // Wait until the viewer has the earlier pictures, then send the screen as it is now.
+                                if (!window.room(System.currentTimeMillis())) { delay(40); continue }
                                 val jpeg = frame(context, from, if (viaRelay) RELAY_PICTURE_SIDE else maxSide).jpeg
                                 val now = System.currentTimeMillis()
                                 val same = viaRelay && lastSent?.contentEquals(jpeg) == true && now - lastSentAt < RELAY_SAME_PICTURE_MS
                                 if (!same) {
                                     ch.send(StreamMsg.JPEG, jpeg)
+                                    window.sent(System.currentTimeMillis())
                                     lastSent = jpeg
                                     lastSentAt = now
                                 }

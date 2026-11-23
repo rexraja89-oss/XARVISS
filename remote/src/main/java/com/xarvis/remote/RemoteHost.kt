@@ -155,6 +155,7 @@ object RemoteHost {
                 .put("w", w).put("h", h).put("vw", enc?.width ?: 0).put("vh", enc?.height ?: 0)
                 .put("smoothable", true).put("control", true),
         )
+        val window = com.xarvis.ai.hands.PictureWindow() // pictures on their way to the viewer (no backlog on the relay)
         try {
             coroutineScope {
                 // The other phone's finger, keys and pings.
@@ -174,6 +175,7 @@ object RemoteHost {
                                     }
                                 }
                                 StreamMsg.PING -> ch.send(StreamMsg.PONG, payload)
+                                StreamMsg.SHOWN -> window.shown()
                                 StreamMsg.KEY_FRAME -> enc?.let { e ->
                                     e.config?.let { ch.send(StreamMsg.VIDEO_CONFIG, it) }
                                     e.keyFrame()
@@ -216,7 +218,7 @@ object RemoteHost {
                                 rate.sent(now - t0, now)?.let { enc.setBitrate(it) }
                             }
                         } else {
-                            pictures(context, hands, ch, viaRelay, maxSide)
+                            pictures(context, hands, ch, viaRelay, maxSide, window)
                         }
                     } finally {
                         ch.close()
@@ -237,7 +239,7 @@ object RemoteHost {
     }
 
     /** Pictures until the viewer leaves — or until live video is allowed, when the viewer reconnects for it. */
-    private suspend fun pictures(context: Context, hands: RemoteHands, ch: DeviceLink.Channel, viaRelay: Boolean, maxSide: Int) {
+    private suspend fun pictures(context: Context, hands: RemoteHands, ch: DeviceLink.Channel, viaRelay: Boolean, maxSide: Int, window: com.xarvis.ai.hands.PictureWindow) {
         var lastSent: ByteArray? = null
         var lastSentAt = 0L
         var failingSince = 0L
@@ -251,6 +253,8 @@ object RemoteHost {
                 delay(500)
                 continue
             }
+            // Wait until the viewer has the earlier pictures, then show it the screen as it is now.
+            if (!window.room(System.currentTimeMillis())) { delay(40); continue }
             val shot = capture(hands)
             if (shot == null) {
                 if (failingSince == 0L) failingSince = System.currentTimeMillis()
@@ -268,6 +272,7 @@ object RemoteHost {
             val same = viaRelay && lastSent?.contentEquals(jpeg) == true && now - lastSentAt < RELAY_SAME_PICTURE_MS
             if (!same) {
                 ch.send(StreamMsg.JPEG, jpeg)
+                window.sent(System.currentTimeMillis())
                 lastSent = jpeg
                 lastSentAt = now
             }

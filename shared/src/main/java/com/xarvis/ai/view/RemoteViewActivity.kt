@@ -318,6 +318,7 @@ abstract class RemoteViewActivity : Activity(), SurfaceHolder.Callback {
                     }
                     StreamMsg.JPEG -> {
                         lastFrameAt = System.currentTimeMillis()
+                        send(StreamMsg.SHOWN) // "got it": the host sends the next only then (no backlog)
                         val bmp = BitmapFactory.decodeByteArray(payload, 0, payload.size) ?: continue
                         framesShown++
                         runOnUiThread {
