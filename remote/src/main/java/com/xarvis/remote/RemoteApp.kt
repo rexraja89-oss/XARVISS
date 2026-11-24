@@ -44,6 +44,7 @@ class RemoteApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        com.xarvis.ai.view.BarInsets.install(this) // Android 15+: screens clear of the status and navigation bars
         link = DeviceLink(this, RemoteHandler(this), helperApp = true, remoteApp = true)
         link.start()
         if (RemotePrefs.hosting(this)) RemoteService.start(this)

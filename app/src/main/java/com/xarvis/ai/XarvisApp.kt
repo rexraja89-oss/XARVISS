@@ -10,6 +10,8 @@ class XarvisApp : Application() {
     override fun onCreate() {
         super.onCreate()
         com.xarvis.ai.mission.CrashLog.install(this) // keep XARVIS's own crashes for Claude's missions
+        // Android 15+: keep the plain screens clear of the status and navigation bars (the chat handles them itself).
+        com.xarvis.ai.view.BarInsets.install(this, skip = setOf(MainActivity::class.java.name))
         core // Start the link server and model load with the process, not the first screen.
         if (AlwaysOn.isEnabled(this)) XarvisService.start(this)
         com.xarvis.ai.brief.BriefingSchedule.schedule(this) // (re)arm the daily briefing alarm

@@ -18,6 +18,7 @@ class HelperApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        com.xarvis.ai.view.BarInsets.install(this) // Android 15+: screens clear of the status and navigation bars
         link = DeviceLink(this, HelperHandler(this), helperApp = true)
         link.start()
     }

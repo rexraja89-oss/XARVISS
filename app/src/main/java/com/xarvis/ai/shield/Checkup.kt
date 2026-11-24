@@ -48,6 +48,17 @@ object Checkup {
             }
         }
 
+        // Android 14+ can turn off full-screen alerts for apps not from the Play Store: then the Guard alarm, the
+        // remote camera and the "Xarvis" screen only show as a notification instead of waking the screen.
+        if (Build.VERSION.SDK_INT >= 34) {
+            val ok = runCatching { c.getSystemService(android.app.NotificationManager::class.java)?.canUseFullScreenIntent() }.getOrNull() != false
+            if (!ok) out += Finding(
+                Risk.MEDIUM, "XARVIS can't wake the screen for alarms",
+                "Android turned off XARVIS's full-screen alerts, so the Guard alarm and the remote camera only show as a notification. Switch \"Allow full screen notifications\" on for XARVIS.",
+                Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, android.net.Uri.parse("package:${c.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+
         // Apps that can read the screen and tap (Accessibility) — the #1 tool of banking malware.
         val a11y = (Settings.Secure.getString(c.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: "")
             .split(':').filter { it.isNotBlank() }.map { it.substringBefore('/') }.distinct()

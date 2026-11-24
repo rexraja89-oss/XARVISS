@@ -80,9 +80,9 @@ class SentinelGate(
     init {
         // The screen going off (or locking) means the next open is looked at again.
         runCatching {
-            context.registerReceiver(object : BroadcastReceiver() {
+            androidx.core.content.ContextCompat.registerReceiver(context, object : BroadcastReceiver() {
                 override fun onReceive(c: Context, i: Intent) { lockedSince = true }
-            }, IntentFilter(Intent.ACTION_SCREEN_OFF))
+            }, IntentFilter(Intent.ACTION_SCREEN_OFF), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
         }
     }
 

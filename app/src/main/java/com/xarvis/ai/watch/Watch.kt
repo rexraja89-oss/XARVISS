@@ -20,6 +20,15 @@ object Watch {
 
     private fun allowed(c: Context) = c.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
+    /**
+     * Android 14+ only runs a background camera service for an app that also declares FOREGROUND_SERVICE_CAMERA;
+     * the Android 13 build leaves it out (new permissions have made the S22 refuse installs), so without this check
+     * XARVIS would crash there instead of saying so.
+     */
+    private fun newAndroidReady(c: Context): Boolean = android.os.Build.VERSION.SDK_INT < 34 || runCatching {
+        "android.permission.FOREGROUND_SERVICE_CAMERA" in c.packageManager.getPackageInfo(c.packageName, PackageManager.GET_PERMISSIONS).requestedPermissions.orEmpty()
+    }.getOrDefault(false)
+
     private fun prefs(c: Context) = c.getSharedPreferences("watch", Context.MODE_PRIVATE)
 
     fun watching(c: Context): Boolean = prefs(c).getLong("until", 0) > System.currentTimeMillis()
@@ -41,6 +50,7 @@ object Watch {
     fun start(c: Context, hours: Int): String {
         if (!available(c)) return "Watch mode needs the S22's front camera, sir."
         if (!allowed(c)) return "I need the camera permission first, sir: open XARVIS Eyes once on the S22 and allow the camera."
+        if (!newAndroidReady(c)) return "Watch mode needs the XARVIS build for the S22's new Android, sir. Ask Claude for it; this one was made for Android 13."
         val h = hours.coerceIn(1, WatchCommands.MAX_HOURS)
         val until = System.currentTimeMillis() + h * 3_600_000L
         prefs(c).edit().putLong("until", until).apply()

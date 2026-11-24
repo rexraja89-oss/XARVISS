@@ -92,6 +92,15 @@ class UpdaterActivity : Activity() {
         )
         root.addView(text("Updater v${versionOf(packageName) ?: "?"}", 12f, color = Color.GRAY))
         setContentView(ScrollView(this).apply { addView(root) })
+        // Android 15+ draws under the status and navigation bars: keep the screen's content clear of them.
+        if (android.os.Build.VERSION.SDK_INT >= 35) findViewById<android.view.View>(android.R.id.content)?.let { c ->
+            c.setOnApplyWindowInsetsListener { v, insets ->
+                val bars = insets.getInsets(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout())
+                v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                android.view.WindowInsets.CONSUMED
+            }
+            c.requestApplyInsets()
+        }
         auto = intent?.getBooleanExtra(EXTRA_AUTO, false) == true
         UpdateEngine.dropOld(this)
     }

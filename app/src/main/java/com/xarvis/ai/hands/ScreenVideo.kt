@@ -23,16 +23,26 @@ object ScreenVideo {
     @Volatile var projection: MediaProjection? = null
         private set
 
+    /**
+     * The one screen mirror for this "Start now". Android 14+ allows a single VirtualDisplay per consent, so each
+     * remote session points it at its own encoder instead of making a new one (XARVIS Remote does the same).
+     */
+    @Volatile private var display: VirtualDisplay? = null
+
     val ready: Boolean get() = projection != null
 
     /** Rex allowed screen sharing ("Start now"): keep it for every remote session until XARVIS stops. */
     fun attach(p: MediaProjection, onStopped: () -> Unit) {
         projection?.takeIf { it !== p }?.let { runCatching { it.stop() } }
+        display?.let { runCatching { it.release() } }
+        display = null
         projection = p
         p.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
                 if (projection === p) {
                     projection = null
+                    display?.let { runCatching { it.release() } }
+                    display = null
                     HandsBridge.log("Smooth screen sharing stopped.")
                     onStopped()
                 }
@@ -43,12 +53,14 @@ object ScreenVideo {
     fun release() {
         val p = projection
         projection = null
+        display?.let { runCatching { it.release() } }
+        display = null
         runCatching { p?.stop() }
     }
 
     /** One remote session's video: the mirrored screen going through the encoder. */
     class Session internal constructor(
-        val width: Int, val height: Int, private val codec: MediaCodec, private val display: VirtualDisplay,
+        val width: Int, val height: Int, private val codec: MediaCodec, private val surface: android.view.Surface,
     ) {
         @Volatile private var running = true
 
@@ -94,7 +106,8 @@ object ScreenVideo {
 
         fun stop() {
             running = false
-            runCatching { display.release() }
+            // The mirror stays for the next session; only this session's encoder goes.
+            runCatching { display?.let { if (it.surface === surface) it.surface = null } }
             runCatching { codec.stop() }
             runCatching { codec.release() }
         }
@@ -123,11 +136,17 @@ object ScreenVideo {
             codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             val surface = codec.createInputSurface()
             codec.start()
-            val display = p.createVirtualDisplay(
-                "xarvis-remote", vw, vh, context.resources.displayMetrics.densityDpi,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, surface, null, null,
-            ) ?: throw IllegalStateException("Android gave no screen mirror")
-            Session(vw, vh, codec, display)
+            val dpi = context.resources.displayMetrics.densityDpi
+            val d = display
+            if (d == null) {
+                display = p.createVirtualDisplay(
+                    "xarvis-remote", vw, vh, dpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, surface, null, null,
+                ) ?: throw IllegalStateException("Android gave no screen mirror")
+            } else {
+                d.resize(vw, vh, dpi)
+                d.surface = surface
+            }
+            Session(vw, vh, codec, surface)
         } catch (e: Exception) {
             HandsBridge.log("Smooth video couldn't start: ${e.message ?: e.javaClass.simpleName}")
             runCatching { codec.release() }
