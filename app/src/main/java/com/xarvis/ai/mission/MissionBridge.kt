@@ -38,6 +38,10 @@ import java.util.Locale
 object MissionBridge {
     private const val PREFS = "mission"
     private const val POLL_MS = 30_000L
+    /** While Claude is working with this phone (a mission in the last [BUSY_MS]): look every 3 s. */
+    private const val FAST_POLL_MS = 3_000L
+    private const val BUSY_MS = 15 * 60_000L
+    @Volatile private var lastMission = 0L
     private const val UNLOCK_WAIT_MS = 10 * 60_000L
     private const val CHANNEL = "xarvis_mission"
     private const val NOTE_ID = 7500
@@ -78,10 +82,11 @@ object MissionBridge {
     fun start(context: Context) {
         val c = context.applicationContext
         if (!on(c) || loop?.isActive == true) return
+        lastMission = System.currentTimeMillis() // just switched on / restarted (e.g. after an update): Claude is likely waiting
         loop = scope.launch {
             while (on(c)) {
                 runCatching { checkNow(c) }.onFailure { _status.value = "⚠ ${it.message}" }
-                delay(POLL_MS)
+                delay(if (System.currentTimeMillis() - lastMission < BUSY_MS) FAST_POLL_MS else POLL_MS)
             }
         }
     }
@@ -157,7 +162,7 @@ object MissionBridge {
         val hands = if (HandsBridge.service != null) "on" else "OFF (missions will fail until it's on)"
         gh.put(
             "status/${BuildConfig.FLAVOR}.md",
-            "# ${phoneName(c)}\n\n- XARVIS ${BuildConfig.VERSION_NAME} (${BuildConfig.FLAVOR} build)\n- Missions on since $now, checked every ${POLL_MS / 1000} s\n- XARVIS Hands: $hands\n".toByteArray(),
+            "# ${phoneName(c)}\n\n- XARVIS ${BuildConfig.VERSION_NAME} (${BuildConfig.FLAVOR} build)\n- Missions on since $now, checked every ${POLL_MS / 1000} s (every ${FAST_POLL_MS / 1000} s for ${BUSY_MS / 60_000} min after a mission)\n- XARVIS Hands: $hands\n".toByteArray(),
             "XARVIS on ${phoneName(c)}: missions on",
         )
         prefs(c).edit().putBoolean(key, true).putString("announcedVersion", BuildConfig.VERSION_NAME).apply()
@@ -169,7 +174,8 @@ object MissionBridge {
         val phone = phoneName(c)
         log(c, "▶ Mission $id: ${mission.title}")
         notify(c, "🛠 Claude's mission: ${mission.title}", "Running ${mission.steps.size} steps. The ✱ banner's STOP ends it.")
-        runCatching { gh.put("reports/$id/report.md", "# Mission $id: ${mission.title}\n\n⏳ Running on $phone since $at…\n".toByteArray(), "Mission $id: started") }
+        lastMission = System.currentTimeMillis()
+        val runningSha = runCatching { gh.put("reports/$id/report.md", "# Mission $id: ${mission.title}\n\n⏳ Running on $phone since $at…\n".toByteArray(), "Mission $id: started", fresh = true) }.getOrNull()
 
         val report = prepare(c)?.let { why ->
             MissionRunner.Report(mission, false, why, listOf("⏸ $why"), emptyList(), 0)
@@ -192,9 +198,10 @@ object MissionBridge {
         }
 
         for (l in report.looks) {
-            l.jpeg?.let { runCatching { gh.put("reports/$id/shot-${l.n}.jpg", it, "Mission $id: screenshot ${l.n}") } }
+            l.jpeg?.let { runCatching { gh.put("reports/$id/shot-${l.n}.jpg", it, "Mission $id: screenshot ${l.n}", fresh = true) } }
         }
-        gh.put("reports/$id/report.md", MissionRunner.markdown(report, id, phone, BuildConfig.VERSION_NAME, at).toByteArray(), "Mission $id: ${if (report.finished) "done" else "stopped"}")
+        gh.put("reports/$id/report.md", MissionRunner.markdown(report, id, phone, BuildConfig.VERSION_NAME, at).toByteArray(), "Mission $id: ${if (report.finished) "done" else "stopped"}", sha = runningSha)
+        lastMission = System.currentTimeMillis()
         val line = "${if (report.finished) "🏁" else "⏹"} Mission $id: ${report.summary}"
         log(c, line)
         notify(c, "🛠 Claude's mission: ${mission.title}", "${report.summary}. The report is on GitHub for Claude.", done = true)

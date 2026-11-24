@@ -11,7 +11,8 @@ package com.xarvis.ai.mission
  * PHONE: benco                                (optional; without it the S22 runs it)
  * open Settings
  * tap Galaxy AI                               (quotes optional: tap "Call assist")
- * try tap Call assist                         ("try" = a miss doesn't stop the mission)
+ * try tap Call assist                         ("try" = a miss doesn't stop the mission; waits only 3 s)
+ * if Skip ad: tap Skip ad                     (runs the step only if "Skip ad" is on screen right now; no waiting)
  * long Photo 1                                (long press)
  * tapxy 0.5 0.3                               (a spot, as parts of the screen width/height)
  * type hello                                  (into the box with the cursor)
@@ -31,7 +32,7 @@ package com.xarvis.ai.mission
  */
 data class Mission(val title: String, val phone: String, val steps: List<Step>, val problems: List<String>) {
 
-    data class Step(val line: Int, val text: String, val kind: Kind, val arg: String = "", val arg2: String = "", val seconds: Int = 0, val optional: Boolean = false)
+    data class Step(val line: Int, val text: String, val kind: Kind, val arg: String = "", val arg2: String = "", val seconds: Int = 0, val optional: Boolean = false, val onlyIf: String = "")
 
     enum class Kind { OPEN, TAP, LONG, TAPXY, TYPE, CLEAR, DOWNLOAD, SCROLL, KEY, WAIT, WAIT_FOR, LOOK, READ, NOTE, URL, CRASHES }
 
@@ -77,10 +78,16 @@ data class Mission(val title: String, val phone: String, val steps: List<Step>, 
         fun step(n: Int, original: String): Step? {
             var line = original
             var optional = false
+            var onlyIf = ""
+            // "if <label>: <step>" — only when that label is on screen now (one look, no waiting).
+            Regex("""^if\s+(.+?)\s*:\s+(\S.*)$""", RegexOption.IGNORE_CASE).find(line)?.let {
+                onlyIf = unquote(it.groupValues[1]); line = it.groupValues[2]; optional = true
+                if (onlyIf.isBlank()) return null
+            }
             Regex("""^try\s+""", RegexOption.IGNORE_CASE).find(line)?.let { optional = true; line = line.substring(it.range.last + 1) }
             val verb = line.substringBefore(' ').lowercase()
             val rest = line.substringAfter(' ', "").trim()
-            fun s(kind: Kind, arg: String = "", arg2: String = "", seconds: Int = 0) = Step(n, original, kind, arg, arg2, seconds, optional)
+            fun s(kind: Kind, arg: String = "", arg2: String = "", seconds: Int = 0) = Step(n, original, kind, arg, arg2, seconds, optional, onlyIf)
             return when (verb) {
                 "open" -> rest.takeIf { it.isNotBlank() }?.let { s(Kind.OPEN, unquote(it)) }
                 "tap", "click", "press" -> rest.takeIf { it.isNotBlank() }?.let { s(Kind.TAP, unquote(it)) }

@@ -155,4 +155,21 @@ class MissionTest {
         assertTrue(r.lines[2].contains("saved channel/logo.png"))
         assertNull(Mission.step(1, "download ../secret"))
     }
+
+    @Test fun ifStepsLookOnceAndTryTapsWaitLess() = runBlocking {
+        val m = Mission.parse("if Skip ad: tap Skip ad\nif \"Connect\": tap Connect\ntry tap Missing\ntap Missing")
+        assertTrue(m.problems.isEmpty())
+        assertEquals("Skip ad", m.steps[0].onlyIf); assertEquals(Mission.Kind.TAP, m.steps[0].kind); assertTrue(m.steps[0].optional)
+        assertEquals("Connect", m.steps[1].onlyIf)
+        val screen = PhoneAgent.Screen("vpn", listOf(el(1, "Connect", 300)), 1080, 2316)
+        val phone = Phone(mapOf("home" to screen), "home")
+        val clock = Clock()
+        val r = MissionRunner(phone, clock).run(m)
+        assertEquals(listOf("tap Connect"), phone.did) // the absent "Skip ad" was skipped without a tap
+        assertTrue(r.lines[0], r.lines[0].contains("skipped"))
+        assertTrue(r.lines[2], r.lines[2].contains("waited 3 s"))
+        assertTrue(r.lines[3], r.lines[3].contains("waited 8 s"))
+        assertFalse(r.finished)
+        assertTrue(clock.t < 16_000) // skipped step 1 cost no wait at all
+    }
 }

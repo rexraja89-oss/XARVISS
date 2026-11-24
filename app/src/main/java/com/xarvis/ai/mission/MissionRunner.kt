@@ -59,6 +59,10 @@ class MissionRunner(private val phone: PhoneAgent.Target, private val io: Io) {
                     finished = false; summary = "Stopped: the mission ran longer than ${MAX_MS / 60_000} minutes"; lines += "⏹ $summary"; break
                 }
                 io.progress("▶ $n/${mission.steps.size}: ${step.text}")
+                if (step.onlyIf.isNotBlank() && runCatching { find(phone.screen(), step.onlyIf) }.getOrNull() == null) {
+                    lines += "$n. ➖ `${step.text}` — skipped: \"${step.onlyIf}\" isn't on screen"
+                    continue
+                }
                 val result = runCatching { act(n, step) }.getOrElse { Outcome(false, it.message ?: it.javaClass.simpleName) }
                 lines += "$n. ${if (result.ok) "✅" else if (step.optional) "➖" else "❌"} `${step.text}` — ${result.detail}"
                 if (result.hardStop) {
@@ -97,7 +101,7 @@ class MissionRunner(private val phone: PhoneAgent.Target, private val io: Io) {
                 Outcome(said.startsWith("opened"), said)
             }
         }
-        Mission.Kind.TAP, Mission.Kind.LONG -> tap(step.arg, long = step.kind == Mission.Kind.LONG)
+        Mission.Kind.TAP, Mission.Kind.LONG -> tap(step.arg, long = step.kind == Mission.Kind.LONG, waitMs = if (step.optional || step.onlyIf.isNotBlank()) TRY_WAIT_MS else TAP_WAIT_MS)
         Mission.Kind.TAPXY -> {
             val s = phone.screen()
             val x = (step.arg.toFloat() * s.width).toInt()
@@ -167,15 +171,15 @@ class MissionRunner(private val phone: PhoneAgent.Target, private val io: Io) {
         }
     }
 
-    private suspend fun tap(label: String, long: Boolean): Outcome {
-        val until = io.now() + TAP_WAIT_MS
+    private suspend fun tap(label: String, long: Boolean, waitMs: Long): Outcome {
+        val until = io.now() + waitMs
         var el: PhoneAgent.Element? = null
         while (!phone.stopped()) {
             el = find(phone.screen(), label)
             if (el != null || io.now() >= until) break
             io.pause(POLL_MS)
         }
-        val e = el ?: return Outcome(false, "\"$label\" isn't on screen (waited ${TAP_WAIT_MS / 1000} s)")
+        val e = el ?: return Outcome(false, "\"$label\" isn't on screen (waited ${waitMs / 1000} s)")
         if (never(e.label)) return Outcome(false, "\"${e.label}\" looks like money, a password or a code — I never press those", hardStop = true)
         if (long) phone.longPress(e.x, e.y) else phone.tap(e.x, e.y)
         io.pause(SETTLE_MS)
@@ -216,6 +220,8 @@ class MissionRunner(private val phone: PhoneAgent.Target, private val io: Io) {
     companion object {
         const val MAX_MS = 15 * 60_000L
         const val TAP_WAIT_MS = 8_000L
+        /** A `try` or `if` tap: the label is probably there or not at all, so don't wait long. */
+        const val TRY_WAIT_MS = 3_000L
         const val POLL_MS = 600L
         const val SETTLE_MS = 1_200L
         private const val MAX_CRASH = 6_000

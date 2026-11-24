@@ -50,14 +50,27 @@ class BridgeRepo(private val token: String, val owner: String, val repo: String)
         }
     }
 
-    /** Creates or replaces [path] with [bytes]. */
-    fun put(path: String, bytes: ByteArray, message: String) {
+    /**
+     * Creates or replaces [path] with [bytes]; the new file's sha (for a quick replace later). With [sha] (or
+     * [fresh] for a file that shouldn't exist yet) it skips the lookup round trip, falling back to it if GitHub
+     * says the guess was wrong.
+     */
+    fun put(path: String, bytes: ByteArray, message: String, sha: String? = null, fresh: Boolean = false): String? {
         val url = "$API/repos/$owner/$repo/contents/${path(path)}"
-        val existing = http("GET", url, null, null)
-        val sha = if (existing.code == 200) runCatching { JSONObject(existing.text).optString("sha") }.getOrNull() else null
-        val body = JSONObject().put("message", message).put("content", Base64.encodeToString(bytes, Base64.NO_WRAP))
-        if (!sha.isNullOrBlank()) body.put("sha", sha)
-        check(http("PUT", url, body.toString(), null).code)
+        val content = Base64.encodeToString(bytes, Base64.NO_WRAP)
+        fun send(withSha: String?): Http {
+            val body = JSONObject().put("message", message).put("content", content)
+            if (!withSha.isNullOrBlank()) body.put("sha", withSha)
+            return http("PUT", url, body.toString(), null)
+        }
+        var r = if (sha != null || fresh) send(sha) else null
+        if (r == null || r.code == 409 || r.code == 422) {
+            val existing = http("GET", url, null, null)
+            val now = if (existing.code == 200) runCatching { JSONObject(existing.text).optString("sha") }.getOrNull() else null
+            r = send(now)
+        }
+        check(r.code)
+        return runCatching { JSONObject(r.text).getJSONObject("content").optString("sha") }.getOrNull()?.takeIf { it.isNotBlank() }
     }
 
     /** Whether the repo can be reached with this key, and is private (a public one would show the reports to anyone). */
