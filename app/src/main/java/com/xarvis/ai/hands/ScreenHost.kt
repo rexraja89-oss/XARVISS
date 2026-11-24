@@ -263,7 +263,7 @@ object ScreenHost {
                                 }
                                 // Wait until the viewer has the earlier pictures, then send the screen as it is now.
                                 if (!window.room(System.currentTimeMillis())) { delay(40); continue }
-                                val jpeg = frame(context, from, if (viaRelay) RELAY_PICTURE_SIDE else maxSide).jpeg
+                                val jpeg = frame(context, from, window.side(if (viaRelay) RELAY_PICTURE_SIDE else maxSide)).jpeg
                                 val now = System.currentTimeMillis()
                                 val same = viaRelay && lastSent?.contentEquals(jpeg) == true && now - lastSentAt < RELAY_SAME_PICTURE_MS
                                 if (!same) {

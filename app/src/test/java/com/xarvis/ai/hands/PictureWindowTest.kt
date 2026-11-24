@@ -1,5 +1,6 @@
 package com.xarvis.ai.hands
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -26,5 +27,15 @@ class PictureWindowTest {
         w.sent(1_000); w.sent(1_100)
         assertFalse(w.room(5_000))
         assertTrue(w.room(7_200))
+    }
+
+    @Test fun slowLinesGetSmallerPictures() {
+        val w = PictureWindow()
+        assertEquals(1100, w.side(1100)) // nothing timed yet
+        w.sent(0); w.shown(2_000)
+        assertEquals(480, w.side(1100))
+        repeat(8) { i -> val t = 10_000L + i * 1_000; w.sent(t); w.shown(t + 100) }
+        assertEquals(1100, w.side(1100)) // quick again: full size
+        assertEquals(640, w.side(640)) // never bigger than asked
     }
 }

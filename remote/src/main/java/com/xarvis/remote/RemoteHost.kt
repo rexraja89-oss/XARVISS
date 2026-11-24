@@ -266,7 +266,7 @@ object RemoteHost {
                 continue
             }
             failingSince = 0L
-            val jpeg = withContext(Dispatchers.Default) { jpeg(shot, if (viaRelay) RELAY_PICTURE_SIDE else minOf(maxSide, PICTURE_SIDE)) }
+            val jpeg = withContext(Dispatchers.Default) { jpeg(shot, window.side(if (viaRelay) RELAY_PICTURE_SIDE else minOf(maxSide, PICTURE_SIDE))) }
             val now = System.currentTimeMillis()
             // Through the relay a still screen isn't sent again (it costs nothing), except now and then.
             val same = viaRelay && lastSent?.contentEquals(jpeg) == true && now - lastSentAt < RELAY_SAME_PICTURE_MS
