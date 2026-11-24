@@ -50,6 +50,7 @@ class MissionRunner(private val phone: PhoneAgent.Target, private val io: Io) {
         }
         var finished = true
         var summary = "All ${mission.steps.size} steps done"
+        var cleanupFrom = -1 // a failure before the FINALLY steps: they still run
         try {
             phone.begin()
             for ((i, step) in mission.steps.withIndex()) {
@@ -58,7 +59,7 @@ class MissionRunner(private val phone: PhoneAgent.Target, private val io: Io) {
                     finished = false; summary = "Stopped: you pressed STOP before step $n"; lines += "⏹ $summary"; break
                 }
                 if (io.now() - start > MAX_MS) {
-                    finished = false; summary = "Stopped: the mission ran longer than ${MAX_MS / 60_000} minutes"; lines += "⏹ $summary"; break
+                    finished = false; summary = "Stopped: the mission ran longer than ${MAX_MS / 60_000} minutes"; lines += "⏹ $summary"; cleanupFrom = i; break
                 }
                 io.progress("▶ $n/${mission.steps.size}: ${step.text}")
                 if (step.onlyIf.isNotBlank() && runCatching { find(phone.screen(), step.onlyIf) }.getOrNull() == null) {
@@ -74,6 +75,7 @@ class MissionRunner(private val phone: PhoneAgent.Target, private val io: Io) {
                     finished = false
                     summary = "Stopped at step $n (`${step.text}`): ${result.detail}"
                     look(n, "Where it stopped (step $n)")
+                    cleanupFrom = i + 1
                     break
                 }
                 // A banking or payment app must never stay in front (Rex's rule), however it got there.
@@ -84,6 +86,17 @@ class MissionRunner(private val phone: PhoneAgent.Target, private val io: Io) {
                     summary = "Stopped after step $n: a banking/payment app ($app) came up, and I never use those"
                     lines += "⛔ $summary"
                     break
+                }
+            }
+            if (cleanupFrom >= 0) {
+                for (i in cleanupFrom until mission.steps.size) {
+                    val step = mission.steps[i]
+                    if (!step.always || phone.stopped()) continue
+                    val n = i + 1
+                    io.progress("🧹 $n/${mission.steps.size}: ${step.text}")
+                    val result = runCatching { act(n, step) }.getOrElse { Outcome(false, it.message ?: it.javaClass.simpleName) }
+                    lines += "$n. 🧹${if (result.ok) "✅" else "➖"} `${step.text}` — ${result.detail}"
+                    if (result.hardStop) break
                 }
             }
         } finally {

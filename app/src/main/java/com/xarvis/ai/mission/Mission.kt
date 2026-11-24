@@ -31,11 +31,13 @@ package com.xarvis.ai.mission
  * note any words                              (a line in the report)
  * url https://example.com                     (opens it in the browser)
  * crashes                                     (XARVIS's own saved crash reports)
+ * FINALLY:                                    (the steps after it always run, even when a step before failed —
+ *                                              to switch back off what the mission switched on; not after STOP)
  * ```
  */
 data class Mission(val title: String, val phone: String, val steps: List<Step>, val problems: List<String>) {
 
-    data class Step(val line: Int, val text: String, val kind: Kind, val arg: String = "", val arg2: String = "", val seconds: Int = 0, val optional: Boolean = false, val onlyIf: String = "")
+    data class Step(val line: Int, val text: String, val kind: Kind, val arg: String = "", val arg2: String = "", val seconds: Int = 0, val optional: Boolean = false, val onlyIf: String = "", val always: Boolean = false)
 
     enum class Kind { OPEN, TAP, LONG, TAPXY, TYPE, CLEAR, DOWNLOAD, SCROLL, SWIPE, UPLOAD, KEY, WAIT, WAIT_FOR, LOOK, READ, NOTE, URL, CRASHES }
 
@@ -58,13 +60,15 @@ data class Mission(val title: String, val phone: String, val steps: List<Step>, 
             var phone = ""
             val steps = ArrayList<Step>()
             val problems = ArrayList<String>()
+            var always = false
             text.lines().forEachIndexed { i, raw ->
                 val line = raw.trim()
                 if (line.isEmpty() || line.startsWith("#") || line.startsWith("//")) return@forEachIndexed
                 header(line, "MISSION")?.let { title = it; return@forEachIndexed }
                 header(line, "PHONE")?.let { phone = it; return@forEachIndexed }
+                if (header(line, "FINALLY") == "") { always = true; return@forEachIndexed }
                 val step = step(i + 1, line)
-                if (step == null) problems += "line ${i + 1}: I don't understand \"$line\"" else steps += step
+                if (step == null) problems += "line ${i + 1}: I don't understand \"$line\"" else steps += if (always) step.copy(always = true) else step
             }
             if (steps.size > MAX_STEPS) problems += "more than $MAX_STEPS steps; split it into two missions"
             return Mission(title.ifBlank { "Mission" }, phone, steps.take(MAX_STEPS), problems)

@@ -199,4 +199,16 @@ class MissionTest {
         assertEquals(900, MissionRunner.find(s, "Edit")!!.y)
         assertNull(MissionRunner.find(PhoneAgent.Screen("x", listOf(el(1, "▶ 34/41: try tap Cancel", 200)), 1080, 2316), "Cancel"))
     }
+
+    @Test fun finallyStepsRunAfterAFailure() = runBlocking {
+        val m = Mission.parse("tap Connect\ntap Missing\ntap Never reached\nFINALLY:\ntap Connect\nback")
+        assertTrue(m.problems.isEmpty())
+        assertEquals(listOf(false, false, false, true, true), m.steps.map { it.always })
+        val screen = PhoneAgent.Screen("vpn", listOf(el(1, "Connect", 300)), 1080, 2316)
+        val phone = Phone(mapOf("home" to screen), "home")
+        val r = MissionRunner(phone, Clock()).run(m)
+        assertFalse(r.finished)
+        assertEquals(listOf("tap Connect", "tap Connect", "key back"), phone.did)
+        assertTrue(r.lines.any { it.startsWith("4. 🧹✅") })
+    }
 }
