@@ -15,7 +15,9 @@ package com.xarvis.ai.mission
  * long Photo 1                                (long press)
  * tapxy 0.5 0.3                               (a spot, as parts of the screen width/height)
  * type hello                                  (into the box with the cursor)
- * type hello into Search                      (into the box labelled/hinted "Search")
+ * type hello into Search                      (REPLACES what's in the box labelled/hinted "Search")
+ * clear Search                                (empties that box)
+ * download channel/logo.png                   (a file from this repo → the phone's Pictures/XARVIS/Missions)
  * scroll down | scroll up
  * back | home | recents | notifications | quick
  * wait 5                                      (seconds)
@@ -31,7 +33,7 @@ data class Mission(val title: String, val phone: String, val steps: List<Step>, 
 
     data class Step(val line: Int, val text: String, val kind: Kind, val arg: String = "", val arg2: String = "", val seconds: Int = 0, val optional: Boolean = false)
 
-    enum class Kind { OPEN, TAP, LONG, TAPXY, TYPE, SCROLL, KEY, WAIT, WAIT_FOR, LOOK, READ, NOTE, URL, CRASHES }
+    enum class Kind { OPEN, TAP, LONG, TAPXY, TYPE, CLEAR, DOWNLOAD, SCROLL, KEY, WAIT, WAIT_FOR, LOOK, READ, NOTE, URL, CRASHES }
 
     companion object {
         const val MAX_STEPS = 80
@@ -96,6 +98,8 @@ data class Mission(val title: String, val phone: String, val steps: List<Step>, 
                         if (into != null) s(Kind.TYPE, unquote(into.groupValues[1]), unquote(into.groupValues[2])) else s(Kind.TYPE, unquote(rest))
                     }
                 }
+                "clear" -> rest.takeIf { it.isNotBlank() }?.let { s(Kind.CLEAR, unquote(it)) }
+                "download" -> unquote(rest).takeIf { Regex("""^[A-Za-z0-9._/-]{1,200}$""").matches(it) && ".." !in it }?.let { s(Kind.DOWNLOAD, it) }
                 "scroll", "swipe" -> when (rest.lowercase()) {
                     "", "down" -> s(Kind.SCROLL, "down")
                     "up" -> s(Kind.SCROLL, "up")

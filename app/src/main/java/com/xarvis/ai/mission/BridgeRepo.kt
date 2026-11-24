@@ -34,6 +34,22 @@ class BridgeRepo(private val token: String, val owner: String, val repo: String)
         return String(Base64.decode(b64, Base64.DEFAULT), Charsets.UTF_8)
     }
 
+    /** A file's raw bytes (any size up to GitHub's 100 MB). */
+    fun bytes(path: String): ByteArray {
+        val c = URL("$API/repos/$owner/$repo/contents/${path(path)}").openConnection() as HttpURLConnection
+        return try {
+            c.connectTimeout = 15_000
+            c.readTimeout = 60_000
+            c.setRequestProperty("Authorization", "Bearer $token")
+            c.setRequestProperty("Accept", "application/vnd.github.raw")
+            c.setRequestProperty("User-Agent", "XARVIS-Missions")
+            check(c.responseCode)
+            c.inputStream.use { it.readBytes() }
+        } finally {
+            c.disconnect()
+        }
+    }
+
     /** Creates or replaces [path] with [bytes]. */
     fun put(path: String, bytes: ByteArray, message: String) {
         val url = "$API/repos/$owner/$repo/contents/${path(path)}"

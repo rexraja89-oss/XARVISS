@@ -184,6 +184,7 @@ object MissionBridge {
                         notify(c, "🛠 Claude's mission: ${mission.title}", line)
                     }
                     override suspend fun crashes() = CrashLog.read(c)
+                    override suspend fun download(path: String): String = withContext(Dispatchers.IO) { saveFromRepo(c, gh, path) }
                 }).run(mission)
             } finally {
                 runCatching { wake?.release() }
@@ -197,6 +198,37 @@ object MissionBridge {
         val line = "${if (report.finished) "🏁" else "⏹"} Mission $id: ${report.summary}"
         log(c, line)
         notify(c, "🛠 Claude's mission: ${mission.title}", "${report.summary}. The report is on GitHub for Claude.", done = true)
+    }
+
+    /**
+     * A file from the bridge repo onto the phone: pictures into the Gallery (Pictures/XARVIS/Missions, so a
+     * "choose a picture" screen finds them), anything else into Downloads/XARVIS/Missions.
+     */
+    private suspend fun saveFromRepo(c: Context, gh: BridgeRepo, path: String): String {
+        val bytes = gh.bytes(path)
+        val name = path.substringAfterLast('/')
+        val ext = name.substringAfterLast('.', "").lowercase()
+        val mime = when (ext) {
+            "png" -> "image/png"; "jpg", "jpeg" -> "image/jpeg"; "webp" -> "image/webp"; "gif" -> "image/gif"
+            "mp4" -> "video/mp4"; "txt", "md" -> "text/plain"; "pdf" -> "application/pdf"
+            else -> "application/octet-stream"
+        }
+        if (mime.startsWith("image/") || mime.startsWith("video/")) {
+            val folder = (if (mime.startsWith("image/")) android.os.Environment.DIRECTORY_PICTURES else android.os.Environment.DIRECTORY_MOVIES) + "/XARVIS/Missions"
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name)
+                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mime)
+                put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, folder)
+                put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val collection = if (mime.startsWith("image/")) android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI else android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            val uri = c.contentResolver.insert(collection, values) ?: throw IllegalStateException("Android wouldn't make the file")
+            c.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: throw IllegalStateException("couldn't write the file")
+            c.contentResolver.update(uri, android.content.ContentValues().apply { put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+            return "saved $name (${bytes.size / 1024} KB) to $folder"
+        }
+        val saved = com.xarvis.ai.files.FileStore(c).saveBytes(name, mime, bytes, subfolder = "Missions")
+        return "saved ${saved.name} (${bytes.size / 1024} KB) to Downloads/XARVIS/Missions"
     }
 
     /** Null when the phone is ready; else why the mission can't run (Hands off, still locked after 10 min). */

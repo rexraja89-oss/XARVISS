@@ -41,6 +41,8 @@ class PhoneAgent(
         suspend fun look(): ByteArray? = null
         /** A long press; a plain tap where the phone can't hold. */
         suspend fun longPress(x: Int, y: Int) = tap(x, y)
+        /** Puts exactly [text] in the text box at x,y (replacing what's there); false where the phone can't. */
+        suspend fun setText(x: Int, y: Int, text: String): Boolean = false
         /** Opens a web address in the browser; false when this phone can't. */
         suspend fun openUrl(url: String): Boolean = false
     }

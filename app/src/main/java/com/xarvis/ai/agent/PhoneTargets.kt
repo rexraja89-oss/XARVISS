@@ -58,6 +58,10 @@ class LocalPhone(private val context: Context, override val name: String) : Phon
 
     override suspend fun openUrl(url: String): Boolean = withContext(Dispatchers.IO) { runCatching { hands().openUrl(url) }.getOrDefault(false) }
 
+    override suspend fun setText(x: Int, y: Int, text: String): Boolean = withContext(Dispatchers.Main) {
+        runCatching { hands().setField(x, y, text) }.getOrDefault(false)
+    }
+
     override suspend fun longPress(x: Int, y: Int) = withContext(Dispatchers.IO) {
         hands().gesture("long", x.toFloat(), y.toFloat(), x.toFloat(), y.toFloat(), 700).let { }
     }

@@ -20,6 +20,8 @@ class MissionRunner(private val phone: PhoneAgent.Target, private val io: Io) {
         fun progress(line: String)
         /** XARVIS's own saved crash reports (newest first), or "" when there are none. */
         suspend fun crashes(): String
+        /** Copies [path] from the bridge repo onto the phone; says where it went. Throws when it can't. */
+        suspend fun download(path: String): String = throw IllegalStateException("downloads aren't possible here")
     }
 
     data class Look(val n: Int, val afterStep: Int, val title: String, val jpeg: ByteArray?, val text: String)
@@ -110,6 +112,16 @@ class MissionRunner(private val phone: PhoneAgent.Target, private val io: Io) {
             }
         }
         Mission.Kind.TYPE -> type(step.arg, step.arg2)
+        Mission.Kind.CLEAR -> {
+            val box = findBox(phone.screen(), step.arg)
+            when {
+                box == null -> Outcome(false, "no text box called \"${step.arg}\" on screen")
+                box.password -> Outcome(false, "that's a password box — yours", hardStop = true)
+                phone.setText(box.x, box.y, "") -> { io.pause(600); Outcome(true, "emptied \"${step.arg}\"") }
+                else -> Outcome(false, "the box wouldn't empty")
+            }
+        }
+        Mission.Kind.DOWNLOAD -> Outcome(true, io.download(step.arg))
         Mission.Kind.SCROLL -> {
             phone.scroll(step.arg != "up")
             io.pause(SETTLE_MS)
@@ -176,6 +188,12 @@ class MissionRunner(private val phone: PhoneAgent.Target, private val io: Io) {
             val s = phone.screen()
             val box = findBox(s, into) ?: return Outcome(false, "no text box called \"$into\" on screen")
             if (box.password || never(box.label) || never(box.hint)) return Outcome(false, "\"$into\" is a password/PIN/code box — those are yours", hardStop = true)
+            // "type … into" puts exactly this text in the box (web boxes kept what was there and added to it: the
+            // YouTube handle became "TheFreeVersion-n5iTheFreeVersionTech", 25 Nov 2026).
+            if (phone.setText(box.x, box.y, text)) {
+                io.pause(SETTLE_MS)
+                return Outcome(true, "put \"${text.take(60)}\" into \"$into\"")
+            }
             phone.tap(box.x, box.y)
             io.pause(600)
         } else {

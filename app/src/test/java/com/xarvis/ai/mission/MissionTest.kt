@@ -137,4 +137,22 @@ class MissionTest {
         assertEquals(listOf("tap ", "type Rex", "tap Search", "type jobs"), phone.did)
         assertNotNull(MissionRunner.findBox(form, "search"))
     }
+
+    @Test fun clearsReplacesAndDownloads() = runBlocking {
+        val form = PhoneAgent.Screen("chrome", listOf(el(1, "TheFreeVersion-r5c", 400, editable = true)), 1080, 2316)
+        val set = ArrayList<String>()
+        val phone = object : PhoneAgent.Target by Phone(mapOf("home" to form), "home") {
+            override suspend fun setText(x: Int, y: Int, text: String): Boolean { set += text; return true }
+        }
+        val io = object : MissionRunner.Io by Clock() {
+            override suspend fun download(path: String) = "saved $path"
+        }
+        val m = Mission.parse("clear TheFreeVersion\ntype TheFreeVersionTech into TheFreeVersion\ndownload channel/logo.png")
+        assertTrue(m.problems.isEmpty())
+        val r = MissionRunner(phone, io).run(m)
+        assertTrue(r.summary, r.finished)
+        assertEquals(listOf("", "TheFreeVersionTech"), set) // emptied, then exactly the new text: nothing added on
+        assertTrue(r.lines[2].contains("saved channel/logo.png"))
+        assertNull(Mission.step(1, "download ../secret"))
+    }
 }
