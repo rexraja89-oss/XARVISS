@@ -224,7 +224,9 @@ class MissionRunner(private val phone: PhoneAgent.Target, private val io: Io) {
         fun find(s: PhoneAgent.Screen, label: String): PhoneAgent.Element? {
             val want = SkillMatch.norm(label)
             if (want.isEmpty()) return null
-            val els = s.elements.filter { it.label.isNotBlank() || it.hint.isNotBlank() }
+            // Never a text box: what was just typed into a search box would otherwise "be" the result (24 Nov 2026,
+            // the first mission tapped the box holding "live translate" instead of a result).
+            val els = s.elements.filter { !it.editable && (it.label.isNotBlank() || it.hint.isNotBlank()) }
             fun best(list: List<PhoneAgent.Element>) = list.sortedWith(compareBy({ !it.tappable }, { it.y }, { it.x })).firstOrNull()
             fun name(e: PhoneAgent.Element) = SkillMatch.norm(e.label.ifBlank { e.hint })
             best(els.filter { name(it) == want })?.let { return it }

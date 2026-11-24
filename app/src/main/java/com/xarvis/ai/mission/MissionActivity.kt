@@ -56,7 +56,7 @@ class MissionActivity : Activity() {
         root.addView(text("Bridge repo (owner/name)", 15f, bold = true).apply { setPadding(0, dp(14), 0, 0) })
         repoBox = EditText(this).apply {
             setText(MissionBridge.repo(this@MissionActivity))
-            hint = "rexraja89-oss/${BridgeRepo.DEFAULT_NAME}"
+            hint = "empty = <your GitHub name>/${BridgeRepo.DEFAULT_NAME}"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
             isSingleLine = true
         }

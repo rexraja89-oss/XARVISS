@@ -47,6 +47,7 @@ class BridgeRepo(private val token: String, val owner: String, val repo: String)
     /** Whether the repo can be reached with this key, and is private (a public one would show the reports to anyone). */
     fun checkRepo(): String? {
         val r = http("GET", "$API/repos/$owner/$repo", null, null)
+        if (r.code == 401) return "GitHub refused the key (it may have expired). Put a new one in ☰ → XARVIS Code."
         if (r.code == 404) return "There's no repo $owner/$repo that this GitHub key can see."
         if (r.code !in 200..299) return "GitHub said ${r.code}."
         if (!JSONObject(r.text).optBoolean("private")) return "$owner/$repo is public. Make it private first: the reports show your screens."
@@ -56,7 +57,7 @@ class BridgeRepo(private val token: String, val owner: String, val repo: String)
     private fun check(code: Int) {
         if (code !in 200..299) throw IllegalStateException(
             when (code) {
-                401 -> "GitHub refused the key (401): reconnect GitHub in XARVIS Code"
+                401 -> "GitHub refused the key (it may have expired). Put a new one in ☰ → XARVIS Code."
                 403 -> "GitHub refused (403): the key may lack the repo permission, or the hourly limit was reached"
                 404 -> "not found on GitHub (404)"
                 else -> "GitHub error $code"

@@ -99,6 +99,10 @@ object MissionBridge {
         val c = context.applicationContext
         val core = (c as XarvisApp).core
         val token = core.githubKey() ?: return@withContext "No GitHub key yet: connect GitHub in ☰ → XARVIS Code first.".also { _status.value = it }
+        // No repo typed (the grey example looked filled in, 24 Nov 2026): use <your GitHub name>/xarvis-bridge.
+        if (repo(c).isBlank()) {
+            com.xarvis.ai.code.XarvisCode.verify(token).data?.takeIf { it.isNotBlank() }?.let { setRepo(c, "$it/${BridgeRepo.DEFAULT_NAME}") }
+        }
         val (owner, name) = Mission.split(repo(c)) ?: return@withContext "Set the bridge repo first (owner/name).".also { _status.value = it }
         val gh = BridgeRepo(token, owner, name)
         announce(c, gh)
