@@ -550,6 +550,7 @@ class XarvisCore(context: Context) {
         com.xarvis.ai.hands.ScreenHost.onSession = { by -> controlNote(by) }
         scope.launch { reportUpdate() }
         board.start()
+        com.xarvis.ai.mission.MissionBridge.start(appContext) // Claude's missions, when Rex switched them on
         scope.launch {
             _state.update { it.copy(memoryCount = memory.factCount()) }
         }

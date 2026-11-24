@@ -199,6 +199,12 @@
             android:exported="false"
             android:label="Help a family phone"
             android:theme="@android:style/Theme.DeviceDefault.Light" />
+        <!-- ☰ → My devices → Claude's missions: exact steps from Claude through Rex's private GitHub repo (mission/). -->
+        <activity
+            android:name=".mission.MissionActivity"
+            android:exported="false"
+            android:label="Claude's missions"
+            android:theme="@android:style/Theme.DeviceDefault.Light" />
         <!-- ☰ → Situation: what XARVIS knows about all of Rex's devices (aware/Board). -->
         <activity
             android:name=".aware.BoardActivity"

@@ -1,0 +1,121 @@
+package com.xarvis.ai.mission
+
+/**
+ * A mission from Claude (Rex, 24 Nov 2026: "programming a task whenever you wish inside XARVIS… it performs all the
+ * steps and reports back to you"): a short script of exact steps that XARVIS runs with its Hands and answers with a
+ * report (screenshots, screen text, what worked). Written by Claude in Rex's private bridge repo, never anywhere else.
+ *
+ * The language, one step a line (blank lines and `#` comments ignored):
+ * ```
+ * MISSION: Check Galaxy AI call features      (optional title)
+ * PHONE: benco                                (optional; without it the S22 runs it)
+ * open Settings
+ * tap Galaxy AI                               (quotes optional: tap "Call assist")
+ * try tap Call assist                         ("try" = a miss doesn't stop the mission)
+ * long Photo 1                                (long press)
+ * tapxy 0.5 0.3                               (a spot, as parts of the screen width/height)
+ * type hello                                  (into the box with the cursor)
+ * type hello into Search                      (into the box labelled/hinted "Search")
+ * scroll down | scroll up
+ * back | home | recents | notifications | quick
+ * wait 5                                      (seconds)
+ * wait for Connected 30                       (until it's on screen, at most 30 s; 15 by default)
+ * look Galaxy AI page                         (screenshot + screen text into the report)
+ * read                                        (screen text only)
+ * note any words                              (a line in the report)
+ * url https://example.com                     (opens it in the browser)
+ * crashes                                     (XARVIS's own saved crash reports)
+ * ```
+ */
+data class Mission(val title: String, val phone: String, val steps: List<Step>, val problems: List<String>) {
+
+    data class Step(val line: Int, val text: String, val kind: Kind, val arg: String = "", val arg2: String = "", val seconds: Int = 0, val optional: Boolean = false)
+
+    enum class Kind { OPEN, TAP, LONG, TAPXY, TYPE, SCROLL, KEY, WAIT, WAIT_FOR, LOOK, READ, NOTE, URL, CRASHES }
+
+    companion object {
+        const val MAX_STEPS = 80
+
+        /** "owner/name" → (owner, name); null if it isn't that shape. */
+        fun split(full: String): Pair<String, String>? {
+            val m = Regex("""^\s*([A-Za-z0-9-]+)/([A-Za-z0-9._-]+)\s*$""").find(full) ?: return null
+            return m.groupValues[1] to m.groupValues[2]
+        }
+
+        /** A mission file's id ("2026-11-24-galaxy-ai.txt" → "2026-11-24-galaxy-ai"); null for anything else. */
+        fun missionId(file: String): String? =
+            Regex("""^([A-Za-z0-9._-]{1,80})\.(?:txt|md)$""").find(file)?.groupValues?.get(1)?.takeIf { !it.startsWith(".") }
+        private val KEYS = setOf("back", "home", "recents", "notifications", "quick")
+
+        fun parse(text: String): Mission {
+            var title = ""
+            var phone = ""
+            val steps = ArrayList<Step>()
+            val problems = ArrayList<String>()
+            text.lines().forEachIndexed { i, raw ->
+                val line = raw.trim()
+                if (line.isEmpty() || line.startsWith("#") || line.startsWith("//")) return@forEachIndexed
+                header(line, "MISSION")?.let { title = it; return@forEachIndexed }
+                header(line, "PHONE")?.let { phone = it; return@forEachIndexed }
+                val step = step(i + 1, line)
+                if (step == null) problems += "line ${i + 1}: I don't understand \"$line\"" else steps += step
+            }
+            if (steps.size > MAX_STEPS) problems += "more than $MAX_STEPS steps; split it into two missions"
+            return Mission(title.ifBlank { "Mission" }, phone, steps.take(MAX_STEPS), problems)
+        }
+
+        private fun header(line: String, name: String): String? =
+            Regex("""^$name\s*:\s*(.*)$""", RegexOption.IGNORE_CASE).find(line)?.groupValues?.get(1)?.trim()
+
+        private fun unquote(s: String): String {
+            val t = s.trim()
+            return if (t.length >= 2 && (t.first() == '"' && t.last() == '"' || t.first() == '\'' && t.last() == '\'')) t.substring(1, t.length - 1) else t
+        }
+
+        fun step(n: Int, original: String): Step? {
+            var line = original
+            var optional = false
+            Regex("""^try\s+""", RegexOption.IGNORE_CASE).find(line)?.let { optional = true; line = line.substring(it.range.last + 1) }
+            val verb = line.substringBefore(' ').lowercase()
+            val rest = line.substringAfter(' ', "").trim()
+            fun s(kind: Kind, arg: String = "", arg2: String = "", seconds: Int = 0) = Step(n, original, kind, arg, arg2, seconds, optional)
+            return when (verb) {
+                "open" -> rest.takeIf { it.isNotBlank() }?.let { s(Kind.OPEN, unquote(it)) }
+                "tap", "click", "press" -> rest.takeIf { it.isNotBlank() }?.let { s(Kind.TAP, unquote(it)) }
+                "long" -> rest.removePrefix("press ").takeIf { it.isNotBlank() }?.let { s(Kind.LONG, unquote(it)) }
+                "tapxy" -> {
+                    val nums = rest.split(Regex("""[\s,]+""")).mapNotNull { it.removeSuffix("%").toFloatOrNull() }
+                    if (nums.size != 2) null else {
+                        val (x, y) = nums.map { if (it > 1f) it / 100f else it }
+                        if (x !in 0f..1f || y !in 0f..1f) null else s(Kind.TAPXY, x.toString(), y.toString())
+                    }
+                }
+                "type" -> {
+                    if (rest.isBlank()) null else {
+                        val into = Regex("""^(.*?)\s+into\s+(.+)$""", RegexOption.IGNORE_CASE).find(rest)
+                        if (into != null) s(Kind.TYPE, unquote(into.groupValues[1]), unquote(into.groupValues[2])) else s(Kind.TYPE, unquote(rest))
+                    }
+                }
+                "scroll", "swipe" -> when (rest.lowercase()) {
+                    "", "down" -> s(Kind.SCROLL, "down")
+                    "up" -> s(Kind.SCROLL, "up")
+                    else -> null
+                }
+                in KEYS -> if (rest.isBlank()) s(Kind.KEY, verb) else null
+                "wait" -> {
+                    val f = Regex("""^for\s+(.+?)(?:\s+(\d{1,3})\s*s?)?$""", RegexOption.IGNORE_CASE).find(rest)
+                    when {
+                        f != null -> s(Kind.WAIT_FOR, unquote(f.groupValues[1]), seconds = (f.groupValues[2].toIntOrNull() ?: 15).coerceIn(1, 300))
+                        else -> rest.removeSuffix("s").trim().toIntOrNull()?.let { s(Kind.WAIT, seconds = it.coerceIn(1, 300)) }
+                    }
+                }
+                "look", "report", "screenshot" -> s(Kind.LOOK, unquote(rest))
+                "read" -> if (rest.isBlank()) s(Kind.READ) else null
+                "note" -> s(Kind.NOTE, rest)
+                "url" -> rest.takeIf { it.startsWith("http://") || it.startsWith("https://") }?.let { s(Kind.URL, it) }
+                "crashes" -> s(Kind.CRASHES)
+                else -> null
+            }
+        }
+    }
+}

@@ -39,6 +39,8 @@ class PhoneAgent(
         suspend fun stopped(): Boolean
         /** A JPEG of the screen, when this phone can take one. */
         suspend fun look(): ByteArray? = null
+        /** A long press; a plain tap where the phone can't hold. */
+        suspend fun longPress(x: Int, y: Int) = tap(x, y)
         /** Opens a web address in the browser; false when this phone can't. */
         suspend fun openUrl(url: String): Boolean = false
     }

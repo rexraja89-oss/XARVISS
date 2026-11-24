@@ -253,6 +253,9 @@ fun SettingsMenu(
                 Go("📞 Call forwarding ›", "Calls to this phone ring on your other number during the hours you choose.") {
                     context.startActivity(android.content.Intent(context, com.xarvis.ai.phone.CallForwardActivity::class.java))
                 }
+                Go("🛠 Claude's missions ›", "Claude sends this phone exact steps through your private GitHub repo; XARVIS does them and reports back.") {
+                    context.startActivity(android.content.Intent(context, com.xarvis.ai.mission.MissionActivity::class.java))
+                }
             }
             "brain" -> MenuPopup("🧠 Brain", onClose = { open = null }) {
                 // Fast/Smart only matter on a phone that runs Gemma itself (the S22, not the benco).
