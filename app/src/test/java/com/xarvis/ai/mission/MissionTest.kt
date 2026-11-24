@@ -179,17 +179,18 @@ class MissionTest {
         assertEquals("0.85,0.3", m.steps[0].arg); assertEquals("0.15,0.3", m.steps[0].arg2)
         assertEquals("0.15,0.5", m.steps[1].arg)
         assertEquals("0.8,0.5", m.steps[2].arg); assertEquals("0.2,0.5", m.steps[2].arg2)
-        assertEquals("recording", m.steps[3].arg); assertEquals("screenshot", m.steps[4].arg)
+        assertEquals("recording", m.steps[3].arg); assertEquals("1", m.steps[3].arg2); assertEquals("screenshot", m.steps[4].arg)
+        assertEquals("3", Mission.parse("upload recording 3").steps.single().arg2)
         val swiped = ArrayList<String>()
         val phone = object : PhoneAgent.Target by Phone(mapOf("home" to PhoneAgent.Screen("x", emptyList(), 1080, 2316)), "home") {
             override suspend fun swipe(x: Float, y: Float, x2: Float, y2: Float): Boolean { swiped += "$x,$y>$x2,$y2"; return true }
         }
         val io = object : MissionRunner.Io by Clock() {
-            override suspend fun upload(what: String) = "uploaded the newest $what"
+            override suspend fun upload(what: String, nth: Int) = "uploaded the newest $what #$nth"
         }
-        val r = MissionRunner(phone, io).run(Mission.parse("swipe left\nupload recording"))
+        val r = MissionRunner(phone, io).run(Mission.parse("swipe left\nupload recording 2"))
         assertTrue(r.summary, r.finished)
         assertEquals(listOf("0.85,0.5>0.15,0.5"), swiped)
-        assertTrue(r.lines[1].contains("uploaded the newest recording"))
+        assertTrue(r.lines[1].contains("uploaded the newest recording #2"))
     }
 }

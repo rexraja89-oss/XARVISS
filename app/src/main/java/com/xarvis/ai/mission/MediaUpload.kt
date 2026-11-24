@@ -24,14 +24,14 @@ object MediaUpload {
         if (what == "recording" || what == "video") Manifest.permission.READ_MEDIA_VIDEO else Manifest.permission.READ_MEDIA_IMAGES
 
     /** Uploads; a line for the report. Throws with a plain reason when it can't. */
-    fun upload(c: Context, gh: BridgeRepo, missionId: String, what: String): String {
+    fun upload(c: Context, gh: BridgeRepo, missionId: String, what: String, nth: Int = 1): String {
         val perm = permissionFor(what)
         if (Build.VERSION.SDK_INT >= 33 && !PermissionGate.has(c, perm)) {
             // Android's own permission box; Hands keeps XARVIS allowed to open screens from the background.
             c.startActivity(Intent(c, MissionActivity::class.java).putExtra(MissionActivity.EXTRA_ASK, perm).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             throw IllegalStateException("XARVIS may not see ${if (perm.endsWith("VIDEO")) "videos" else "pictures"} yet: Android's permission box is open now (tap Allow, then upload again)")
         }
-        val item = newest(c, what) ?: throw IllegalStateException("no $what found on this phone")
+        val item = newest(c, what, nth) ?: throw IllegalStateException(if (nth == 1) "no $what found on this phone" else "there aren't $nth ${what}s on this phone")
         if (item.size > MAX_BYTES) throw IllegalStateException("${item.name} is ${item.size / 1_048_576} MB, more than GitHub takes")
         val dir = File(c.cacheDir, "mission-upload").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
         val safe = item.name.replace(Regex("""[^A-Za-z0-9._-]"""), "_")
@@ -47,7 +47,7 @@ object MediaUpload {
         }
     }
 
-    private fun newest(c: Context, what: String): Item? {
+    private fun newest(c: Context, what: String, nth: Int): Item? {
         val video = what == "recording" || what == "video"
         val table = if (video) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
         val where = when (what) {
@@ -62,7 +62,7 @@ object MediaUpload {
         }
         val cols = arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.SIZE)
         c.contentResolver.query(table, cols, where, args, "${MediaStore.MediaColumns.DATE_ADDED} DESC")?.use { cur ->
-            if (!cur.moveToFirst()) return null
+            if (!cur.moveToPosition(nth - 1)) return null
             val id = cur.getLong(0)
             return Item(ContentUris.withAppendedId(table, id), cur.getString(1) ?: "item-$id", cur.getLong(2))
         }

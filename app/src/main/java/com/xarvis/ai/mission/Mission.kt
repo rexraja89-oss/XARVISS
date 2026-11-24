@@ -22,7 +22,7 @@ package com.xarvis.ai.mission
  * scroll down | scroll up
  * swipe left | swipe right [at 30%]          (sideways, e.g. the quick panel's pages; at = height, middle by default)
  * swipe 0.8 0.3 0.2 0.3                      (from x y to x y, as parts of the screen or %)
- * upload recording | video | picture         (the phone's newest one → this repo's "media" release, for Claude)
+ * upload recording | video | picture [N]     (the phone's newest one, or the Nth newest → this repo's "media" release)
  * back | home | recents | notifications | quick
  * wait 5                                      (seconds)
  * wait for Connected 30                       (until it's on screen, at most 30 s; 15 by default)
@@ -128,11 +128,16 @@ data class Mission(val title: String, val phone: String, val steps: List<Step>, 
                     "up" -> s(Kind.SCROLL, "up")
                     else -> swipe(rest)?.let { (a, b) -> s(Kind.SWIPE, a, b) }
                 }
-                "upload" -> when (val what = rest.lowercase().removePrefix("newest ").removePrefix("the ").removePrefix("latest ").trim()) {
-                    "", "recording", "screen recording" -> s(Kind.UPLOAD, "recording")
-                    "video" -> s(Kind.UPLOAD, "video")
-                    "picture", "photo", "screenshot" -> s(Kind.UPLOAD, if (what == "screenshot") "screenshot" else "picture")
-                    else -> null
+                "upload" -> {
+                    val num = Regex("""\s+(\d{1,2})$""").find(rest)
+                    val nth = (num?.groupValues?.get(1)?.toIntOrNull() ?: 1).coerceAtLeast(1)
+                    val words = (if (num != null) rest.substring(0, num.range.first) else rest)
+                    when (val what = words.lowercase().removePrefix("the ").removePrefix("newest ").removePrefix("latest ").trim()) {
+                        "", "recording", "screen recording" -> s(Kind.UPLOAD, "recording", nth.toString())
+                        "video" -> s(Kind.UPLOAD, "video", nth.toString())
+                        "picture", "photo", "screenshot" -> s(Kind.UPLOAD, if (what == "screenshot") "screenshot" else "picture", nth.toString())
+                        else -> null
+                    }
                 }
                 in KEYS -> if (rest.isBlank()) s(Kind.KEY, verb) else null
                 "wait" -> {

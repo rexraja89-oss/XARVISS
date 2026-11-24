@@ -191,7 +191,7 @@ object MissionBridge {
                     }
                     override suspend fun crashes() = CrashLog.read(c)
                     override suspend fun download(path: String): String = withContext(Dispatchers.IO) { saveFromRepo(c, gh, path) }
-                    override suspend fun upload(what: String): String = withContext(Dispatchers.IO) { MediaUpload.upload(c, gh, id, what) }
+                    override suspend fun upload(what: String, nth: Int): String = withContext(Dispatchers.IO) { MediaUpload.upload(c, gh, id, what, nth) }
                 }).run(mission)
             } finally {
                 runCatching { wake?.release() }
