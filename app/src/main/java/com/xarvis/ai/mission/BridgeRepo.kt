@@ -73,6 +73,10 @@ class BridgeRepo(private val token: String, val owner: String, val repo: String)
         return runCatching { JSONObject(r.text).getJSONObject("content").optString("sha") }.getOrNull()?.takeIf { it.isNotBlank() }
     }
 
+    /** Streams [file] up as an asset of the release tagged [tag] (made if missing; a same-named asset is replaced). */
+    fun uploadAsset(tag: String, file: java.io.File) =
+        com.xarvis.ai.code.XarvisCode.uploadReleaseAsset(token, owner, repo, tag, file)
+
     /** Whether the repo can be reached with this key, and is private (a public one would show the reports to anyone). */
     fun checkRepo(): String? {
         val r = http("GET", "$API/repos/$owner/$repo", null, null)

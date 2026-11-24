@@ -26,6 +26,8 @@
     <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
     <!-- Offering to attach a screenshot Rex just took (auto screenshot paste). Android 13+. -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- Claude's missions: `upload recording` sends the newest screen recording to the private bridge repo -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
 
     <!-- Linking with other XARVIS devices on the local network. -->
     <uses-permission android:name="android.permission.INTERNET" />

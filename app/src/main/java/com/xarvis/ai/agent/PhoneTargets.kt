@@ -83,6 +83,12 @@ class LocalPhone(private val context: Context, override val name: String) : Phon
 
     override suspend fun type(text: String): Boolean = withContext(Dispatchers.IO) { hands().typeText(text, false) }
 
+    override suspend fun swipe(x: Float, y: Float, x2: Float, y2: Float): Boolean = withContext(Dispatchers.IO) {
+        val w = width.takeIf { it > 0 } ?: context.resources.displayMetrics.widthPixels
+        val h = height.takeIf { it > 0 } ?: context.resources.displayMetrics.heightPixels
+        runCatching { hands().gesture("swipe", w * x, h * y, w * x2, h * y2, 350) }.getOrDefault(false)
+    }
+
     override suspend fun scroll(down: Boolean) = withContext(Dispatchers.IO) {
         val w = width.takeIf { it > 0 } ?: context.resources.displayMetrics.widthPixels
         val h = height.takeIf { it > 0 } ?: context.resources.displayMetrics.heightPixels

@@ -29,6 +29,10 @@ class MissionActivity : Activity() {
     private lateinit var repoBox: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        intent.getStringExtra(EXTRA_ASK)?.let { perm ->
+            // A mission's `upload` step needs this; Android shows its own box (a mission or Rex taps Allow).
+            if (android.os.Build.VERSION.SDK_INT >= 23) requestPermissions(arrayOf(perm), 7)
+        }
         super.onCreate(savedInstanceState)
         val core = (application as XarvisApp).core
         val pad = dp(16)
@@ -138,4 +142,8 @@ class MissionActivity : Activity() {
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    companion object {
+        const val EXTRA_ASK = "ask"
+    }
 }

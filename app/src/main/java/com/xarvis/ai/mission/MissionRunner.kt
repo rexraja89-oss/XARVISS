@@ -22,6 +22,8 @@ class MissionRunner(private val phone: PhoneAgent.Target, private val io: Io) {
         suspend fun crashes(): String
         /** Copies [path] from the bridge repo onto the phone; says where it went. Throws when it can't. */
         suspend fun download(path: String): String = throw IllegalStateException("downloads aren't possible here")
+        /** Sends the phone's newest recording/video/picture to the bridge repo; a line saying where it went. */
+        suspend fun upload(what: String): String = throw IllegalStateException("uploads aren't possible here")
     }
 
     data class Look(val n: Int, val afterStep: Int, val title: String, val jpeg: ByteArray?, val text: String)
@@ -131,6 +133,14 @@ class MissionRunner(private val phone: PhoneAgent.Target, private val io: Io) {
             io.pause(SETTLE_MS)
             Outcome(true, "scrolled ${step.arg}")
         }
+        Mission.Kind.SWIPE -> {
+            val (x, y) = step.arg.split(",").map { it.toFloat() }
+            val (x2, y2) = step.arg2.split(",").map { it.toFloat() }
+            val ok = phone.swipe(x, y, x2, y2)
+            io.pause(SETTLE_MS)
+            Outcome(ok, if (ok) "swiped from ${pct(x.toString())}, ${pct(y.toString())} to ${pct(x2.toString())}, ${pct(y2.toString())}" else "this phone can't swipe")
+        }
+        Mission.Kind.UPLOAD -> Outcome(true, io.upload(step.arg))
         Mission.Kind.KEY -> {
             phone.key(step.arg)
             io.pause(SETTLE_MS)

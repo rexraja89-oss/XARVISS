@@ -20,6 +20,9 @@ package com.xarvis.ai.mission
  * clear Search                                (empties that box)
  * download channel/logo.png                   (a file from this repo → the phone's Pictures/XARVIS/Missions)
  * scroll down | scroll up
+ * swipe left | swipe right [at 30%]          (sideways, e.g. the quick panel's pages; at = height, middle by default)
+ * swipe 0.8 0.3 0.2 0.3                      (from x y to x y, as parts of the screen or %)
+ * upload recording | video | picture         (the phone's newest one → this repo's "media" release, for Claude)
  * back | home | recents | notifications | quick
  * wait 5                                      (seconds)
  * wait for Connected 30                       (until it's on screen, at most 30 s; 15 by default)
@@ -34,7 +37,7 @@ data class Mission(val title: String, val phone: String, val steps: List<Step>, 
 
     data class Step(val line: Int, val text: String, val kind: Kind, val arg: String = "", val arg2: String = "", val seconds: Int = 0, val optional: Boolean = false, val onlyIf: String = "")
 
-    enum class Kind { OPEN, TAP, LONG, TAPXY, TYPE, CLEAR, DOWNLOAD, SCROLL, KEY, WAIT, WAIT_FOR, LOOK, READ, NOTE, URL, CRASHES }
+    enum class Kind { OPEN, TAP, LONG, TAPXY, TYPE, CLEAR, DOWNLOAD, SCROLL, SWIPE, UPLOAD, KEY, WAIT, WAIT_FOR, LOOK, READ, NOTE, URL, CRASHES }
 
     companion object {
         const val MAX_STEPS = 80
@@ -65,6 +68,19 @@ data class Mission(val title: String, val phone: String, val steps: List<Step>, 
             }
             if (steps.size > MAX_STEPS) problems += "more than $MAX_STEPS steps; split it into two missions"
             return Mission(title.ifBlank { "Mission" }, phone, steps.take(MAX_STEPS), problems)
+        }
+
+        private fun frac(t: String): Float? = t.removeSuffix("%").toFloatOrNull()?.let { if (it > 1f) it / 100f else it }?.takeIf { it in 0f..1f }
+
+        /** "left [at 30%]" / "right" / "x y x2 y2" → ("x,y", "x2,y2") as parts of the screen; null if it isn't one. */
+        private fun swipe(rest: String): Pair<String, String>? {
+            val dir = Regex("""^(left|right)(?:\s+at\s+(\S+))?$""", RegexOption.IGNORE_CASE).find(rest.trim())
+            if (dir != null) {
+                val y = if (dir.groupValues[2].isBlank()) 0.5f else frac(dir.groupValues[2]) ?: return null
+                return if (dir.groupValues[1].lowercase() == "left") "0.85,$y" to "0.15,$y" else "0.15,$y" to "0.85,$y"
+            }
+            val n = rest.trim().split(Regex("""[\s,]+""")).map { frac(it) ?: return null }
+            return if (n.size == 4) "${n[0]},${n[1]}" to "${n[2]},${n[3]}" else null
         }
 
         private fun header(line: String, name: String): String? =
@@ -110,6 +126,12 @@ data class Mission(val title: String, val phone: String, val steps: List<Step>, 
                 "scroll", "swipe" -> when (rest.lowercase()) {
                     "", "down" -> s(Kind.SCROLL, "down")
                     "up" -> s(Kind.SCROLL, "up")
+                    else -> swipe(rest)?.let { (a, b) -> s(Kind.SWIPE, a, b) }
+                }
+                "upload" -> when (val what = rest.lowercase().removePrefix("newest ").removePrefix("the ").removePrefix("latest ").trim()) {
+                    "", "recording", "screen recording" -> s(Kind.UPLOAD, "recording")
+                    "video" -> s(Kind.UPLOAD, "video")
+                    "picture", "photo", "screenshot" -> s(Kind.UPLOAD, if (what == "screenshot") "screenshot" else "picture")
                     else -> null
                 }
                 in KEYS -> if (rest.isBlank()) s(Kind.KEY, verb) else null

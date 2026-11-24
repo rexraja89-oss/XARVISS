@@ -43,6 +43,8 @@ class PhoneAgent(
         suspend fun longPress(x: Int, y: Int) = tap(x, y)
         /** Puts exactly [text] in the text box at x,y (replacing what's there); false where the phone can't. */
         suspend fun setText(x: Int, y: Int, text: String): Boolean = false
+        /** A straight swipe between two spots given as parts of the screen (0–1); false when not possible. */
+        suspend fun swipe(x: Float, y: Float, x2: Float, y2: Float): Boolean = false
         /** Opens a web address in the browser; false when this phone can't. */
         suspend fun openUrl(url: String): Boolean = false
     }
