@@ -232,6 +232,7 @@ class MissionRunner(private val phone: PhoneAgent.Target, private val io: Io) {
         const val TAP_WAIT_MS = 8_000L
         /** A `try` or `if` tap: the label is probably there or not at all, so don't wait long. */
         const val TRY_WAIT_MS = 3_000L
+        private val PROGRESS = Regex("""▶ \d+/\d+: |Claude's mission""")
         const val POLL_MS = 600L
         const val SETTLE_MS = 1_200L
         private const val MAX_CRASH = 6_000
@@ -260,7 +261,9 @@ class MissionRunner(private val phone: PhoneAgent.Target, private val io: Io) {
             if (want.isEmpty()) return null
             // Never a text box: what was just typed into a search box would otherwise "be" the result (24 Nov 2026,
             // the first mission tapped the box holding "live translate" instead of a result).
-            val els = s.elements.filter { !it.editable && (it.label.isNotBlank() || it.hint.isNotBlank()) }
+            // Nor XARVIS's own progress lines ("▶ 3/12: tap Edit" on its screen or notification): every step's label
+            // is in them, so "tap Edit" tapped the progress line instead of the Gallery's Edit (25 Nov 2026).
+            val els = s.elements.filter { !it.editable && (it.label.isNotBlank() || it.hint.isNotBlank()) && !PROGRESS.containsMatchIn(it.label) }
             fun best(list: List<PhoneAgent.Element>) = list.sortedWith(compareBy({ !it.tappable }, { it.y }, { it.x })).firstOrNull()
             fun name(e: PhoneAgent.Element) = SkillMatch.norm(e.label.ifBlank { e.hint })
             best(els.filter { name(it) == want })?.let { return it }

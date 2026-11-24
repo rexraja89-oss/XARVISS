@@ -193,4 +193,10 @@ class MissionTest {
         assertEquals(listOf("0.85,0.5>0.15,0.5"), swiped)
         assertTrue(r.lines[1].contains("uploaded the newest recording #2"))
     }
+
+    @Test fun neverTapsItsOwnProgressLine() {
+        val s = PhoneAgent.Screen("com.xarvis.ai", listOf(el(1, "🟢 On — looking every 30 s. ▶ 3/12: tap Edit", 200), el(2, "Edit", 900)), 1080, 2316)
+        assertEquals(900, MissionRunner.find(s, "Edit")!!.y)
+        assertNull(MissionRunner.find(PhoneAgent.Screen("x", listOf(el(1, "▶ 34/41: try tap Cancel", 200)), 1080, 2316), "Cancel"))
+    }
 }
