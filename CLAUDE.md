@@ -1,6 +1,6 @@
 # XARVIS: notes for Claude
 
-Personal on-device AI assistant for Android, owned by Rex (developer credit: Sajjad Raja). Rex isn't an Android developer: explain in plain language, pick sensible defaults, do the work yourself, and give a short summary of what works and what's next.
+Personal on-device AI assistant for Android, owned by Rex (developer credit: Sajjad Raja). **Before anything else, read `PURPOSE.md` in Rex's private repo `rexraja89-oss/xarvis-bridge` (attach it with add_repo): it is the reason XARVIS exists, in Rex's own words, and every piece of work should serve it. It stays private on purpose — never copy it into this public repo.** Rex isn't an Android developer: explain in plain language, pick sensible defaults, do the work yourself, and give a short summary of what works and what's next.
 
 ## How development works now
 
