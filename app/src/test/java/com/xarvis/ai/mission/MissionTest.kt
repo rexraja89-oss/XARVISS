@@ -198,6 +198,7 @@ class MissionTest {
         val s = PhoneAgent.Screen("com.xarvis.ai", listOf(el(1, "🟢 On — looking every 30 s. ▶ 3/12: tap Edit", 200), el(2, "Edit", 900)), 1080, 2316)
         assertEquals(900, MissionRunner.find(s, "Edit")!!.y)
         assertNull(MissionRunner.find(PhoneAgent.Screen("x", listOf(el(1, "▶ 34/41: try tap Cancel", 200)), 1080, 2316), "Cancel"))
+        assertNull(MissionRunner.find(PhoneAgent.Screen("x", listOf(el(1, "🧹 38/43: try tap Cancel", 200)), 1080, 2316), "Cancel"))
     }
 
     @Test fun finallyStepsRunAfterAFailure() = runBlocking {

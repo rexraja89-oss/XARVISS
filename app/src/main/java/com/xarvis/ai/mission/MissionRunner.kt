@@ -245,7 +245,7 @@ class MissionRunner(private val phone: PhoneAgent.Target, private val io: Io) {
         const val TAP_WAIT_MS = 8_000L
         /** A `try` or `if` tap: the label is probably there or not at all, so don't wait long. */
         const val TRY_WAIT_MS = 3_000L
-        private val PROGRESS = Regex("""▶ \d+/\d+: |Claude's mission""")
+        private val PROGRESS = Regex("""[▶🧹] \d+/\d+: |Claude's mission""")
         const val POLL_MS = 600L
         const val SETTLE_MS = 1_200L
         private const val MAX_CRASH = 6_000
