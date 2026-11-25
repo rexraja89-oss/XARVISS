@@ -12,5 +12,6 @@ object StreamMsg {
     const val KEY_FRAME = 8    // viewer: its decoder just started, send a full picture now
     const val INFO = 9         // host → viewer JSON, e.g. {"switch":"video"} once smooth mode is allowed
     const val BYE = 10
+    const val VIDEO_SHOWN = 12 // viewer → host: a video frame arrived (see VideoPacer; keeps live video from piling up)
     const val SHOWN = 11       // viewer → host: a picture arrived (see PictureWindow; keeps the relay from queuing)
 }

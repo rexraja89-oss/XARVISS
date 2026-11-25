@@ -155,6 +155,7 @@ object RemoteHost {
                 .put("w", w).put("h", h).put("vw", enc?.width ?: 0).put("vh", enc?.height ?: 0)
                 .put("smoothable", true).put("control", true),
         )
+        val pacer = com.xarvis.ai.hands.VideoPacer() // live video frames on their way (no backlog on the relay)
         val window = com.xarvis.ai.hands.PictureWindow() // pictures on their way to the viewer (no backlog on the relay)
         try {
             coroutineScope {
@@ -176,6 +177,7 @@ object RemoteHost {
                                 }
                                 StreamMsg.PING -> ch.send(StreamMsg.PONG, payload)
                                 StreamMsg.SHOWN -> window.shown()
+                                StreamMsg.VIDEO_SHOWN -> pacer.shown()
                                 StreamMsg.KEY_FRAME -> enc?.let { e ->
                                     e.config?.let { ch.send(StreamMsg.VIDEO_CONFIG, it) }
                                     e.keyFrame()
@@ -211,11 +213,16 @@ object RemoteHost {
                 launch(Dispatchers.IO) {
                     try {
                         if (enc != null) {
-                            enc.pump { type, bytes ->
+                            enc.pump { type, bytes, key ->
+                                if (type == StreamMsg.VIDEO_FRAME && !pacer.shouldSend(key, System.currentTimeMillis())) {
+                                    if (pacer.needKey()) enc.keyFrame()
+                                    return@pump
+                                }
                                 val t0 = System.nanoTime()
                                 ch.send(type, bytes)
                                 val now = System.nanoTime()
                                 rate.sent(now - t0, now)?.let { enc.setBitrate(it) }
+                                if (type == StreamMsg.VIDEO_FRAME) pacer.sent(System.currentTimeMillis())
                             }
                         } else {
                             pictures(context, hands, ch, viaRelay, maxSide, window)
@@ -373,7 +380,7 @@ object RemoteHost {
         @Volatile var running = true
         @Volatile var config: ByteArray? = null
 
-        fun pump(out: (Int, ByteArray) -> Unit) {
+        fun pump(out: (Int, ByteArray, Boolean) -> Unit) {
             val info = MediaCodec.BufferInfo()
             while (running) {
                 val i = try {
@@ -394,7 +401,7 @@ object RemoteHost {
                 codec.releaseOutputBuffer(i, false)
                 val isConfig = info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
                 if (isConfig) config = bytes
-                out(if (isConfig) StreamMsg.VIDEO_CONFIG else StreamMsg.VIDEO_FRAME, bytes)
+                out(if (isConfig) StreamMsg.VIDEO_CONFIG else StreamMsg.VIDEO_FRAME, bytes, info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0)
             }
         }
 

@@ -180,6 +180,7 @@ object ScreenHost {
                 .put("smoothable", com.xarvis.ai.workflow.hasScreen(context, "com.xarvis.ai.hands.ScreenConsentActivity")),
         )
         val window = com.xarvis.ai.hands.PictureWindow() // pictures on their way to the viewer (no backlog on the relay)
+        val pacer = VideoPacer() // live video frames on their way (no backlog either)
         try {
             coroutineScope {
                 // The viewer's fingers, keys and pings.
@@ -202,6 +203,7 @@ object ScreenHost {
                                 }
                                 StreamMsg.PING -> ch.send(StreamMsg.PONG, payload)
                                 StreamMsg.SHOWN -> window.shown()
+                                StreamMsg.VIDEO_SHOWN -> pacer.shown()
                                 StreamMsg.KEY_FRAME -> video?.let { v ->
                                     v.config?.let { ch.send(StreamMsg.VIDEO_CONFIG, it) }
                                     v.keyFrame()
@@ -238,11 +240,16 @@ object ScreenHost {
                 launch(Dispatchers.IO) {
                     try {
                         if (video != null) {
-                            video.pump { type, bytes ->
+                            video.pump { type, bytes, key ->
+                                if (type == StreamMsg.VIDEO_FRAME && !pacer.shouldSend(key, System.currentTimeMillis())) {
+                                    if (pacer.needKey()) video.keyFrame()
+                                    return@pump
+                                }
                                 val t0 = System.nanoTime()
                                 ch.send(type, bytes)
                                 val now = System.nanoTime()
                                 rate.sent(now - t0, now)?.let { video.setBitrate(it) }
+                                if (type == StreamMsg.VIDEO_FRAME) pacer.sent(System.currentTimeMillis())
                                 lastUse = System.currentTimeMillis()
                             }
                         } else {

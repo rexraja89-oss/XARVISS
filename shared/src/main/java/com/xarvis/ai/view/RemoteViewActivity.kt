@@ -314,6 +314,7 @@ abstract class RemoteViewActivity : Activity(), SurfaceHolder.Callback {
                     StreamMsg.VIDEO_CONFIG -> feed(payload, MediaCodec.BUFFER_FLAG_CODEC_CONFIG)
                     StreamMsg.VIDEO_FRAME -> {
                         lastFrameAt = System.currentTimeMillis()
+                        send(StreamMsg.VIDEO_SHOWN) // "got it": the host holds back while frames pile up (VideoPacer)
                         feed(payload, 0)
                     }
                     StreamMsg.JPEG -> {

@@ -69,7 +69,7 @@ object ScreenVideo {
             private set
 
         /** Encoded output as (StreamMsg type, bytes) until [stop]. Blocks: run it on its own thread. */
-        fun pump(out: (Int, ByteArray) -> Unit) {
+        fun pump(out: (Int, ByteArray, Boolean) -> Unit) {
             val info = MediaCodec.BufferInfo()
             while (running) {
                 val i = try {
@@ -90,7 +90,7 @@ object ScreenVideo {
                 codec.releaseOutputBuffer(i, false)
                 val isConfig = info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
                 if (isConfig) config = bytes
-                out(if (isConfig) StreamMsg.VIDEO_CONFIG else StreamMsg.VIDEO_FRAME, bytes)
+                out(if (isConfig) StreamMsg.VIDEO_CONFIG else StreamMsg.VIDEO_FRAME, bytes, info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0)
             }
         }
 
