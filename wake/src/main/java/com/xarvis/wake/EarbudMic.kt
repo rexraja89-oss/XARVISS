@@ -56,8 +56,17 @@ object EarbudMic {
     /** Not for a while after a call: going back and forth on the earbuds is what disturbs a call. */
     @Volatile private var quietUntil = 0L
 
+    /**
+     * The phone is being used (screen on). Then the earbuds stay normal earbuds (Rex, 26 Nov 2026: they were
+     * "malfunctioning and getting disturbance" — call mode came and went while he used the phone); the earbud mic is
+     * for when the phone lies somewhere else with its screen off.
+     */
+    fun screenOn(c: Context): Boolean = runCatching {
+        c.getSystemService(android.os.PowerManager::class.java)!!.isInteractive
+    }.getOrDefault(true)
+
     fun wanted(c: Context, allowed: Boolean): Boolean {
-        if (!allowed || !connected(c) || mediaPlaying(c)) return false
+        if (!allowed || !connected(c) || screenOn(c) || mediaPlaying(c)) return false
         if (inCall(c)) {
             quietUntil = System.currentTimeMillis() + AFTER_CALL_MS
             return false

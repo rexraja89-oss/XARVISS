@@ -179,10 +179,10 @@ class WakeEars(context: Context, private val host: WakeHost) {
                     sinceCheck = 0
                     loud = EarbudMic.alarmOrRinging(appContext)
                     // Switch only when it has been different for 3 checks in a row (6 s) — or at once when a call
-                    // comes: the earbuds are its, and every switch is heard in them.
+                    // comes or the screen comes on: the earbuds are theirs, and every switch is heard in them.
                     val want = EarbudMic.wanted(appContext, settings.earbuds)
                     flips = if (want != viaEarbuds) flips + 1 else 0
-                    if (flips >= 3 || (viaEarbuds && EarbudMic.inCall(appContext))) {
+                    if (flips >= 3 || (viaEarbuds && (EarbudMic.inCall(appContext) || EarbudMic.screenOn(appContext)))) {
                         flips = 0
                         runCatching { record.stop(); record.release() }
                         record = null

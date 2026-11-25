@@ -83,7 +83,7 @@ open class WakeScreen : Activity() {
         column.addView(text("So you can go on talking without saying \"Xarvis\" again. It stops when you say nothing, or \"that's all\".", 13f, MUTED))
         column.addView(switch("\"Xarvis\" interrupts it while it talks", settings.bargeIn) { settings.bargeIn = it }.pad(top = 10))
         column.addView(switch("Listen through my earbuds", settings.earbuds) { settings.earbuds = it }.pad(top = 10))
-        column.addView(text("While Bluetooth earbuds are connected and nothing is playing, XARVIS hears you through their microphone — from another room too. Music or a video takes it back to the phone's mic (the earbud mic would make them sound like a phone call).", 13f, MUTED))
+        column.addView(text("While Bluetooth earbuds are connected, the screen is off and nothing is playing, XARVIS hears you through their microphone — from another room too. While you use the phone they stay normal earbuds. Music or a video takes it back to the phone's mic (the earbud mic would make them sound like a phone call).", 13f, MUTED))
 
         column.addView(heading("Good to know"))
         column.addView(text(
